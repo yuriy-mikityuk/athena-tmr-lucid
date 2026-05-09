@@ -111,3 +111,20 @@ Current PPG/HR features include:
 
 Raw PPG and heart-rate samples are optional. Missing modalities must produce flags and
 `NaN` feature values where needed, not exceptions.
+
+## REM Predictions
+
+`muse_tmr.models.heuristic_rem_detector.HeuristicRemDetector` is the first non-ML
+REM baseline. It can consume a `SleepEpoch` directly or precomputed EEG, IMU, and
+PPG feature rows.
+
+Each `RemPrediction` contains:
+
+- `probability`: `P_REM` clamped to 0-1
+- `reason_codes`: support, missing-feature, low-coverage, and guard-related explanations
+- `feature_scores`: normalized heuristic component scores
+- `feature_values`: raw feature values used by the heuristic
+- `source`: currently `heuristic`
+
+The REM detector does not play audio and does not return `CueDecision`. Stable gates,
+cooldowns, arousal guards, and cue scheduling remain separate downstream layers.

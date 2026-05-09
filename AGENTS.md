@@ -114,6 +114,9 @@ Prefer the existing simple module style until an issue explicitly introduces a p
 - PPG/HR/HRV features live in `muse_tmr.features.ppg_features`. Keep pulse/HR tests
   synthetic and deterministic, treat PPG and heart-rate samples as independently
   optional, and make HRV terminology explicit as a proxy until beat-level validation exists.
+- REM predictions live in `muse_tmr.models`. Keep heuristic REM tests synthetic and
+  deterministic, expose `P_REM` plus reason codes, and never couple REM probability
+  directly to audio playback or cue decisions.
 
 ## Testing Expectations
 

@@ -171,6 +171,22 @@ mean/min/max HR from `HeartRateSample`, HR trend, HRV proxy metrics, sudden HR-c
 logs, and missing-modality flags. CSV export is always available; Parquet export uses
 the installed pandas Parquet engine when available.
 
+M3 heuristic REM baseline:
+
+```python
+from muse_tmr.models import HeuristicRemDetector
+
+detector = HeuristicRemDetector()
+
+for epoch in epochs:
+    prediction = detector.predict_epoch(epoch)
+    print(epoch.index, prediction.probability, prediction.reason_codes)
+```
+
+`prediction.probability` is `P_REM` in the 0-1 range. The heuristic detector is a
+non-ML baseline over EEG, IMU, and PPG/HR feature rows. It returns reason codes and
+feature scores only; it does not play audio or make cue decisions.
+
 > **Finally!** Direct BLE connection to Muse S without proprietary SDKs. We're quite *amused* that we cracked the protocol nobody else has published online!
 
 ## 🎉 The Real Story
