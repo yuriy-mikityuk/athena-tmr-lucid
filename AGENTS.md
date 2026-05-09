@@ -117,6 +117,10 @@ Prefer the existing simple module style until an issue explicitly introduces a p
 - REM predictions live in `muse_tmr.models`. Keep heuristic REM tests synthetic and
   deterministic, expose `P_REM` plus reason codes, and never couple REM probability
   directly to audio playback or cue decisions.
+- Manual REM annotations live in `muse_tmr.annotations`. Preserve the supported labels
+  `wake`, `nrem`, `probable_rem`, and `unknown`; generated annotation templates should
+  default to `unknown`, overlay feature columns, and keep training export separate from
+  raw personal recordings.
 
 ## Testing Expectations
 

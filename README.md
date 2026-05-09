@@ -187,6 +187,17 @@ for epoch in epochs:
 non-ML baseline over EEG, IMU, and PPG/HR feature rows. It returns reason codes and
 feature scores only; it does not play audio or make cue decisions.
 
+M3 manual REM annotation templates:
+
+```bash
+muse-tmr annotate-template data/recordings/<session> \
+  --output data/annotations/<session>_rem_labels.csv
+```
+
+The template overlays each epoch with `P_REM`, reason codes, and feature columns. The
+default label is `unknown`; manually edit labels to `wake`, `nrem`, or `probable_rem`
+before using them for training.
+
 > **Finally!** Direct BLE connection to Muse S without proprietary SDKs. We're quite *amused* that we cracked the protocol nobody else has published online!
 
 ## 🎉 The Real Story

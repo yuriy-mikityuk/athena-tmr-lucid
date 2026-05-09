@@ -50,6 +50,27 @@ class TestCli(unittest.TestCase):
         self.assertEqual(args.start_seconds, 30.0)
         self.assertEqual(args.end_seconds, 90.0)
 
+    def test_annotate_template_command_parses_output_and_label(self):
+        args = build_parser().parse_args([
+            "annotate-template",
+            "data/recordings/session",
+            "--output",
+            "data/annotations/session.csv",
+            "--label",
+            "unknown",
+            "--epoch-seconds",
+            "30",
+            "--stride-seconds",
+            "10",
+        ])
+
+        self.assertEqual(args.command, "annotate-template")
+        self.assertEqual(args.input, Path("data/recordings/session"))
+        self.assertEqual(args.output, Path("data/annotations/session.csv"))
+        self.assertEqual(args.label, "unknown")
+        self.assertEqual(args.epoch_seconds, 30.0)
+        self.assertEqual(args.stride_seconds, 10.0)
+
     def test_amused_source_import_does_not_cycle(self):
         self.assertEqual(AmusedSource.strategy, "forked-source")
 

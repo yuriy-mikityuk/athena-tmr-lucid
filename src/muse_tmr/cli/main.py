@@ -45,6 +45,23 @@ def build_parser() -> argparse.ArgumentParser:
     replay_parser.add_argument("--start-seconds", type=float, help="Relative replay start offset.")
     replay_parser.add_argument("--end-seconds", type=float, help="Relative replay end offset.")
 
+    annotate_parser = subparsers.add_parser(
+        "annotate-template",
+        help="Generate an editable REM annotation template from replayed epochs.",
+    )
+    annotate_parser.add_argument("input", type=Path, help="Recording directory or raw_amused.bin path.")
+    annotate_parser.add_argument("--output", type=Path, required=True, help="Output .csv or .json path.")
+    annotate_parser.add_argument("--epoch-seconds", type=float, default=30.0)
+    annotate_parser.add_argument("--stride-seconds", type=float, default=30.0)
+    annotate_parser.add_argument("--start-seconds", type=float, help="Relative replay start offset.")
+    annotate_parser.add_argument("--end-seconds", type=float, help="Relative replay end offset.")
+    annotate_parser.add_argument(
+        "--label",
+        choices=("wake", "nrem", "probable_rem", "unknown"),
+        default="unknown",
+        help="Initial label for generated rows. Use unknown for manual labeling templates.",
+    )
+
     record_parser = subparsers.add_parser("record", help="Record an overnight Muse session.")
     record_parser.add_argument("--source", choices=("amused",), default="amused")
     record_parser.add_argument("--address", help="Muse BLE address. If omitted, discovery is used.")
@@ -78,6 +95,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return asyncio.run(_stream(args))
     if args.command == "replay":
         return asyncio.run(_replay(args))
+    if args.command == "annotate-template":
+        return asyncio.run(_annotate_template(args))
     if args.command == "record":
         return asyncio.run(_record(args))
 
@@ -165,6 +184,43 @@ async def _record(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _annotate_template(args: argparse.Namespace) -> int:
+    from muse_tmr.annotations import build_rem_annotation_rows, export_rem_annotations
+    from muse_tmr.data.replay import ReplayConfig, ReplaySession
+    from muse_tmr.features.epochs import EpochBuilder, EpochConfig
+    from muse_tmr.models import HeuristicRemDetector
+
+    session = ReplaySession(
+        ReplayConfig(
+            input_path=args.input,
+            speed=0.0,
+            start_seconds=args.start_seconds,
+            end_seconds=args.end_seconds,
+        )
+    )
+    await session.connect()
+    try:
+        builder = EpochBuilder(
+            EpochConfig(
+                epoch_seconds=args.epoch_seconds,
+                stride_seconds=args.stride_seconds,
+            )
+        )
+        epochs = [epoch async for epoch in builder.build(session.stream())]
+    finally:
+        await session.stop()
+
+    rows = build_rem_annotation_rows(
+        epochs,
+        detector=HeuristicRemDetector(),
+        recording_id=str(session.recording_dir),
+        label=args.label,
+    )
+    output_path = export_rem_annotations(rows, _resolve_output_path(args.output))
+    print(f"annotation template complete rows={len(rows)} output={output_path}")
+    return 0
+
+
 def _build_source(args: argparse.Namespace, duration_seconds: int):
     from muse_tmr.sources.amused_source import AmusedSource
 
@@ -187,6 +243,13 @@ def _resolve_output_dir(output_dir: Path) -> Path:
     if output_dir.is_absolute():
         return output_dir
     return _default_path_base() / output_dir
+
+
+def _resolve_output_path(output_path: Path) -> Path:
+    output_path = output_path.expanduser()
+    if output_path.is_absolute():
+        return output_path
+    return _default_path_base() / output_path
 
 
 def _default_path_base() -> Path:

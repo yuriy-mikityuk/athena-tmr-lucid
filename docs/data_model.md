@@ -128,3 +128,22 @@ Each `RemPrediction` contains:
 
 The REM detector does not play audio and does not return `CueDecision`. Stable gates,
 cooldowns, arousal guards, and cue scheduling remain separate downstream layers.
+
+## REM Annotation Rows
+
+`muse_tmr.annotations.rem_annotations` defines manual annotation rows for later REM
+classifier training. Valid labels are:
+
+- `wake`
+- `nrem`
+- `probable_rem`
+- `unknown`
+
+`muse-tmr annotate-template <recording> --output <labels.csv|labels.json>` replays a
+recording, builds epochs, runs the heuristic REM detector, and exports an editable
+annotation template. Each row includes epoch timing, `label`, `notes`, `P_REM`, reason
+codes, normalized feature scores, and raw feature values. The default label is
+`unknown` so the file can be created before manual review.
+
+`load_rem_annotations()` validates labels from CSV or JSON. `rem_training_rows()`
+returns training-ready rows and excludes `unknown` labels by default.

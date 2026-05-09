@@ -33,6 +33,7 @@ def run_fast_tests():
         'tests.test_imu_features',
         'tests.test_ppg_features',
         'tests.test_rem_detector',
+        'tests.test_rem_annotations',
     ]
     
     for module in fast_modules:
