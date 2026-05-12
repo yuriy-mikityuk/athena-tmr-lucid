@@ -11,4 +11,9 @@ Sleep-time audio must use conservative defaults:
 - arousal and motion checks
 - no cueing outside a stable REM gate
 
+`muse_tmr.audio.audio_player.AudioCuePlayer` enforces a maximum playback volume, records
+the requested and effective volume, carries fade-in/fade-out settings, supports an
+emergency stop state, and can append playback outcomes to JSONL logs. Tests must use
+mock or dry-run playback rather than a real speaker.
+
 Do not promise clinical benefit, diagnosis, treatment, or guaranteed lucid dreaming.

@@ -129,6 +129,9 @@ Prefer the existing simple module style until an issue explicitly introduces a p
 - REM confidence and stable gate code lives in `muse_tmr.models.rem_gate`. Keep it
   stateful, deterministic, replay-testable, and separate from audio. Gate decisions may
   expose `gate_open` and block reasons, but must not expose cue playback decisions.
+- Low-volume audio playback lives in `muse_tmr.audio.audio_player`. Keep playback
+  behind an explicit player facade with volume caps, fade metadata, emergency stop, and
+  JSONL logging. Tests must use mock or dry-run backends and must not require speakers.
 
 ## Testing Expectations
 

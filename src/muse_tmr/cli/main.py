@@ -80,6 +80,27 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument("--l2-penalty", type=float, default=0.01)
     train_parser.add_argument("--threshold", type=float, default=0.5)
 
+    play_parser = subparsers.add_parser("play-test-cue", help="Play a low-volume test cue.")
+    play_parser.add_argument("--frequency-hz", type=float, default=440.0)
+    play_parser.add_argument("--duration-seconds", type=float, default=1.0)
+    play_parser.add_argument("--volume", type=float, default=0.05)
+    play_parser.add_argument("--max-volume", type=float, default=0.20)
+    play_parser.add_argument("--fade-in-seconds", type=float, default=0.25)
+    play_parser.add_argument("--fade-out-seconds", type=float, default=0.25)
+    play_parser.add_argument("--device-name")
+    play_parser.add_argument("--log-path", type=Path)
+    play_parser.add_argument(
+        "--backend",
+        choices=("system", "afplay", "dry-run", "mock"),
+        default="system",
+        help="Playback backend. system uses afplay on macOS when available, else dry-run.",
+    )
+    play_parser.add_argument(
+        "--emergency-stop",
+        action="store_true",
+        help="Trigger and log emergency stop instead of playing a cue.",
+    )
+
     record_parser = subparsers.add_parser("record", help="Record an overnight Muse session.")
     record_parser.add_argument("--source", choices=("amused",), default="amused")
     record_parser.add_argument("--address", help="Muse BLE address. If omitted, discovery is used.")
@@ -117,6 +138,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return asyncio.run(_annotate_template(args))
     if args.command == "train-rem-classifier":
         return _train_rem_classifier(args)
+    if args.command == "play-test-cue":
+        return _play_test_cue(args)
     if args.command == "record":
         return asyncio.run(_record(args))
 
@@ -277,6 +300,48 @@ def _train_rem_classifier(args: argparse.Namespace) -> int:
         f"output={output_path}"
     )
     return 0
+
+
+def _play_test_cue(args: argparse.Namespace) -> int:
+    from muse_tmr.audio import (
+        AudioCuePlayer,
+        AudioPlaybackConfig,
+        TestCue,
+        create_audio_backend,
+    )
+
+    player = AudioCuePlayer(
+        AudioPlaybackConfig(
+            max_volume=args.max_volume,
+            default_volume=args.volume,
+            fade_in_seconds=args.fade_in_seconds,
+            fade_out_seconds=args.fade_out_seconds,
+            device_name=args.device_name,
+            log_path=_resolve_output_path(args.log_path) if args.log_path else None,
+        ),
+        backend=create_audio_backend(args.backend),
+    )
+    if args.emergency_stop:
+        result = player.emergency_stop()
+    else:
+        result = player.play_test_cue(
+            TestCue(
+                cue_id="test-cue",
+                frequency_hz=args.frequency_hz,
+                duration_seconds=args.duration_seconds,
+            ),
+            volume=args.volume,
+        )
+    print(
+        "test cue "
+        f"status={result.status} "
+        f"backend={result.backend_name} "
+        f"volume={result.effective_volume} "
+        f"requested_volume={result.requested_volume} "
+        f"volume_capped={result.volume_capped} "
+        f"reasons={','.join(result.reason_codes)}"
+    )
+    return 0 if result.status in {"played", "stopped", "skipped"} else 1
 
 
 def _build_source(args: argparse.Namespace, duration_seconds: int):

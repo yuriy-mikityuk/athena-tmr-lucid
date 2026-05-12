@@ -227,6 +227,18 @@ The gate requires stable REM confidence over time, uses hysteresis for closing, 
 motion/arousal reasons, and applies cooldown after arousal blocks. It still does not
 play audio; M4/M5 cue code must consume `gate_open` plus reason codes.
 
+M4 low-volume test cue player:
+
+```bash
+muse-tmr play-test-cue --volume 0.05 --max-volume 0.20
+```
+
+`play-test-cue` uses conservative low-volume defaults, applies fade in/out, caps any
+requested volume at `--max-volume`, supports backend/device metadata, and can write
+JSONL playback logs with `--log-path`. On macOS the `system` backend uses `afplay`
+when available; otherwise it falls back to `dry-run`. Use `--backend dry-run` for
+non-audible smoke tests and CI.
+
 > **Finally!** Direct BLE connection to Muse S without proprietary SDKs. We're quite *amused* that we cracked the protocol nobody else has published online!
 
 ## 🎉 The Real Story

@@ -188,3 +188,23 @@ Default behavior uses an entry threshold of `0.70`, exit threshold of `0.45`, a
 60-second stability window, and a 120-second cooldown. Motion/arousal reason codes
 close the gate and start cooldown. Low feature-support reason codes cap confidence so
 single high-probability spikes do not open the gate by themselves.
+
+## Audio Playback
+
+`muse_tmr.audio.audio_player.AudioCuePlayer` is the low-volume playback facade for
+sleep cues. It does not inspect REM probabilities or make cue eligibility decisions;
+M4/M5 protocol code must call it only after stable gate and safety layers allow a cue.
+
+`muse-tmr play-test-cue` plays or dry-runs a generated test tone. The playback request
+captures:
+
+- cue ID, frequency, and duration
+- requested volume, effective capped volume, and max-volume cap
+- fade-in/fade-out seconds
+- optional device name metadata
+- backend name and reason codes
+
+`CuePlaybackResult` records `played`, `skipped`, `blocked`, or `stopped` outcomes and
+can be appended to a JSONL log. The default `system` backend uses macOS `afplay` when
+available and otherwise falls back to `dry-run`; tests use `MockAudioBackend` so CI does
+not need an audio device.
