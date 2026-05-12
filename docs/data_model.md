@@ -208,3 +208,23 @@ captures:
 can be appended to a JSONL log. The default `system` backend uses macOS `afplay` when
 available and otherwise falls back to `dry-run`; tests use `MockAudioBackend` so CI does
 not need an audio device.
+
+## Cue Libraries
+
+`muse_tmr.audio.cue_library.CueLibrary` stores cue metadata in JSON without committing
+private audio files. A cue has:
+
+- `cue_id`: stable identifier used by protocol and scheduler layers
+- `cue_type`: `sound`, `generated_tone`, or `silence`
+- `protocol`: `puzzle`, `tlr`, `test`, or `generic`
+- `duration_seconds`, tags, optional description, and optional volume hint
+- `path` for private sound files or `frequency_hz` for generated tones
+
+`muse-tmr create-cue-library --output <catalog.json>` creates a starter metadata
+catalog with puzzle, TLR, and silence-control cues. `validate-cue-library` checks
+metadata and, by default, verifies that `sound` cue paths exist relative to the catalog
+directory before a session starts. `list-cues` filters by protocol or tag.
+
+Private cue files should live under gitignored folders such as `cues/private/`,
+`data/cues/private/`, or `data/cues/audio/`. Commit cue metadata only when it does not
+include private labels or personal audio paths.

@@ -94,6 +94,34 @@ class TestCli(unittest.TestCase):
         self.assertEqual(args.epochs, 500)
         self.assertEqual(args.threshold, 0.6)
 
+    def test_cue_library_commands_parse_paths_and_filters(self):
+        create_args = build_parser().parse_args([
+            "create-cue-library",
+            "--output",
+            "data/cues/starter.json",
+        ])
+        validate_args = build_parser().parse_args([
+            "validate-cue-library",
+            "data/cues/starter.json",
+            "--skip-file-check",
+        ])
+        list_args = build_parser().parse_args([
+            "list-cues",
+            "data/cues/starter.json",
+            "--protocol",
+            "puzzle",
+            "--tag",
+            "generated",
+        ])
+
+        self.assertEqual(create_args.command, "create-cue-library")
+        self.assertEqual(create_args.output, Path("data/cues/starter.json"))
+        self.assertEqual(validate_args.command, "validate-cue-library")
+        self.assertTrue(validate_args.skip_file_check)
+        self.assertEqual(list_args.command, "list-cues")
+        self.assertEqual(list_args.protocol, "puzzle")
+        self.assertEqual(list_args.tag, "generated")
+
     def test_amused_source_import_does_not_cycle(self):
         self.assertEqual(AmusedSource.strategy, "forked-source")
 

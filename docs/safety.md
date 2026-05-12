@@ -16,4 +16,8 @@ the requested and effective volume, carries fade-in/fade-out settings, supports 
 emergency stop state, and can append playback outcomes to JSONL logs. Tests must use
 mock or dry-run playback rather than a real speaker.
 
+Cue libraries must validate private sound-file availability before a sleep session.
+Missing cue files should block the session plan rather than failing after the subject
+is asleep.
+
 Do not promise clinical benefit, diagnosis, treatment, or guaranteed lucid dreaming.

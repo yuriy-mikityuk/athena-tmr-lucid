@@ -13,6 +13,20 @@ from muse_tmr.audio.audio_player import (
     TestCue,
     create_audio_backend,
 )
+from muse_tmr.audio.cue_library import (
+    CUE_LIBRARY_SCHEMA_VERSION,
+    CUE_PROTOCOLS,
+    CUE_TYPES,
+    CueLibrary,
+    CueLibraryValidationIssue,
+    CueLibraryValidationReport,
+    CueMetadata,
+    default_cue_library,
+    export_cue_library,
+    load_cue_library,
+    resolve_cue_path,
+    validate_cue_library_file,
+)
 
 __all__ = [
     "AudioBackend",
@@ -25,5 +39,17 @@ __all__ = [
     "MacOSAfplayBackend",
     "MockAudioBackend",
     "TestCue",
+    "CUE_LIBRARY_SCHEMA_VERSION",
+    "CUE_PROTOCOLS",
+    "CUE_TYPES",
+    "CueLibrary",
+    "CueLibraryValidationIssue",
+    "CueLibraryValidationReport",
+    "CueMetadata",
     "create_audio_backend",
+    "default_cue_library",
+    "export_cue_library",
+    "load_cue_library",
+    "resolve_cue_path",
+    "validate_cue_library_file",
 ]

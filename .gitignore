@@ -55,6 +55,8 @@ recorded_sessions/*.bin
 examples/recorded_sessions/*.bin
 audio/private/
 cues/private/
+data/cues/private/
+data/cues/audio/
 *.private.json
 
 # Testing

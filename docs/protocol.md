@@ -11,4 +11,8 @@ The project aims to preserve key REM-TMR/TLR protocol controls:
 - morning dream report and puzzle retest
 - explicit analysis of limitations
 
+Cue metadata lives in `muse_tmr.audio.cue_library` and should be validated before a
+session starts. Protocol layers should reference cue IDs from a validated catalog
+rather than hard-coded file paths.
+
 Protocol settings start in `configs/protocol_konkoly_like.yaml` and should be versioned with each session.

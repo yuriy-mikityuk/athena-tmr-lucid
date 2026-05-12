@@ -101,6 +101,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="Trigger and log emergency stop instead of playing a cue.",
     )
 
+    create_cues_parser = subparsers.add_parser(
+        "create-cue-library",
+        help="Create a starter cue metadata library.",
+    )
+    create_cues_parser.add_argument("--output", type=Path, required=True, help="Output cue library .json path.")
+
+    validate_cues_parser = subparsers.add_parser(
+        "validate-cue-library",
+        help="Validate cue metadata and pre-session file availability.",
+    )
+    validate_cues_parser.add_argument("input", type=Path, help="Input cue library .json path.")
+    validate_cues_parser.add_argument(
+        "--skip-file-check",
+        action="store_true",
+        help="Validate metadata only; do not fail on missing sound cue files.",
+    )
+
+    list_cues_parser = subparsers.add_parser("list-cues", help="List cues from a cue metadata library.")
+    list_cues_parser.add_argument("input", type=Path, help="Input cue library .json path.")
+    list_cues_parser.add_argument("--protocol", choices=("puzzle", "tlr", "test", "generic"))
+    list_cues_parser.add_argument("--tag")
+
     record_parser = subparsers.add_parser("record", help="Record an overnight Muse session.")
     record_parser.add_argument("--source", choices=("amused",), default="amused")
     record_parser.add_argument("--address", help="Muse BLE address. If omitted, discovery is used.")
@@ -140,6 +162,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return _train_rem_classifier(args)
     if args.command == "play-test-cue":
         return _play_test_cue(args)
+    if args.command == "create-cue-library":
+        return _create_cue_library(args)
+    if args.command == "validate-cue-library":
+        return _validate_cue_library(args)
+    if args.command == "list-cues":
+        return _list_cues(args)
     if args.command == "record":
         return asyncio.run(_record(args))
 
@@ -342,6 +370,41 @@ def _play_test_cue(args: argparse.Namespace) -> int:
         f"reasons={','.join(result.reason_codes)}"
     )
     return 0 if result.status in {"played", "stopped", "skipped"} else 1
+
+
+def _create_cue_library(args: argparse.Namespace) -> int:
+    from muse_tmr.audio import default_cue_library, export_cue_library
+
+    output_path = export_cue_library(default_cue_library(), _resolve_output_path(args.output))
+    print(f"cue library created output={output_path}")
+    return 0
+
+
+def _validate_cue_library(args: argparse.Namespace) -> int:
+    import json
+
+    from muse_tmr.audio import validate_cue_library_file
+
+    input_path = _resolve_output_path(args.input)
+    report = validate_cue_library_file(
+        input_path,
+        check_files=not args.skip_file_check,
+    )
+    print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
+    return 0 if report.is_valid else 1
+
+
+def _list_cues(args: argparse.Namespace) -> int:
+    from muse_tmr.audio import load_cue_library
+
+    library = load_cue_library(_resolve_output_path(args.input))
+    cues = library.filter(protocol=args.protocol, tag=args.tag)
+    for cue in cues:
+        print(
+            f"{cue.cue_id}\t{cue.cue_type}\t{cue.protocol}\t"
+            f"{cue.duration_seconds}s\ttags={','.join(cue.tags)}"
+        )
+    return 0
 
 
 def _build_source(args: argparse.Namespace, duration_seconds: int):

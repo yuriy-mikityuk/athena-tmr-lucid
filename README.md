@@ -239,6 +239,20 @@ JSONL playback logs with `--log-path`. On macOS the `system` backend uses `afpla
 when available; otherwise it falls back to `dry-run`. Use `--backend dry-run` for
 non-audible smoke tests and CI.
 
+M4 cue library metadata:
+
+```bash
+muse-tmr create-cue-library --output data/cues/starter.json
+muse-tmr validate-cue-library data/cues/starter.json
+muse-tmr list-cues data/cues/starter.json --protocol puzzle
+```
+
+Cue libraries are JSON metadata catalogs for `sound`, `generated_tone`, and `silence`
+cues. They carry duration, protocol role (`puzzle`, `tlr`, `test`, or `generic`), tags,
+optional volume hints, and private sound file paths. Sound cue files under
+`cues/private/` or `data/cues/audio/` are gitignored by default; validation detects
+missing files before a sleep session.
+
 > **Finally!** Direct BLE connection to Muse S without proprietary SDKs. We're quite *amused* that we cracked the protocol nobody else has published online!
 
 ## 🎉 The Real Story

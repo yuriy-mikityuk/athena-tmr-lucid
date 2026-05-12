@@ -132,6 +132,9 @@ Prefer the existing simple module style until an issue explicitly introduces a p
 - Low-volume audio playback lives in `muse_tmr.audio.audio_player`. Keep playback
   behind an explicit player facade with volume caps, fade metadata, emergency stop, and
   JSONL logging. Tests must use mock or dry-run backends and must not require speakers.
+- Cue library metadata lives in `muse_tmr.audio.cue_library`. Keep catalogs separate
+  from private audio files, validate missing files before sessions, and do not commit
+  real cue audio or private cue paths unless the user explicitly confirms they are safe.
 
 ## Testing Expectations
 
