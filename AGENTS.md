@@ -188,6 +188,10 @@ Prefer the existing simple module style until an issue explicitly introduces a p
   `docs/pilot1_no_audio.md`, validate completed sessions with
   `muse-tmr validate-pilot1-recording`, and never commit the generated recording or
   validation output.
+- M8 Pilot 2 is an awake audio-calibration-only workflow. Keep its runbook in
+  `docs/pilot2_audio_calibration.md`, validate calibration cap probes with
+  `muse-tmr validate-pilot2-calibration`, and never commit local calibration JSON,
+  playback logs, or private device names unless explicitly confirmed safe.
 
 ## Testing Expectations
 

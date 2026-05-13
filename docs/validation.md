@@ -92,7 +92,9 @@ M8 validation should progress through increasingly risky pilots:
    `docs/pilot1_no_audio.md` and `muse-tmr validate-pilot1-recording` for the M8 Pilot 1
    acceptance report.
 2. Audio calibration only: verify detectable and comfortable volume values, scheduler
-   max volume, and device metadata without sleep-time cueing.
+   max volume, and device metadata without sleep-time cueing. Use
+   `docs/pilot2_audio_calibration.md` and `muse-tmr validate-pilot2-calibration` to
+   confirm a dry-run cap probe uses the saved calibration.
 3. Replay cue simulation: run REM gate, arousal guard, and scheduler on replay outputs;
    require zero uncued puzzle plays and auditable `skip` reason codes.
 4. Low-volume REM-gated cueing: require calibration, emergency stop availability,

@@ -474,6 +474,20 @@ checks that `summary.json` exists, duration meets the target, EEG/IMU/PPG counts
 nonzero, raw packet capture is present, downtime is within target, and no audio or
 scheduler sidecar logs were produced.
 
+M8 Pilot 2 audio calibration validation:
+
+```bash
+muse-tmr validate-pilot2-calibration data/calibration/volume_calibration.json \
+  --device-name "Sleep Headphones" \
+  --playback-log data/calibration/volume_calibration_test.jsonl \
+  --output data/reports/pilot2_audio_calibration_validation.json
+```
+
+See `docs/pilot2_audio_calibration.md` for the daytime calibration runbook. The
+validator checks that saved thresholds are ordered, scheduler max volume equals the
+comfortable volume, and a dry-run cap probe proves later playback code uses the
+calibration cap. Generated calibration files and playback logs stay local.
+
 > **Finally!** Direct BLE connection to Muse S without proprietary SDKs. We're quite *amused* that we cracked the protocol nobody else has published online!
 
 ## 🎉 The Real Story

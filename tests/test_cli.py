@@ -165,6 +165,27 @@ class TestCli(unittest.TestCase):
         self.assertEqual(list_args.protocol, "puzzle")
         self.assertEqual(list_args.tag, "generated")
 
+    def test_pilot2_calibration_validation_command_parses_inputs(self):
+        args = build_parser().parse_args([
+            "validate-pilot2-calibration",
+            "data/calibration/volume_calibration.json",
+            "--playback-log",
+            "data/calibration/volume_calibration_test.jsonl",
+            "--device-name",
+            "Sleep Headphones",
+            "--output",
+            "data/reports/pilot2_audio_calibration_validation.json",
+            "--hard-max-volume",
+            "0.2",
+        ])
+
+        self.assertEqual(args.command, "validate-pilot2-calibration")
+        self.assertEqual(args.calibration, Path("data/calibration/volume_calibration.json"))
+        self.assertEqual(args.playback_log, Path("data/calibration/volume_calibration_test.jsonl"))
+        self.assertEqual(args.device_name, "Sleep Headphones")
+        self.assertEqual(args.output, Path("data/reports/pilot2_audio_calibration_validation.json"))
+        self.assertEqual(args.hard_max_volume, 0.2)
+
     def test_tlr_protocol_commands_parse_paths(self):
         create_args = build_parser().parse_args([
             "create-tlr-cue",

@@ -165,6 +165,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pilot1_parser.add_argument("--max-downtime-fraction", type=float, default=0.05)
 
+    pilot2_parser = subparsers.add_parser(
+        "validate-pilot2-calibration",
+        help="Validate an M8 Pilot 2 audio calibration and cap-probe log.",
+    )
+    pilot2_parser.add_argument("calibration", type=Path, help="Volume calibration .json path.")
+    pilot2_parser.add_argument(
+        "--playback-log",
+        type=Path,
+        help="Dry-run play-test-cue JSONL log proving the calibration cap was used.",
+    )
+    pilot2_parser.add_argument("--device-name", help="Selected calibration device. Defaults to latest.")
+    pilot2_parser.add_argument("--output", type=Path, help="Optional output validation report .json path.")
+    pilot2_parser.add_argument("--hard-max-volume", type=float, default=0.20)
+
     list_cues_parser = subparsers.add_parser("list-cues", help="List cues from a cue metadata library.")
     list_cues_parser.add_argument("input", type=Path, help="Input cue library .json path.")
     list_cues_parser.add_argument("--protocol", choices=("puzzle", "tlr", "test", "generic"))
@@ -401,6 +415,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return _validate_cue_library(args)
     if args.command == "validate-pilot1-recording":
         return _validate_pilot1_recording(args)
+    if args.command == "validate-pilot2-calibration":
+        return _validate_pilot2_calibration(args)
     if args.command == "list-cues":
         return _list_cues(args)
     if args.command == "create-tlr-cue":
@@ -711,6 +727,27 @@ def _validate_pilot1_recording(args: argparse.Namespace) -> int:
         min_duration_seconds=args.min_duration_hours * 3600,
         required_modalities=required_modalities,
         max_downtime_fraction=args.max_downtime_fraction,
+    )
+    if args.output is not None:
+        report.save(_resolve_output_path(args.output))
+    print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
+    return 0 if report.passed else 1
+
+
+def _validate_pilot2_calibration(args: argparse.Namespace) -> int:
+    import json
+
+    from muse_tmr.validation import validate_pilot2_calibration
+
+    report = validate_pilot2_calibration(
+        _resolve_output_path(args.calibration),
+        device_name=args.device_name,
+        playback_log_path=(
+            _resolve_output_path(args.playback_log)
+            if args.playback_log is not None
+            else None
+        ),
+        hard_max_volume=args.hard_max_volume,
     )
     if args.output is not None:
         report.save(_resolve_output_path(args.output))
