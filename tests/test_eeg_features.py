@@ -111,9 +111,11 @@ class TestEEGFeatures(unittest.TestCase):
         self.assertIn("eeg_missing", row.artifact_flags)
 
     def test_flatline_and_clipping_are_flagged(self):
+        clipping = [0.0] * (30 * 256)
+        clipping[: 30 * 26] = [600.0] * (30 * 26)
         epoch = eeg_epoch({
             "AF7": [0.0] * (30 * 256),
-            "AF8": [600.0] * (30 * 256),
+            "AF8": clipping,
         })
 
         row = extract_eeg_features(
@@ -123,6 +125,27 @@ class TestEEGFeatures(unittest.TestCase):
 
         self.assertIn("eeg_flatline_AF7", row.artifact_flags)
         self.assertIn("eeg_clipping_AF8", row.artifact_flags)
+        self.assertGreater(row.channel_diagnostics["AF8"]["centered_abs_max_uv"], 500.0)
+        self.assertGreater(
+            row.channel_diagnostics["AF8"]["centered_abs_over_threshold_fraction"],
+            0.05,
+        )
+
+    def test_dc_offset_alone_does_not_count_as_clipping(self):
+        epoch = eeg_epoch({
+            "AF7": (725.0 + np.asarray(sine_values(10.0, amplitude=25.0))).tolist(),
+            "AF8": (725.0 + np.asarray(sine_values(10.0, amplitude=25.0))).tolist(),
+        })
+
+        row = extract_eeg_features(
+            epoch,
+            EEGFeatureConfig(artifact_abs_uv_threshold=500.0),
+        )
+
+        self.assertNotIn("eeg_clipping_AF7", row.artifact_flags)
+        self.assertNotIn("eeg_clipping_AF8", row.artifact_flags)
+        self.assertGreater(row.channel_diagnostics["AF7"]["max_uv"], 500.0)
+        self.assertLess(row.channel_diagnostics["AF7"]["centered_abs_max_uv"], 500.0)
 
     def test_nonfinite_channel_is_flagged(self):
         epoch = eeg_epoch({
