@@ -462,6 +462,18 @@ behavioral deltas. Metrics are computed from generated session artifacts such as
 cued-vs-uncued analysis outputs. Reports should describe observed differences and
 limitations; do not claim clinical, medical, or guaranteed lucid-dreaming efficacy.
 
+M8 Pilot 1 no-audio recording validation:
+
+```bash
+muse-tmr validate-pilot1-recording data/recordings/<pilot1-session> \
+  --output data/reports/pilot1_no_audio_validation.json
+```
+
+See `docs/pilot1_no_audio.md` for the 6h+ no-audio recording runbook. The validator
+checks that `summary.json` exists, duration meets the target, EEG/IMU/PPG counts are
+nonzero, raw packet capture is present, downtime is within target, and no audio or
+scheduler sidecar logs were produced.
+
 > **Finally!** Direct BLE connection to Muse S without proprietary SDKs. We're quite *amused* that we cracked the protocol nobody else has published online!
 
 ## 🎉 The Real Story

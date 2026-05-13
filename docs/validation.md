@@ -88,7 +88,9 @@ Every validation report should include a limitations section. At minimum, consid
 M8 validation should progress through increasingly risky pilots:
 
 1. Overnight no-audio recording: verify duration, metadata, modality coverage, raw
-   capture, reconnect/downtime limits, and replayability.
+   capture, reconnect/downtime limits, and replayability. Use
+   `docs/pilot1_no_audio.md` and `muse-tmr validate-pilot1-recording` for the M8 Pilot 1
+   acceptance report.
 2. Audio calibration only: verify detectable and comfortable volume values, scheduler
    max volume, and device metadata without sleep-time cueing.
 3. Replay cue simulation: run REM gate, arousal guard, and scheduler on replay outputs;

@@ -49,6 +49,7 @@ def run_fast_tests():
         'tests.test_dream_report',
         'tests.test_morning_retest',
         'tests.test_cued_uncued_analysis',
+        'tests.test_pilot1_validation',
     ]
     
     for module in fast_modules:
