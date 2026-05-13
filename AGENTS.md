@@ -161,6 +161,10 @@ Prefer the existing simple module style until an issue explicitly introduces a p
   based, configurable, conservative by default, and replay-testable. It may return
   `allow`, `lower_volume`, `pause`, or `stop` decisions from motion, alpha, HR-jump,
   and artifact-quality proxies, but it must not play audio directly.
+- Morning dream report capture lives in `muse_tmr.reports.dream_report`. Keep reports
+  structured, local-first, and versioned; link dream content to generated session puzzle
+  IDs only after validating against `NightPuzzleSession`. Do not commit real dream
+  reports, private recall text, or morning session outputs.
 
 ## Testing Expectations
 

@@ -197,6 +197,40 @@ class TestCli(unittest.TestCase):
         self.assertEqual(assignment_args.command, "assign-puzzle-cues")
         self.assertEqual(assignment_args.seed, 17)
 
+    def test_morning_report_command_parses_dream_report_fields(self):
+        args = build_parser().parse_args([
+            "record-dream-report",
+            "data/protocol/session.json",
+            "--catalog",
+            "data/protocol/catalog.json",
+            "--output",
+            "data/reports/night-001_dream_report.json",
+            "--lucid",
+            "yes",
+            "--cues-heard",
+            "no",
+            "--confidence",
+            "0.7",
+            "--dream-text",
+            "I saw the puzzle answer.",
+            "--puzzle-link",
+            "p1=the answer appeared",
+            "--puzzle-link",
+            "p2=the shape was in the dream",
+        ])
+
+        self.assertEqual(args.command, "record-dream-report")
+        self.assertEqual(args.session, Path("data/protocol/session.json"))
+        self.assertEqual(args.catalog, Path("data/protocol/catalog.json"))
+        self.assertEqual(args.output, Path("data/reports/night-001_dream_report.json"))
+        self.assertEqual(args.lucid, "yes")
+        self.assertEqual(args.cues_heard, "no")
+        self.assertEqual(args.confidence, 0.7)
+        self.assertEqual(args.puzzle_link, [
+            "p1=the answer appeared",
+            "p2=the shape was in the dream",
+        ])
+
     def test_amused_source_import_does_not_cycle(self):
         self.assertEqual(AmusedSource.strategy, "forked-source")
 

@@ -239,6 +239,27 @@ def build_parser() -> argparse.ArgumentParser:
     association_parser.add_argument("--response", required=True)
     association_parser.add_argument("--notes", default="")
 
+    dream_report_parser = subparsers.add_parser(
+        "record-dream-report",
+        help="Capture a structured morning dream report for a night puzzle session.",
+    )
+    dream_report_parser.add_argument("session", type=Path, help="Input night puzzle session .json path.")
+    dream_report_parser.add_argument("--output", type=Path, required=True, help="Output dream report .json path.")
+    dream_report_parser.add_argument("--lucid", choices=("yes", "no"), required=True)
+    dream_report_parser.add_argument("--cues-heard", choices=("yes", "no"), required=True)
+    dream_report_parser.add_argument("--confidence", type=float, required=True, help="Self-report confidence 0.0-1.0.")
+    dream_report_parser.add_argument("--dream-text", required=True, help="Free-text dream recall.")
+    dream_report_parser.add_argument(
+        "--puzzle-link",
+        action="append",
+        default=[],
+        metavar="PUZZLE_ID=TEXT",
+        help="Link a session puzzle to dream content. Repeat for multiple puzzles.",
+    )
+    dream_report_parser.add_argument("--catalog", type=Path, help="Optional puzzle catalog for cue IDs.")
+    dream_report_parser.add_argument("--report-id", default="")
+    dream_report_parser.add_argument("--notes", default="")
+
     assignment_parser = subparsers.add_parser(
         "assign-puzzle-cues",
         help="Randomize a night puzzle session into cued and uncued groups.",
@@ -313,6 +334,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return _record_puzzle_attempt(args)
     if args.command == "record-association-check":
         return _record_association_check(args)
+    if args.command == "record-dream-report":
+        return _record_dream_report(args)
     if args.command == "assign-puzzle-cues":
         return _assign_puzzle_cues(args)
     if args.command == "record":
@@ -766,6 +789,39 @@ def _record_association_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def _record_dream_report(args: argparse.Namespace) -> int:
+    from muse_tmr.protocol import load_night_puzzle_session, load_puzzle_catalog
+    from muse_tmr.reports import build_dream_report
+
+    session = load_night_puzzle_session(_resolve_output_path(args.session))
+    catalog = (
+        load_puzzle_catalog(_resolve_output_path(args.catalog))
+        if args.catalog is not None
+        else None
+    )
+    report = build_dream_report(
+        session,
+        catalog=catalog,
+        report_id=args.report_id,
+        lucid=_yes_no(args.lucid),
+        cues_heard=_yes_no(args.cues_heard),
+        confidence=args.confidence,
+        dream_text=args.dream_text,
+        puzzle_incorporation_text=_parse_puzzle_links(args.puzzle_link),
+        notes=args.notes,
+    )
+    output_path = report.save(_resolve_output_path(args.output))
+    print(
+        "dream report recorded "
+        f"session={report.session_id} "
+        f"lucid={report.lucid} "
+        f"cues_heard={report.cues_heard} "
+        f"linked_puzzles={report.puzzle_incorporation_count} "
+        f"output={output_path}"
+    )
+    return 0
+
+
 def _assign_puzzle_cues(args: argparse.Namespace) -> int:
     from muse_tmr.protocol import assign_cued_uncued_puzzles, load_night_puzzle_session
 
@@ -786,6 +842,26 @@ def _assign_puzzle_cues(args: argparse.Namespace) -> int:
         f"output={output_path}"
     )
     return 0
+
+
+def _parse_puzzle_links(values: Sequence[str]) -> dict:
+    links = {}
+    for value in values:
+        if "=" not in value:
+            raise ValueError("--puzzle-link must use PUZZLE_ID=TEXT")
+        puzzle_id, text = value.split("=", 1)
+        puzzle_id = puzzle_id.strip()
+        text = text.strip()
+        if not puzzle_id or not text:
+            raise ValueError("--puzzle-link must include non-empty puzzle ID and text")
+        if puzzle_id in links:
+            raise ValueError(f"duplicate --puzzle-link for puzzle_id={puzzle_id}")
+        links[puzzle_id] = text
+    return links
+
+
+def _yes_no(value: str) -> bool:
+    return value == "yes"
 
 
 def _build_source(args: argparse.Namespace, duration_seconds: int):

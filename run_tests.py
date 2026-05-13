@@ -43,6 +43,7 @@ def run_fast_tests():
         'tests.test_scheduler',
         'tests.test_puzzle_protocol',
         'tests.test_tlr_protocol',
+        'tests.test_dream_report',
     ]
     
     for module in fast_modules:
