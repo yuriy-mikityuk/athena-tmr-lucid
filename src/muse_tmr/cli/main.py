@@ -150,6 +150,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Validate metadata only; do not fail on missing sound cue files.",
     )
 
+    pilot1_parser = subparsers.add_parser(
+        "validate-pilot1-recording",
+        help="Validate an M8 Pilot 1 no-audio overnight recording summary.",
+    )
+    pilot1_parser.add_argument("input", type=Path, help="Recording directory or summary.json path.")
+    pilot1_parser.add_argument("--output", type=Path, help="Optional output validation report .json path.")
+    pilot1_parser.add_argument("--min-duration-hours", type=float, default=6.0)
+    pilot1_parser.add_argument(
+        "--required-modality",
+        action="append",
+        dest="required_modalities",
+        help="Required nonzero modality in summary.modality_counts. Repeat to override defaults.",
+    )
+    pilot1_parser.add_argument("--max-downtime-fraction", type=float, default=0.05)
+
     list_cues_parser = subparsers.add_parser("list-cues", help="List cues from a cue metadata library.")
     list_cues_parser.add_argument("input", type=Path, help="Input cue library .json path.")
     list_cues_parser.add_argument("--protocol", choices=("puzzle", "tlr", "test", "generic"))
@@ -384,6 +399,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return _create_cue_library(args)
     if args.command == "validate-cue-library":
         return _validate_cue_library(args)
+    if args.command == "validate-pilot1-recording":
+        return _validate_pilot1_recording(args)
     if args.command == "list-cues":
         return _list_cues(args)
     if args.command == "create-tlr-cue":
@@ -674,6 +691,31 @@ def _validate_cue_library(args: argparse.Namespace) -> int:
     )
     print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
     return 0 if report.is_valid else 1
+
+
+def _validate_pilot1_recording(args: argparse.Namespace) -> int:
+    import json
+
+    from muse_tmr.validation import (
+        DEFAULT_PILOT1_REQUIRED_MODALITIES,
+        validate_pilot1_recording,
+    )
+
+    required_modalities = (
+        tuple(args.required_modalities)
+        if args.required_modalities
+        else DEFAULT_PILOT1_REQUIRED_MODALITIES
+    )
+    report = validate_pilot1_recording(
+        _resolve_output_path(args.input),
+        min_duration_seconds=args.min_duration_hours * 3600,
+        required_modalities=required_modalities,
+        max_downtime_fraction=args.max_downtime_fraction,
+    )
+    if args.output is not None:
+        report.save(_resolve_output_path(args.output))
+    print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
+    return 0 if report.passed else 1
 
 
 def _list_cues(args: argparse.Namespace) -> int:

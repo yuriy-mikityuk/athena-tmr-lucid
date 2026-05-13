@@ -184,6 +184,10 @@ Prefer the existing simple module style until an issue explicitly introduces a p
 - M8 validation planning lives in `docs/validation.md`. Keep validation metrics tied to
   concrete logs or artifact fields, separate protocol fidelity from behavioral deltas,
   and include limitations instead of claiming clinical or lucid-dreaming efficacy.
+- M8 Pilot 1 is a no-audio overnight recording workflow. Keep its runbook in
+  `docs/pilot1_no_audio.md`, validate completed sessions with
+  `muse-tmr validate-pilot1-recording`, and never commit the generated recording or
+  validation output.
 
 ## Testing Expectations
 
