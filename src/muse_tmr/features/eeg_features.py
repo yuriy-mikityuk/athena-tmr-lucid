@@ -63,6 +63,8 @@ class EEGFeatureRow:
     artifact_flags: Tuple[str, ...]
     quality_flags: Tuple[str, ...]
     channel_diagnostics: Mapping[str, Mapping[str, float]] = field(default_factory=dict)
+    bad_channels: Tuple[str, ...] = ()
+    usable_channel_count: int = 0
 
     @property
     def is_noisy(self) -> bool:
@@ -76,6 +78,8 @@ class EEGFeatureRow:
             "eeg_coverage": self.eeg_coverage,
             "sample_count": self.sample_count,
             "channel_count": self.channel_count,
+            "bad_channels": ";".join(self.bad_channels),
+            "usable_channel_count": self.usable_channel_count,
             "eye_movement_proxy": self.eye_movement_proxy,
             "is_noisy": self.is_noisy,
             "artifact_flags": ";".join(self.artifact_flags),
@@ -117,10 +121,16 @@ def extract_eeg_features(
         quality_flags=quality_flags,
         config=config,
     )
+    bad_channels = _bad_channels_from_artifact_flags(artifact_flags)
+    usable_channels = {
+        channel: values
+        for channel, values in channels.items()
+        if channel not in bad_channels
+    }
 
     channel_band_powers = {
         channel: _channel_band_powers(values, config)
-        for channel, values in channels.items()
+        for channel, values in usable_channels.items()
         if values.size > 0
     }
     band_powers = _mean_band_powers(channel_band_powers, config.bands)
@@ -131,7 +141,7 @@ def extract_eeg_features(
     }
     ratios = _ratios(band_powers)
     asymmetry = _asymmetry(channel_band_powers, config)
-    eye_movement_proxy = _eye_movement_proxy(channels, config.frontal_channels)
+    eye_movement_proxy = _eye_movement_proxy(usable_channels, config.frontal_channels)
 
     return EEGFeatureRow(
         epoch_index=epoch.index,
@@ -149,6 +159,8 @@ def extract_eeg_features(
         artifact_flags=artifact_flags,
         quality_flags=quality_flags,
         channel_diagnostics=channel_diagnostics,
+        bad_channels=bad_channels,
+        usable_channel_count=len(usable_channels),
     )
 
 
@@ -342,6 +354,22 @@ def _artifact_flags(
         if float(np.std(finite)) <= config.flat_std_uv_threshold:
             flags.add(f"eeg_flatline_{channel}")
     return tuple(sorted(flags))
+
+
+def _bad_channels_from_artifact_flags(artifact_flags: Iterable[str]) -> Tuple[str, ...]:
+    channel_prefixes = (
+        "eeg_clipping_",
+        "eeg_empty_",
+        "eeg_flatline_",
+        "eeg_nonfinite_",
+    )
+    bad_channels = set()
+    for flag in artifact_flags:
+        for prefix in channel_prefixes:
+            if flag.startswith(prefix):
+                bad_channels.add(flag[len(prefix) :])
+                break
+    return tuple(sorted(channel for channel in bad_channels if channel))
 
 
 def _channel_diagnostics(

@@ -125,6 +125,8 @@ class TestEEGFeatures(unittest.TestCase):
 
         self.assertIn("eeg_flatline_AF7", row.artifact_flags)
         self.assertIn("eeg_clipping_AF8", row.artifact_flags)
+        self.assertEqual(row.bad_channels, ("AF7", "AF8"))
+        self.assertEqual(row.usable_channel_count, 0)
         self.assertGreater(row.channel_diagnostics["AF8"]["centered_abs_max_uv"], 500.0)
         self.assertGreater(
             row.channel_diagnostics["AF8"]["centered_abs_over_threshold_fraction"],
@@ -144,8 +146,69 @@ class TestEEGFeatures(unittest.TestCase):
 
         self.assertNotIn("eeg_clipping_AF7", row.artifact_flags)
         self.assertNotIn("eeg_clipping_AF8", row.artifact_flags)
+        self.assertEqual(row.bad_channels, ())
+        self.assertEqual(row.usable_channel_count, 2)
         self.assertGreater(row.channel_diagnostics["AF7"]["max_uv"], 500.0)
         self.assertLess(row.channel_diagnostics["AF7"]["centered_abs_max_uv"], 500.0)
+
+    def test_single_bad_af8_does_not_poison_all_eeg_features(self):
+        alpha = sine_values(10.0)
+        clipping = [0.0] * (30 * 256)
+        clipping[: 30 * 26] = [600.0] * (30 * 26)
+        epoch = eeg_epoch({
+            "AF7": alpha,
+            "AF8": clipping,
+            "TP9": alpha,
+            "TP10": alpha,
+        })
+
+        row = extract_eeg_features(
+            epoch,
+            EEGFeatureConfig(artifact_abs_uv_threshold=500.0),
+        )
+
+        self.assertEqual(row.bad_channels, ("AF8",))
+        self.assertEqual(row.channel_count, 4)
+        self.assertEqual(row.usable_channel_count, 3)
+        self.assertGreater(row.relative_band_powers["alpha"], 0.8)
+        self.assertTrue(math.isnan(row.asymmetry["alpha_asymmetry_af8_af7"]))
+        self.assertAlmostEqual(row.asymmetry["alpha_asymmetry_tp10_tp9"], 0.0, places=3)
+
+    def test_bad_frontal_channel_disables_eye_movement_proxy(self):
+        clipping = [0.0] * (30 * 256)
+        clipping[: 30 * 26] = [600.0] * (30 * 26)
+        epoch = eeg_epoch({
+            "AF7": sine_values(1.0, amplitude=10.0),
+            "AF8": clipping,
+            "TP9": sine_values(10.0),
+            "TP10": sine_values(10.0),
+        })
+
+        row = extract_eeg_features(
+            epoch,
+            EEGFeatureConfig(artifact_abs_uv_threshold=500.0),
+        )
+
+        self.assertEqual(row.bad_channels, ("AF8",))
+        self.assertTrue(math.isnan(row.eye_movement_proxy))
+
+    def test_multi_channel_sustained_clipping_marks_multiple_bad_channels(self):
+        clipping = [0.0] * (30 * 256)
+        clipping[: 30 * 26] = [600.0] * (30 * 26)
+        epoch = eeg_epoch({
+            "AF7": clipping,
+            "AF8": clipping,
+            "TP9": clipping,
+            "TP10": sine_values(10.0),
+        })
+
+        row = extract_eeg_features(
+            epoch,
+            EEGFeatureConfig(artifact_abs_uv_threshold=500.0),
+        )
+
+        self.assertEqual(row.bad_channels, ("AF7", "AF8", "TP9"))
+        self.assertEqual(row.usable_channel_count, 1)
 
     def test_nonfinite_channel_is_flagged(self):
         epoch = eeg_epoch({

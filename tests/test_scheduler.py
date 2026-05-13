@@ -228,6 +228,7 @@ class TestTmrCueScheduler(unittest.TestCase):
             guard_decision=guard_decision,
         )[0]
         cooldown = scheduler.update(_gate_open(), timestamp_seconds=10.0)[0]
+        recovered = scheduler.update(_gate_open(), timestamp_seconds=46.0)[0]
 
         self.assertEqual(pause.event_type, "pause")
         self.assertIn("arousal_guard_pause", pause.reason_codes)
@@ -235,6 +236,9 @@ class TestTmrCueScheduler(unittest.TestCase):
         self.assertEqual(pause.metadata["cooldown_until_seconds"], 45.0)
         self.assertEqual(cooldown.event_type, "skip")
         self.assertIn("scheduler_cooldown_active", cooldown.reason_codes)
+        self.assertNotIn("scheduler_stopped", cooldown.reason_codes)
+        self.assertEqual(recovered.event_type, "play")
+        self.assertNotIn("scheduler_stopped", recovered.reason_codes)
 
     def test_stop_guard_logs_stop_and_blocks_future_updates(self):
         scheduler = _scheduler(tlr_block_plan=None)

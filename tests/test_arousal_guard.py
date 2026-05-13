@@ -81,24 +81,121 @@ class TestArousalGuard(unittest.TestCase):
         self.assertIn("heart_rate_out_of_range", decision.reason_codes)
         self.assertIn("ppg_artifact_flags", decision.reason_codes)
 
-    def test_repeated_artifact_quality_stops_session(self):
+    def test_repeated_single_channel_eeg_artifact_lowers_volume_without_pause_or_stop(self):
+        guard = ArousalGuard(
+            ArousalGuardConfig(stop_after_consecutive_artifact_epochs=2)
+        )
+
+        decisions = [
+            guard.evaluate(
+                timestamp_seconds=index * 30.0,
+                eeg=_eeg(
+                    artifact_flags=("eeg_clipping_AF8",),
+                    bad_channels=("AF8",),
+                    usable_channel_count=3,
+                ),
+            )
+            for index in range(3)
+        ]
+
+        self.assertEqual([decision.action for decision in decisions], ["lower_volume"] * 3)
+        self.assertTrue(
+            all("single_channel_eeg_artifact" in decision.reason_codes for decision in decisions)
+        )
+        self.assertEqual(guard.consecutive_artifact_epochs, 0)
+        self.assertEqual(guard.consecutive_critical_artifact_epochs, 0)
+
+    def test_repeated_noncritical_artifact_pauses_recoverably(self):
         guard = ArousalGuard(
             ArousalGuardConfig(stop_after_consecutive_artifact_epochs=2)
         )
 
         first = guard.evaluate(
             timestamp_seconds=0.0,
-            eeg=_eeg(artifact_flags=("eeg_flatline",)),
+            eeg=_eeg(artifact_flags=("eeg_missing",)),
         )
         second = guard.evaluate(
             timestamp_seconds=30.0,
-            eeg=_eeg(artifact_flags=("eeg_flatline",)),
+            eeg=_eeg(artifact_flags=("eeg_missing",)),
+        )
+        clean = guard.evaluate(
+            timestamp_seconds=60.0,
+            eeg=_eeg(),
         )
 
         self.assertEqual(first.action, "lower_volume")
-        self.assertEqual(second.action, "stop")
+        self.assertEqual(second.action, "pause")
         self.assertIn("repeated_artifact_quality", second.reason_codes)
         self.assertIn("eeg_artifact_flags", second.reason_codes)
+        self.assertEqual(clean.action, "allow")
+        self.assertEqual(guard.consecutive_artifact_epochs, 0)
+
+    def test_legacy_repeated_artifact_stop_option_is_still_available(self):
+        guard = ArousalGuard(
+            ArousalGuardConfig(
+                repeated_artifact_action="stop",
+                stop_after_consecutive_artifact_epochs=2,
+            )
+        )
+
+        guard.evaluate(timestamp_seconds=0.0, eeg=_eeg(artifact_flags=("eeg_missing",)))
+        second = guard.evaluate(timestamp_seconds=30.0, eeg=_eeg(artifact_flags=("eeg_missing",)))
+
+        self.assertEqual(second.action, "stop")
+        self.assertIn("repeated_artifact_quality", second.reason_codes)
+
+    def test_critical_multi_channel_eeg_artifact_stops_after_configured_streak(self):
+        guard = ArousalGuard(
+            ArousalGuardConfig(
+                critical_eeg_bad_channel_count=3,
+                stop_after_consecutive_critical_artifact_epochs=2,
+            )
+        )
+
+        first = guard.evaluate(
+            timestamp_seconds=0.0,
+            eeg=_eeg(
+                artifact_flags=("eeg_clipping_AF7", "eeg_clipping_AF8", "eeg_clipping_TP9"),
+                bad_channels=("AF7", "AF8", "TP9"),
+                usable_channel_count=1,
+            ),
+        )
+        second = guard.evaluate(
+            timestamp_seconds=30.0,
+            eeg=_eeg(
+                artifact_flags=("eeg_clipping_AF7", "eeg_clipping_AF8", "eeg_clipping_TP9"),
+                bad_channels=("AF7", "AF8", "TP9"),
+                usable_channel_count=1,
+            ),
+        )
+
+        self.assertEqual(first.action, "pause")
+        self.assertIn("critical_eeg_artifact", first.reason_codes)
+        self.assertEqual(second.action, "stop")
+        self.assertIn("critical_eeg_artifact", second.reason_codes)
+
+    def test_motion_and_hr_arousal_pause_then_recover_after_clean_epoch(self):
+        guard = ArousalGuard()
+
+        motion = guard.evaluate(
+            timestamp_seconds=0.0,
+            imu=_imu(arousal_guard_reason_codes=("motion_arousal_proxy",), arousal_event_count=1),
+        )
+        hr = guard.evaluate(
+            timestamp_seconds=30.0,
+            ppg=_ppg(sudden_hr_change_count=1, max_sudden_hr_change_bpm=18.0),
+        )
+        clean = guard.evaluate(
+            timestamp_seconds=60.0,
+            eeg=_eeg(alpha=0.10),
+            imu=_imu(stillness_score=0.99),
+            ppg=_ppg(),
+        )
+
+        self.assertEqual(motion.action, "pause")
+        self.assertEqual(hr.action, "pause")
+        self.assertEqual(clean.action, "allow")
+        self.assertEqual(guard.consecutive_pause_epochs, 0)
 
     def test_eeg_channel_diagnostics_are_logged_for_artifacts(self):
         decision = ArousalGuard().evaluate(
@@ -130,7 +227,13 @@ class TestArousalGuard(unittest.TestCase):
             ).validate()
 
 
-def _eeg(alpha=0.10, artifact_flags=(), channel_diagnostics=None):
+def _eeg(
+    alpha=0.10,
+    artifact_flags=(),
+    channel_diagnostics=None,
+    bad_channels=(),
+    usable_channel_count=2,
+):
     return EEGFeatureRow(
         epoch_index=1,
         start_time=0.0,
@@ -147,6 +250,8 @@ def _eeg(alpha=0.10, artifact_flags=(), channel_diagnostics=None):
         artifact_flags=artifact_flags,
         quality_flags=(),
         channel_diagnostics=channel_diagnostics or {},
+        bad_channels=bad_channels,
+        usable_channel_count=usable_channel_count,
     )
 
 

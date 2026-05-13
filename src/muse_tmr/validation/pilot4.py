@@ -410,7 +410,9 @@ async def _recording_frame_stream(
         try:
             frame = await asyncio.wait_for(stream.__anext__(), timeout=timeout)
         except asyncio.TimeoutError:
-            state.stop_reason = "no_data_timeout"
+            state.stop_reason = (
+                "duration_complete" if time.monotonic() >= deadline else "no_data_timeout"
+            )
             break
         except StopAsyncIteration:
             state.stop_reason = "source_ended"

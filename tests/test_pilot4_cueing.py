@@ -56,6 +56,17 @@ class FakeMuseSource:
         self.stop_calls += 1
 
 
+class HangingMuseSource(FakeMuseSource):
+    def __init__(self, *, sleep_seconds=3600.0):
+        super().__init__(())
+        self.sleep_seconds = sleep_seconds
+
+    async def stream(self):
+        await asyncio.sleep(self.sleep_seconds)
+        raise AssertionError("hanging source should be cancelled by the pilot timeout")
+        yield
+
+
 class TestPilot4Cueing(unittest.IsolatedAsyncioTestCase):
     async def test_low_volume_cueing_plays_only_cued_puzzles_with_calibration_cap(self):
         catalog, session, assignment, cue_library = protocol_fixture()
@@ -130,12 +141,64 @@ class TestPilot4Cueing(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(event["event_type"], "awakening")
         self.assertEqual(event["notes"], "woke briefly")
 
+    async def test_deadline_timeout_reports_duration_complete(self):
+        catalog, session, assignment, cue_library = protocol_fixture()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = await run_pilot4_cueing_night(
+                HangingMuseSource(),
+                config=pilot4_config(
+                    Path(tmpdir),
+                    duration_seconds=0.01,
+                    no_data_timeout_seconds=10.0,
+                ),
+                catalog=catalog,
+                session=session,
+                assignment=assignment,
+                cue_library=cue_library,
+                calibration=VolumeCalibration("Sleep Headphones", 0.01, 0.02, 0.04),
+                backend=MockAudioBackend(),
+            )
+            recording_events = [
+                json.loads(line)
+                for line in Path(summary.recording_events_path).read_text(encoding="utf-8").splitlines()
+            ]
 
-def pilot4_config(output_dir: Path, *, emergency_stop_path=None):
+        self.assertEqual(summary.stop_reason, "duration_complete")
+        self.assertEqual(recording_events[-1]["reason"], "duration_complete")
+
+    async def test_no_data_timeout_before_deadline_is_preserved(self):
+        catalog, session, assignment, cue_library = protocol_fixture()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = await run_pilot4_cueing_night(
+                HangingMuseSource(),
+                config=pilot4_config(
+                    Path(tmpdir),
+                    duration_seconds=10.0,
+                    no_data_timeout_seconds=0.01,
+                ),
+                catalog=catalog,
+                session=session,
+                assignment=assignment,
+                cue_library=cue_library,
+                calibration=VolumeCalibration("Sleep Headphones", 0.01, 0.02, 0.04),
+                backend=MockAudioBackend(),
+            )
+
+        self.assertEqual(summary.stop_reason, "no_data_timeout")
+
+
+def pilot4_config(
+    output_dir: Path,
+    *,
+    emergency_stop_path=None,
+    duration_seconds=1.0,
+    no_data_timeout_seconds=30.0,
+):
     return Pilot4CueingConfig(
         output_dir=output_dir,
-        duration_seconds=1.0,
+        duration_seconds=duration_seconds,
         allow_short=True,
+        no_data_timeout_seconds=no_data_timeout_seconds,
         audio_backend_name="mock",
         hard_max_volume=0.20,
         default_volume=0.02,

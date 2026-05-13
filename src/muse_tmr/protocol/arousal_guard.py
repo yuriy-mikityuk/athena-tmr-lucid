@@ -13,6 +13,7 @@ from muse_tmr.features.imu_features import IMUFeatureRow
 from muse_tmr.features.ppg_features import PPGFeatureRow
 
 AROUSAL_GUARD_ACTIONS = ("allow", "lower_volume", "pause", "stop")
+REPEATED_ARTIFACT_ACTIONS = ("pause", "stop")
 
 PAUSE_IMU_REASON_CODES = (
     "motion_arousal_proxy",
@@ -28,6 +29,9 @@ class ArousalGuardConfig:
     pause_seconds: float = 120.0
     stop_after_consecutive_pause_epochs: int = 3
     stop_after_consecutive_artifact_epochs: int = 3
+    repeated_artifact_action: str = "pause"
+    critical_eeg_bad_channel_count: int = 3
+    stop_after_consecutive_critical_artifact_epochs: int = 3
     min_stillness_score_for_cue: float = 0.90
     alpha_lower_volume_relative_power: float = 0.25
     alpha_pause_relative_power: float = 0.40
@@ -43,6 +47,14 @@ class ArousalGuardConfig:
             raise ValueError("stop_after_consecutive_pause_epochs must be positive")
         if self.stop_after_consecutive_artifact_epochs <= 0:
             raise ValueError("stop_after_consecutive_artifact_epochs must be positive")
+        if self.repeated_artifact_action not in REPEATED_ARTIFACT_ACTIONS:
+            raise ValueError(
+                f"repeated_artifact_action must be one of: {', '.join(REPEATED_ARTIFACT_ACTIONS)}"
+            )
+        if self.critical_eeg_bad_channel_count <= 0:
+            raise ValueError("critical_eeg_bad_channel_count must be positive")
+        if self.stop_after_consecutive_critical_artifact_epochs <= 0:
+            raise ValueError("stop_after_consecutive_critical_artifact_epochs must be positive")
         if not 0.0 <= self.min_stillness_score_for_cue <= 1.0:
             raise ValueError("min_stillness_score_for_cue must be between 0 and 1")
         if not (
@@ -126,6 +138,7 @@ class ArousalGuard:
         self.event_log_path = event_log_path
         self._consecutive_pause_epochs = 0
         self._consecutive_artifact_epochs = 0
+        self._consecutive_critical_artifact_epochs = 0
 
     @property
     def consecutive_pause_epochs(self) -> int:
@@ -135,9 +148,14 @@ class ArousalGuard:
     def consecutive_artifact_epochs(self) -> int:
         return self._consecutive_artifact_epochs
 
+    @property
+    def consecutive_critical_artifact_epochs(self) -> int:
+        return self._consecutive_critical_artifact_epochs
+
     def reset(self) -> None:
         self._consecutive_pause_epochs = 0
         self._consecutive_artifact_epochs = 0
+        self._consecutive_critical_artifact_epochs = 0
 
     def evaluate(
         self,
@@ -162,28 +180,51 @@ class ArousalGuard:
         lower_reasons = []
         pause_reasons = []
         artifact_reasons = []
+        critical_artifact_reasons = []
         metadata: Dict[str, object] = {}
 
         self._collect_imu_reasons(imu, lower_reasons, pause_reasons, artifact_reasons, metadata)
-        self._collect_eeg_reasons(eeg, lower_reasons, pause_reasons, artifact_reasons, metadata)
+        self._collect_eeg_reasons(
+            eeg,
+            lower_reasons,
+            pause_reasons,
+            artifact_reasons,
+            critical_artifact_reasons,
+            metadata,
+        )
         self._collect_ppg_reasons(ppg, lower_reasons, pause_reasons, artifact_reasons, metadata)
 
         artifact_present = bool(artifact_reasons)
+        critical_artifact_present = bool(critical_artifact_reasons)
         pause_present = bool(pause_reasons)
         self._consecutive_artifact_epochs = (
             self._consecutive_artifact_epochs + 1 if artifact_present else 0
+        )
+        self._consecutive_critical_artifact_epochs = (
+            self._consecutive_critical_artifact_epochs + 1 if critical_artifact_present else 0
         )
         self._consecutive_pause_epochs = (
             self._consecutive_pause_epochs + 1 if pause_present else 0
         )
         metadata["consecutive_artifact_epochs"] = self._consecutive_artifact_epochs
+        metadata["consecutive_critical_artifact_epochs"] = (
+            self._consecutive_critical_artifact_epochs
+        )
         metadata["consecutive_pause_epochs"] = self._consecutive_pause_epochs
 
         stop_reasons = []
         if self._consecutive_pause_epochs >= self.config.stop_after_consecutive_pause_epochs:
-            stop_reasons.append("repeated_arousal_guard_pause")
+            pause_reasons.append("repeated_arousal_guard_pause")
         if self._consecutive_artifact_epochs >= self.config.stop_after_consecutive_artifact_epochs:
-            stop_reasons.append("repeated_artifact_quality")
+            if self.config.repeated_artifact_action == "stop":
+                stop_reasons.append("repeated_artifact_quality")
+            else:
+                pause_reasons.append("repeated_artifact_quality")
+        if (
+            self._consecutive_critical_artifact_epochs
+            >= self.config.stop_after_consecutive_critical_artifact_epochs
+        ):
+            stop_reasons.append("critical_eeg_artifact")
 
         if stop_reasons:
             return self._record(
@@ -191,7 +232,11 @@ class ArousalGuard:
                     action="stop",
                     timestamp_seconds=timestamp_seconds,
                     reason_codes=_unique(
-                        stop_reasons + pause_reasons + lower_reasons + artifact_reasons
+                        stop_reasons
+                        + pause_reasons
+                        + lower_reasons
+                        + artifact_reasons
+                        + critical_artifact_reasons
                     ),
                     volume_multiplier=0.0,
                     metadata=metadata,
@@ -202,7 +247,9 @@ class ArousalGuard:
                 ArousalGuardDecision(
                     action="pause",
                     timestamp_seconds=timestamp_seconds,
-                    reason_codes=_unique(pause_reasons + lower_reasons + artifact_reasons),
+                    reason_codes=_unique(
+                        pause_reasons + lower_reasons + artifact_reasons + critical_artifact_reasons
+                    ),
                     volume_multiplier=0.0,
                     pause_seconds=self.config.pause_seconds,
                     metadata=metadata,
@@ -257,6 +304,7 @@ class ArousalGuard:
         lower_reasons: list,
         pause_reasons: list,
         artifact_reasons: list,
+        critical_artifact_reasons: list,
         metadata: Dict[str, object],
     ) -> None:
         if eeg is None:
@@ -264,6 +312,11 @@ class ArousalGuard:
         alpha_power = float(eeg.relative_band_powers.get("alpha", math.nan))
         metadata["relative_alpha_power"] = alpha_power
         metadata["eeg_coverage"] = eeg.eeg_coverage
+        bad_channels = _eeg_bad_channels(eeg)
+        bad_channel_count = len(bad_channels)
+        metadata["bad_eeg_channels"] = list(bad_channels)
+        metadata["bad_eeg_channel_count"] = bad_channel_count
+        metadata["usable_eeg_channel_count"] = eeg.usable_channel_count
         if eeg.channel_diagnostics:
             metadata["eeg_channel_diagnostics"] = {
                 channel: dict(diagnostics)
@@ -275,8 +328,16 @@ class ArousalGuard:
             elif alpha_power >= self.config.alpha_lower_volume_relative_power:
                 lower_reasons.append("alpha_arousal_proxy_mild")
         if eeg.artifact_flags:
-            artifact_reasons.append("eeg_artifact_flags")
             metadata["eeg_artifact_flags"] = list(eeg.artifact_flags)
+            if bad_channel_count == 1:
+                lower_reasons.append("single_channel_eeg_artifact")
+            elif bad_channel_count >= 2:
+                pause_reasons.append("multi_channel_eeg_artifact")
+                artifact_reasons.append("eeg_artifact_flags")
+            else:
+                artifact_reasons.append("eeg_artifact_flags")
+            if bad_channel_count >= self.config.critical_eeg_bad_channel_count:
+                critical_artifact_reasons.append("critical_eeg_artifact")
         if "low_eeg_coverage" in eeg.artifact_flags or "low_eeg_coverage" in eeg.quality_flags:
             lower_reasons.append("low_eeg_coverage")
 
@@ -342,3 +403,22 @@ def load_arousal_guard_decisions(input_path: Path) -> Tuple[ArousalGuardDecision
 
 def _unique(reason_codes: Iterable[str]) -> Tuple[str, ...]:
     return tuple(dict.fromkeys(code for code in reason_codes if code))
+
+
+def _eeg_bad_channels(eeg: EEGFeatureRow) -> Tuple[str, ...]:
+    if eeg.bad_channels:
+        return tuple(sorted(eeg.bad_channels))
+
+    channel_prefixes = (
+        "eeg_clipping_",
+        "eeg_empty_",
+        "eeg_flatline_",
+        "eeg_nonfinite_",
+    )
+    bad_channels = set()
+    for flag in eeg.artifact_flags:
+        for prefix in channel_prefixes:
+            if flag.startswith(prefix):
+                bad_channels.add(flag[len(prefix) :])
+                break
+    return tuple(sorted(channel for channel in bad_channels if channel))
