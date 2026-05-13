@@ -144,6 +144,10 @@ Prefer the existing simple module style until an issue explicitly introduces a p
   Keep puzzle catalogs, timed attempts, solved/known/retired filters, and association
   checks separate from cued-vs-uncued randomization. Do not commit private puzzle
   content, user responses, or generated sessions; `data/protocol/` is gitignored.
+- Cued-vs-uncued randomization lives in `muse_tmr.protocol.randomization`. Use seeded
+  `PuzzleCueAssignment` records and make scheduler code consume `scheduled_puzzle_ids`
+  or `scheduled_cue_ids()`, never all session puzzle IDs, so uncued controls cannot be
+  scheduled.
 
 ## Testing Expectations
 

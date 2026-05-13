@@ -292,6 +292,10 @@ muse-tmr generate-puzzle-session data/protocol/puzzle_catalog.json \
   --seed 17 \
   --output data/protocol/night-001_puzzles.json
 
+muse-tmr assign-puzzle-cues data/protocol/night-001_puzzles.json \
+  --seed 23 \
+  --output data/protocol/night-001_assignment.json
+
 muse-tmr record-association-check data/protocol/night-001_puzzles.json \
   --catalog data/protocol/puzzle_catalog.json \
   --puzzle-id p001 \
@@ -303,6 +307,10 @@ pre-sleep attempts, and cue-to-solution association checks. Session generation f
 out solved, known, and retired tasks and produces a reproducible night session with
 four eligible unsolved puzzles by default. `data/protocol/` is gitignored because it
 can contain private puzzle content and responses.
+
+`assign-puzzle-cues` randomizes half of the night-session puzzles into cued and uncued
+groups with a seed. Scheduler code must consume `scheduled_puzzle_ids` from the saved
+assignment, which contains only cued puzzles, so uncued tasks are never scheduled.
 
 > **Finally!** Direct BLE connection to Muse S without proprietary SDKs. We're quite *amused* that we cracked the protocol nobody else has published online!
 
