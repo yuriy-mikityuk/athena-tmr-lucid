@@ -100,7 +100,9 @@ M8 validation should progress through increasingly risky pilots:
    `docs/pilot3_replay_cue_simulation.md` and `muse-tmr simulate-replay-cues` to
    produce the mocked-audio cue plan and scheduler event stream.
 4. Low-volume REM-gated cueing: require calibration, emergency stop availability,
-   arousal guard events, scheduler events, and clear limitations.
+   arousal guard events, scheduler events, and clear limitations. Use
+   `docs/pilot4_low_volume_cueing.md` and `muse-tmr run-pilot4-cueing`; real audio
+   requires an explicit backend such as `system` and a saved volume calibration.
 5. Full-night exploratory session: require the recording bundle, scheduler logs, dream
    report, retest, and cued-vs-uncued analysis output before interpreting any deltas.
 

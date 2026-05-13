@@ -20,6 +20,14 @@ from muse_tmr.validation.pilot3 import (
     simulate_cue_plan_from_epochs,
     simulate_replay_cue_plan,
 )
+from muse_tmr.validation.pilot4 import (
+    AwakeningEvent,
+    Pilot4Criterion,
+    Pilot4CueingConfig,
+    Pilot4CueingSummary,
+    append_awakening_event,
+    run_pilot4_cueing_night,
+)
 
 __all__ = [
     "DEFAULT_PILOT1_MIN_DURATION_SECONDS",
@@ -32,6 +40,12 @@ __all__ = [
     "Pilot3Criterion",
     "Pilot3EpochResult",
     "Pilot3ReplayCueSimulationReport",
+    "AwakeningEvent",
+    "Pilot4Criterion",
+    "Pilot4CueingConfig",
+    "Pilot4CueingSummary",
+    "append_awakening_event",
+    "run_pilot4_cueing_night",
     "simulate_cue_plan_from_epochs",
     "simulate_replay_cue_plan",
     "validate_pilot2_calibration",

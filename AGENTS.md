@@ -196,6 +196,11 @@ Prefer the existing simple module style until an issue explicitly introduces a p
   `docs/pilot3_replay_cue_simulation.md`, generate mocked-audio cue plans with
   `muse-tmr simulate-replay-cues`, require zero uncued puzzle `play` events, and
   never treat replay simulation as real sleep-time cueing.
+- M8 Pilot 4 is the first low-volume REM-gated cueing workflow. Keep its runbook in
+  `docs/pilot4_low_volume_cueing.md`, require volume calibration before playback,
+  use `muse-tmr run-pilot4-cueing`, and make real audio explicit through the selected
+  backend while logging scheduler, arousal, audio, awakening, and emergency-stop
+  artifacts.
 
 ## Testing Expectations
 

@@ -52,6 +52,7 @@ def run_fast_tests():
         'tests.test_pilot1_validation',
         'tests.test_pilot2_validation',
         'tests.test_pilot3_replay_simulation',
+        'tests.test_pilot4_cueing',
     ]
     
     for module in fast_modules:

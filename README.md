@@ -505,6 +505,29 @@ runs epochs, REM detection, the stable gate, arousal guard, and scheduler on a
 recording with mocked audio. It writes an inspectable cue plan and fails if any uncued
 puzzle receives a scheduler `play` event. No real audio is played.
 
+M8 Pilot 4 low-volume REM-gated cueing:
+
+```bash
+muse-tmr run-pilot4-cueing \
+  --source amused \
+  --address "$MUSE_ADDR" \
+  --duration-hours 2 \
+  --output-dir data/recordings/pilot4_low_volume_<timestamp> \
+  --catalog data/protocol/puzzle_catalog.json \
+  --session data/protocol/night-001_puzzles.json \
+  --assignment data/protocol/night-001_assignment.json \
+  --cue-library data/cues/starter.json \
+  --calibration data/calibration/volume_calibration.json \
+  --device-name "Sleep Headphones" \
+  --backend system \
+  --default-volume 0.02
+```
+
+See `docs/pilot4_low_volume_cueing.md` before using `--backend system`. Pilot 4
+requires volume calibration, enforces the comfortable-volume cap, logs scheduler,
+arousal, audio, awakening, and emergency-stop artifacts, and only sends playback
+requests for scheduler `play` events after stable REM.
+
 > **Finally!** Direct BLE connection to Muse S without proprietary SDKs. We're quite *amused* that we cracked the protocol nobody else has published online!
 
 ## 🎉 The Real Story
