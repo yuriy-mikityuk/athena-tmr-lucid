@@ -1,5 +1,14 @@
 """Morning reports, retests, and analysis."""
 
+from muse_tmr.reports.analysis import (
+    ANALYSIS_SCHEMA_VERSION,
+    AnalysisLimitation,
+    ConditionMetrics,
+    CuedUncuedAnalysisReport,
+    PuzzleAnalysisRow,
+    build_cued_uncued_analysis,
+    load_cued_uncued_analysis,
+)
 from muse_tmr.reports.dream_report import (
     DREAM_REPORT_SCHEMA_VERSION,
     DreamPuzzleIncorporation,
@@ -16,14 +25,21 @@ from muse_tmr.reports.morning_retest import (
 )
 
 __all__ = [
+    "ANALYSIS_SCHEMA_VERSION",
+    "AnalysisLimitation",
+    "ConditionMetrics",
+    "CuedUncuedAnalysisReport",
     "DREAM_REPORT_SCHEMA_VERSION",
     "DreamPuzzleIncorporation",
     "DreamReport",
     "MORNING_RETEST_SCHEMA_VERSION",
     "MorningRetest",
     "MorningRetestResult",
+    "PuzzleAnalysisRow",
+    "build_cued_uncued_analysis",
     "build_dream_report",
     "build_morning_retest",
+    "load_cued_uncued_analysis",
     "load_dream_report",
     "load_morning_retest",
 ]

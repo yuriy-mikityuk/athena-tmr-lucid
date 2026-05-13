@@ -169,6 +169,10 @@ Prefer the existing simple module style until an issue explicitly introduces a p
   retest blind during administration, but save `cue_condition` from `PuzzleCueAssignment`
   in the output for later analysis. Require solved/unsolved, duration, and confidence
   for each generated session puzzle.
+- Cued-vs-uncued analysis lives in `muse_tmr.reports.analysis`. Keep it descriptive,
+  versioned, and local-first; combine session, assignment, retest, optional dream report,
+  and scheduler events without copying raw dream text into summary outputs. Always record
+  limitations such as small-N or missing timing data.
 
 ## Testing Expectations
 

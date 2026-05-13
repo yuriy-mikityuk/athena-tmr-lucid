@@ -361,5 +361,21 @@ for analysis. `muse-tmr record-puzzle-retest` writes the retest JSON. The retest
 be administered blind; `cue_condition` is for downstream analysis, not subject-facing
 prompts.
 
+## Cued-vs-Uncued Analysis
+
+`muse_tmr.reports.analysis` defines versioned analysis records:
+
+- `CuedUncuedAnalysisReport`: session ID, per-puzzle rows, condition metrics, effect
+  summary, cue timing summary, limitations, and metadata
+- `PuzzleAnalysisRow`: puzzle ID, cue condition, retest solved/duration/confidence,
+  dream incorporation flag, and scheduler puzzle cue timing
+- `ConditionMetrics`: cued or uncued group counts, solve rate, incorporation rate,
+  mean duration/confidence, and cue play counts
+
+`build_cued_uncued_analysis()` validates `NightPuzzleSession`, `PuzzleCueAssignment`,
+`MorningRetest`, and optional `DreamReport`; scheduler events are optional but used to
+audit puzzle cue timing. The output is descriptive only and includes machine-readable
+limitations such as `small_n`, `missing_scheduler_events`, or `uncued_cue_play_observed`.
+
 Puzzle protocol files may contain private puzzle content, responses, and night/session
 metadata, so `data/protocol/` is gitignored.

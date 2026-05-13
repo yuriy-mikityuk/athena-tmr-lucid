@@ -267,6 +267,39 @@ class TestCli(unittest.TestCase):
         self.assertEqual(args.duration, ["p1=12", "p2=24"])
         self.assertEqual(args.confidence, ["p1=0.9", "p2=0.3"])
 
+    def test_cued_uncued_analysis_command_parses_report_inputs(self):
+        args = build_parser().parse_args([
+            "analyze-cued-uncued",
+            "data/protocol/session.json",
+            "--assignment",
+            "data/protocol/assignment.json",
+            "--retest",
+            "data/reports/retest.json",
+            "--dream-report",
+            "data/reports/dream.json",
+            "--scheduler-events",
+            "data/reports/scheduler.jsonl",
+            "--output",
+            "data/reports/analysis.json",
+            "--markdown-output",
+            "data/reports/analysis.md",
+            "--analysis-id",
+            "analysis-001",
+            "--min-group-size",
+            "3",
+        ])
+
+        self.assertEqual(args.command, "analyze-cued-uncued")
+        self.assertEqual(args.session, Path("data/protocol/session.json"))
+        self.assertEqual(args.assignment, Path("data/protocol/assignment.json"))
+        self.assertEqual(args.retest, Path("data/reports/retest.json"))
+        self.assertEqual(args.dream_report, Path("data/reports/dream.json"))
+        self.assertEqual(args.scheduler_events, Path("data/reports/scheduler.jsonl"))
+        self.assertEqual(args.output, Path("data/reports/analysis.json"))
+        self.assertEqual(args.markdown_output, Path("data/reports/analysis.md"))
+        self.assertEqual(args.analysis_id, "analysis-001")
+        self.assertEqual(args.min_group_size, 3)
+
     def test_amused_source_import_does_not_cycle(self):
         self.assertEqual(AmusedSource.strategy, "forked-source")
 

@@ -306,6 +306,20 @@ def build_parser() -> argparse.ArgumentParser:
     retest_parser.add_argument("--retest-id", default="")
     retest_parser.add_argument("--notes", default="")
 
+    analysis_parser = subparsers.add_parser(
+        "analyze-cued-uncued",
+        help="Generate a cued-vs-uncued morning analysis report.",
+    )
+    analysis_parser.add_argument("session", type=Path, help="Input night puzzle session .json path.")
+    analysis_parser.add_argument("--assignment", type=Path, required=True, help="Cued/uncued assignment .json path.")
+    analysis_parser.add_argument("--retest", type=Path, required=True, help="Morning puzzle retest .json path.")
+    analysis_parser.add_argument("--output", type=Path, required=True, help="Output analysis report .json path.")
+    analysis_parser.add_argument("--dream-report", type=Path, help="Optional morning dream report .json path.")
+    analysis_parser.add_argument("--scheduler-events", type=Path, help="Optional TMR scheduler events .jsonl path.")
+    analysis_parser.add_argument("--markdown-output", type=Path, help="Optional human-readable .md report path.")
+    analysis_parser.add_argument("--analysis-id", default="")
+    analysis_parser.add_argument("--min-group-size", type=int, default=5)
+
     assignment_parser = subparsers.add_parser(
         "assign-puzzle-cues",
         help="Randomize a night puzzle session into cued and uncued groups.",
@@ -384,6 +398,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return _record_dream_report(args)
     if args.command == "record-puzzle-retest":
         return _record_puzzle_retest(args)
+    if args.command == "analyze-cued-uncued":
+        return _analyze_cued_uncued(args)
     if args.command == "assign-puzzle-cues":
         return _assign_puzzle_cues(args)
     if args.command == "record":
@@ -923,6 +939,56 @@ def _record_puzzle_retest(args: argparse.Namespace) -> int:
         f"solved={retest.solved_count} "
         f"unsolved={retest.unsolved_count} "
         f"output={output_path}"
+    )
+    return 0
+
+
+def _analyze_cued_uncued(args: argparse.Namespace) -> int:
+    from muse_tmr.protocol import (
+        load_night_puzzle_session,
+        load_puzzle_cue_assignment,
+        load_tmr_scheduler_events,
+    )
+    from muse_tmr.reports import (
+        build_cued_uncued_analysis,
+        load_dream_report,
+        load_morning_retest,
+    )
+
+    session = load_night_puzzle_session(_resolve_output_path(args.session))
+    assignment = load_puzzle_cue_assignment(_resolve_output_path(args.assignment))
+    retest = load_morning_retest(_resolve_output_path(args.retest))
+    dream_report = (
+        load_dream_report(_resolve_output_path(args.dream_report))
+        if args.dream_report is not None
+        else None
+    )
+    scheduler_events = (
+        load_tmr_scheduler_events(_resolve_output_path(args.scheduler_events))
+        if args.scheduler_events is not None
+        else ()
+    )
+    report = build_cued_uncued_analysis(
+        session,
+        assignment,
+        retest,
+        dream_report=dream_report,
+        scheduler_events=scheduler_events,
+        analysis_id=args.analysis_id,
+        min_group_size=args.min_group_size,
+    )
+    output_path = report.save(_resolve_output_path(args.output))
+    markdown_path = None
+    if args.markdown_output is not None:
+        markdown_path = report.save_markdown(_resolve_output_path(args.markdown_output))
+
+    print(
+        "cued-vs-uncued analysis complete "
+        f"session={report.session_id} "
+        f"rows={len(report.rows)} "
+        f"limitations={','.join(report.limitation_codes)} "
+        f"output={output_path}"
+        + (f" markdown={markdown_path}" if markdown_path is not None else "")
     )
     return 0
 
