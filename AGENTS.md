@@ -100,6 +100,10 @@ Prefer the existing simple module style until an issue explicitly introduces a p
 - M1 live BLE smoke criteria: `discover` finds the Muse, `stream` reports nonzero frames
   across expected modalities, and `record` writes `raw_amused.bin`, `metadata.json`,
   `events.jsonl`, and `summary.json` with `stop_reason=duration_complete`.
+- OpenMuse LSL source support lives in `muse_tmr.sources.openmuse_lsl_source`. Keep
+  `mne_lsl`/`pylsl` optional, require OpenMuse to run separately, and convert LSL
+  samples into normal `MuseFrame` objects with `source="openmuse"`. Do not make LSL
+  dependencies part of the base install.
 - For M2 replay/features, use `muse_tmr.data.replay.ReplaySession` as the offline source.
   It emits the same `MuseFrame` type as live BLE and supports real-time, accelerated,
   fastest-possible, and relative time-range replay. Keep feature tests synthetic or replay-based.

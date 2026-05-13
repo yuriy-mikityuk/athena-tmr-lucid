@@ -50,6 +50,18 @@ Short smoke-test recordings require `--allow-short`; normal overnight recordings
 Recordings are written to `data/recordings/<timestamp>/` by default. Pass `--output-dir`
 to pin a specific session directory.
 
+M7 optional OpenMuse LSL source:
+
+```bash
+pip install -e ".[openmuse]"
+muse-tmr discover --source openmuse --require-lsl-stream eeg
+muse-tmr stream --source openmuse --duration-seconds 60 --require-lsl-stream eeg
+```
+
+OpenMuse must run separately and publish LSL streams such as `Muse_EEG` and
+`Muse_ACCGYRO`. The adapter reads available LSL modalities into the same `MuseFrame`
+contract as the BLE source; `mne_lsl` or `pylsl` plus local `liblsl` remains optional.
+
 macOS BLE smoke-test note: if direct `python3 -m muse_tmr.cli.main discover --source amused`
 or `muse-tmr discover --source amused` aborts before printing Python logs, macOS TCC is
 likely blocking CoreBluetooth for the Python bundle. Use a virtual environment and launch

@@ -20,6 +20,33 @@ class TestCli(unittest.TestCase):
         self.assertEqual(args.source, "amused")
         self.assertEqual(args.duration_seconds, 3600)
 
+    def test_stream_command_parses_openmuse_lsl_source(self):
+        args = build_parser().parse_args([
+            "stream",
+            "--source",
+            "openmuse",
+            "--duration-seconds",
+            "5",
+            "--require-lsl-stream",
+            "eeg",
+            "--require-lsl-stream",
+            "imu",
+            "--lsl-resolve-timeout",
+            "2.5",
+            "--openmuse-eeg-stream",
+            "Muse_EEG",
+            "--openmuse-imu-stream",
+            "Muse_ACCGYRO",
+        ])
+
+        self.assertEqual(args.command, "stream")
+        self.assertEqual(args.source, "openmuse")
+        self.assertEqual(args.duration_seconds, 5)
+        self.assertEqual(args.require_lsl_stream, ["eeg", "imu"])
+        self.assertEqual(args.lsl_resolve_timeout, 2.5)
+        self.assertEqual(args.openmuse_eeg_stream, "Muse_EEG")
+        self.assertEqual(args.openmuse_imu_stream, "Muse_ACCGYRO")
+
     def test_record_command_parses_overnight_duration(self):
         args = build_parser().parse_args([
             "record",

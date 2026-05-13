@@ -67,6 +67,9 @@ docs = [
     "sphinx-rtd-theme>=1.2",
     "sphinx-autodoc-typehints>=1.22",
 ]
+openmuse = [
+    "pylsl>=1.16",
+]
 
 [project.urls]
 Homepage = "https://github.com/nexon33/amused"

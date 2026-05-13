@@ -18,4 +18,9 @@ The M0 scaffold intentionally avoids moving the existing top-level `muse_*.py` m
 
 `BaseMuseSource` defines the source contract: discover devices, connect, stream `MuseFrame` objects, and stop. `AmusedSource` adapts the existing `MuseStreamClient` callback model into that contract.
 
+`OpenMuseLslSource` is the optional M7 source. OpenMuse runs outside this process and
+publishes Lab Streaming Layer streams; the adapter resolves stream names such as
+`Muse_EEG` and `Muse_ACCGYRO`, converts pulled samples into `MuseFrame` objects, and
+does not make OpenMuse or LSL packages mandatory for normal installation.
+
 `OvernightRecorder` consumes any `BaseMuseSource`, writes `raw_amused.bin`, `metadata.json`, `events.jsonl`, and `summary.json`, and uses `RecordingWatchdog` to detect no-data timeouts and modality dropouts.

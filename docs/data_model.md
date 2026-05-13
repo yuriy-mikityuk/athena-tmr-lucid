@@ -21,7 +21,26 @@ Each sample type supports `to_dict()` and `from_dict()`. `MuseFrame` additionall
 
 ## Source Attribution
 
-Every sample and frame carries a `source` string. The amused-py adapter uses `amused`; future OpenMuse and SDK adapters should use distinct source names.
+Every sample and frame carries a `source` string. The amused-py adapter uses `amused`;
+the optional OpenMuse LSL adapter uses `openmuse`; future SDK adapters should use
+distinct source names.
+
+## OpenMuse LSL Source
+
+`muse_tmr.sources.openmuse_lsl_source.OpenMuseLslSource` is an optional adapter for
+OpenMuse LSL streams. It imports neither OpenMuse nor LSL packages at module import
+time; `mne_lsl` or `pylsl` is loaded only when the source is used.
+
+The adapter maps known OpenMuse stream names into `MuseFrame` modalities:
+
+- `Muse_EEG`: `EEGSample`
+- `Muse_ACCGYRO`: `IMUSample`
+- `Muse_PPG`: `PPGSample`
+- `Muse_HR`: `HeartRateSample`
+- `Muse_BATT`: `BatterySample`
+
+LSL samples do not contain raw BLE packets, so `raw_packets` capability is false and
+recordings from this source may have `raw_packet_count=0`.
 
 ## Offline Replay
 

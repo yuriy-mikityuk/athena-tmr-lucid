@@ -30,6 +30,7 @@ def run_fast_tests():
         'tests.test_cue_library',
         'tests.test_volume_calibration',
         'tests.test_recorder',
+        'tests.test_openmuse_lsl_source',
         'tests.test_replay',
         'tests.test_epochs',
         'tests.test_eeg_features',

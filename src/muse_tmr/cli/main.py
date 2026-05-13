@@ -24,16 +24,18 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("status", help="Show project status and configured components.")
 
     discover_parser = subparsers.add_parser("discover", help="Discover Muse devices.")
-    discover_parser.add_argument("--source", choices=("amused",), default="amused")
+    discover_parser.add_argument("--source", choices=("amused", "openmuse"), default="amused")
     discover_parser.add_argument("--name-filter", default="Muse")
+    _add_openmuse_lsl_args(discover_parser)
 
     stream_parser = subparsers.add_parser("stream", help="Stream Muse frames from a source.")
-    stream_parser.add_argument("--source", choices=("amused",), default="amused")
+    stream_parser.add_argument("--source", choices=("amused", "openmuse"), default="amused")
     stream_parser.add_argument("--address", help="Muse BLE address. If omitted, discovery is used.")
     stream_parser.add_argument("--name-filter", default="Muse")
     stream_parser.add_argument("--preset", default="p1034")
     stream_parser.add_argument("--duration-seconds", type=int, default=3600)
     stream_parser.add_argument("--quiet", action="store_true")
+    _add_openmuse_lsl_args(stream_parser)
 
     replay_parser = subparsers.add_parser("replay", help="Replay a recorded Muse session.")
     replay_parser.add_argument("input", type=Path, help="Recording directory or raw_amused.bin path.")
@@ -334,7 +336,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     record_parser = subparsers.add_parser("record", help="Record an overnight Muse session.")
-    record_parser.add_argument("--source", choices=("amused",), default="amused")
+    record_parser.add_argument("--source", choices=("amused", "openmuse"), default="amused")
     record_parser.add_argument("--address", help="Muse BLE address. If omitted, discovery is used.")
     record_parser.add_argument("--name-filter", default="Muse")
     record_parser.add_argument("--preset", default="p1034")
@@ -350,6 +352,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     record_parser.add_argument("--allow-short", action="store_true", help="Allow short smoke-test recordings.")
     record_parser.add_argument("--quiet", action="store_true")
+    _add_openmuse_lsl_args(record_parser)
     return parser
 
 
@@ -1057,6 +1060,20 @@ def _yes_no(value: str) -> bool:
 
 
 def _build_source(args: argparse.Namespace, duration_seconds: int):
+    if getattr(args, "source", "amused") == "openmuse":
+        from muse_tmr.sources.openmuse_lsl_source import OpenMuseLslConfig, OpenMuseLslSource
+
+        return OpenMuseLslSource(
+            OpenMuseLslConfig(
+                stream_names=_openmuse_stream_names(args),
+                required_modalities=tuple(getattr(args, "require_lsl_stream", ()) or ()),
+                resolve_timeout_seconds=getattr(args, "lsl_resolve_timeout", 5.0),
+                pull_timeout_seconds=getattr(args, "lsl_pull_timeout", 0.0),
+                poll_interval_seconds=getattr(args, "lsl_poll_interval", 0.01),
+                duration_seconds=duration_seconds,
+            )
+        )
+
     from muse_tmr.sources.amused_source import AmusedSource
 
     return AmusedSource(
@@ -1066,6 +1083,34 @@ def _build_source(args: argparse.Namespace, duration_seconds: int):
         duration_seconds=duration_seconds,
         verbose=not getattr(args, "quiet", False),
     )
+
+
+def _add_openmuse_lsl_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--lsl-resolve-timeout", type=float, default=5.0)
+    parser.add_argument("--lsl-pull-timeout", type=float, default=0.0)
+    parser.add_argument("--lsl-poll-interval", type=float, default=0.01)
+    parser.add_argument(
+        "--require-lsl-stream",
+        action="append",
+        choices=("eeg", "imu", "ppg", "heart_rate", "battery"),
+        default=[],
+        help="Require an OpenMuse LSL modality before connect succeeds. Repeat as needed.",
+    )
+    parser.add_argument("--openmuse-eeg-stream", default="Muse_EEG")
+    parser.add_argument("--openmuse-imu-stream", default="Muse_ACCGYRO")
+    parser.add_argument("--openmuse-ppg-stream", default="Muse_PPG")
+    parser.add_argument("--openmuse-heart-rate-stream", default="Muse_HR")
+    parser.add_argument("--openmuse-battery-stream", default="Muse_BATT")
+
+
+def _openmuse_stream_names(args: argparse.Namespace) -> Mapping[str, tuple]:
+    return {
+        "eeg": (args.openmuse_eeg_stream, "Muse-EEG"),
+        "imu": (args.openmuse_imu_stream, "Muse-ACCGYRO"),
+        "ppg": (args.openmuse_ppg_stream, "Muse-PPG"),
+        "heart_rate": (args.openmuse_heart_rate_stream, "Muse_HEART", "Muse_HEART_RATE"),
+        "battery": (args.openmuse_battery_stream, "Muse_BATTERY", "Muse-Telemetry"),
+    }
 
 
 def _default_recording_dir() -> Path:
