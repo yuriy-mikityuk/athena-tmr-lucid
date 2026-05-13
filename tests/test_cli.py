@@ -150,6 +150,14 @@ class TestCli(unittest.TestCase):
             "--response",
             "answer",
         ])
+        assignment_args = build_parser().parse_args([
+            "assign-puzzle-cues",
+            "data/protocol/session.json",
+            "--output",
+            "data/protocol/assignment.json",
+            "--seed",
+            "17",
+        ])
 
         self.assertEqual(import_args.command, "import-puzzles")
         self.assertEqual(import_args.output, Path("data/protocol/catalog.json"))
@@ -157,6 +165,8 @@ class TestCli(unittest.TestCase):
         self.assertTrue(attempt_args.solved)
         self.assertEqual(association_args.command, "record-association-check")
         self.assertEqual(association_args.catalog, Path("data/protocol/catalog.json"))
+        self.assertEqual(assignment_args.command, "assign-puzzle-cues")
+        self.assertEqual(assignment_args.seed, 17)
 
     def test_amused_source_import_does_not_cycle(self):
         self.assertEqual(AmusedSource.strategy, "forked-source")

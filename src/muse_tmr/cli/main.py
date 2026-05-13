@@ -197,6 +197,19 @@ def build_parser() -> argparse.ArgumentParser:
     association_parser.add_argument("--response", required=True)
     association_parser.add_argument("--notes", default="")
 
+    assignment_parser = subparsers.add_parser(
+        "assign-puzzle-cues",
+        help="Randomize a night puzzle session into cued and uncued groups.",
+    )
+    assignment_parser.add_argument("session", type=Path, help="Input night puzzle session .json path.")
+    assignment_parser.add_argument("--output", type=Path, required=True, help="Output cue assignment .json path.")
+    assignment_parser.add_argument("--seed", type=int, required=True)
+    assignment_parser.add_argument(
+        "--cued-count",
+        type=int,
+        help="Override the number of cued puzzles. Defaults to half of the session tasks.",
+    )
+
     record_parser = subparsers.add_parser("record", help="Record an overnight Muse session.")
     record_parser.add_argument("--source", choices=("amused",), default="amused")
     record_parser.add_argument("--address", help="Muse BLE address. If omitted, discovery is used.")
@@ -252,6 +265,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return _record_puzzle_attempt(args)
     if args.command == "record-association-check":
         return _record_association_check(args)
+    if args.command == "assign-puzzle-cues":
+        return _assign_puzzle_cues(args)
     if args.command == "record":
         return asyncio.run(_record(args))
 
@@ -609,6 +624,28 @@ def _record_association_check(args: argparse.Namespace) -> int:
         f"session={updated.session_id} "
         f"puzzle={result.puzzle_id} "
         f"matched={result.matched} "
+        f"output={output_path}"
+    )
+    return 0
+
+
+def _assign_puzzle_cues(args: argparse.Namespace) -> int:
+    from muse_tmr.protocol import assign_cued_uncued_puzzles, load_night_puzzle_session
+
+    session = load_night_puzzle_session(_resolve_output_path(args.session))
+    assignment = assign_cued_uncued_puzzles(
+        session,
+        seed=args.seed,
+        cued_count=args.cued_count,
+    )
+    output_path = assignment.save(_resolve_output_path(args.output))
+    print(
+        "puzzle cue assignment generated "
+        f"session={assignment.session_id} "
+        f"seed={assignment.seed} "
+        f"cued={len(assignment.cued_puzzle_ids)} "
+        f"uncued={len(assignment.uncued_puzzle_ids)} "
+        f"scheduled={len(assignment.scheduled_puzzle_ids)} "
         f"output={output_path}"
     )
     return 0

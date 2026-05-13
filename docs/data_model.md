@@ -266,5 +266,22 @@ eligible unsolved puzzles by default. `record-puzzle-attempt` appends timed pre-
 attempts to the catalog, and `record-association-check` appends cue-to-solution checks
 to the generated night session.
 
+## Puzzle Cue Assignments
+
+`muse_tmr.protocol.randomization.PuzzleCueAssignment` stores reproducible cued vs
+uncued assignment for one `NightPuzzleSession`:
+
+- `session_id` and randomization `seed`
+- `cued_puzzle_ids`
+- `uncued_puzzle_ids`
+- derived `scheduled_puzzle_ids`, which contains only cued puzzle IDs
+- generation timestamp and metadata
+
+`muse-tmr assign-puzzle-cues <session.json> --seed <n> --output <assignment.json>`
+splits half of the session puzzles into the cued group by default. The assignment must
+cover exactly the session puzzle IDs with no overlap. Scheduler code should call
+`scheduled_puzzle_ids` or `scheduled_cue_ids(catalog)` so uncued controls are never
+eligible for cue playback.
+
 Puzzle protocol files may contain private puzzle content, responses, and night/session
 metadata, so `data/protocol/` is gitignored.

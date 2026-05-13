@@ -31,8 +31,19 @@ The puzzle catalog stores:
 
 Night sessions are generated from eligible unsolved tasks. By default, eligibility
 excludes solved, known, and retired tasks, then selects four tasks. Passing a seed makes
-selection reproducible. This layer does not assign cued vs uncued status; that belongs
-to the later randomization layer.
+selection reproducible.
+
+## Cued Vs Uncued Randomization
+
+`muse_tmr.protocol.randomization` assigns the generated night-session puzzle IDs into
+cued and uncued groups. The default split cues half of the session tasks, uses a seed
+for reproducibility, and saves a versioned JSON assignment.
+
+The assignment exposes `scheduled_puzzle_ids`, which is intentionally identical to the
+cued group. Scheduler code must use this field or `scheduled_cue_ids()` rather than
+iterating over every puzzle in the night session. Calling `ensure_schedulable()` on an
+uncued puzzle raises an error, making accidental scheduling of control tasks a tested
+contract.
 
 Association checks compare a remembered response with the expected solution using a
 case-insensitive whitespace-normalized match and append the result to the night session
