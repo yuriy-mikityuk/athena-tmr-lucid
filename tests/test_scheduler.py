@@ -1,9 +1,17 @@
 import unittest
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterable, Optional, Tuple
 
 from muse_tmr.audio import CueLibrary, CueMetadata, VolumeCalibration
-from muse_tmr.models import RemConfidence, RemGateDecision
+from muse_tmr.models import (
+    RemConfidence,
+    RemGateConfig,
+    RemGateDecision,
+    RemPrediction,
+    StableRemGate,
+)
 from muse_tmr.protocol import (
     ArousalGuardDecision,
     PuzzleCatalog,
@@ -17,6 +25,7 @@ from muse_tmr.protocol.tmr_scheduler import (
     CueDecision,
     TmrCueScheduler,
     TmrSchedulerConfig,
+    TmrSchedulerEvent,
     arousal_guard_decision,
     calibrated_cue_decision,
     load_tmr_scheduler_events,
@@ -273,6 +282,114 @@ class TestTmrCueScheduler(unittest.TestCase):
         self.assertEqual([event.event_type for event in events], ["skip", "play", "stop"])
 
 
+class TestSchedulerReplayValidation(unittest.TestCase):
+    def test_simulated_replay_does_not_play_without_stable_rem(self):
+        events, decisions, scheduler = _run_scheduler_replay(
+            [
+                _tick(0.0, 0.20),
+                _tick(30.0, 0.68),
+                _tick(60.0, 0.40),
+                _tick(90.0, 0.69),
+            ]
+        )
+
+        _assert_puzzle_plays_are_eligible(self, events, decisions, scheduler)
+        self.assertTrue(all(not decision.gate_open for decision in decisions))
+        self.assertEqual([event.event_type for event in events], ["skip", "skip", "skip", "skip"])
+        self.assertEqual(_puzzle_play_ids(events), ())
+
+    def test_simulated_replay_plays_only_after_stable_rem(self):
+        events, decisions, scheduler = _run_scheduler_replay(
+            [
+                _tick(0.0, 0.82),
+                _tick(30.0, 0.84),
+                _tick(60.0, 0.86),
+            ]
+        )
+
+        _assert_puzzle_plays_are_eligible(self, events, decisions, scheduler)
+        self.assertEqual([decision.gate_open for decision in decisions], [False, True, True])
+        self.assertEqual(_puzzle_play_ids(events), ("p1", "p3"))
+        self.assertEqual(scheduler.scheduled_puzzle_ids, ("p1", "p3"))
+        self.assertTrue(set(_puzzle_play_ids(events)).issubset(scheduler.scheduled_puzzle_ids))
+
+    def test_simulated_replay_motion_pause_blocks_cueing(self):
+        events, decisions, scheduler = _run_scheduler_replay(
+            [
+                _tick(0.0, 0.82),
+                _tick(
+                    30.0,
+                    0.84,
+                    guard_decision=ArousalGuardDecision(
+                        action="pause",
+                        timestamp_seconds=30.0,
+                        reason_codes=("motion_arousal_proxy",),
+                        pause_seconds=45.0,
+                    ),
+                ),
+                _tick(60.0, 0.86),
+            ]
+        )
+
+        _assert_puzzle_plays_are_eligible(self, events, decisions, scheduler)
+        self.assertTrue(decisions[1].gate_open)
+        self.assertEqual(events[1].event_type, "pause")
+        self.assertIn("arousal_guard_pause", events[1].reason_codes)
+        self.assertIn("motion_arousal_proxy", events[1].reason_codes)
+        self.assertEqual(events[2].event_type, "skip")
+        self.assertIn("scheduler_cooldown_active", events[2].reason_codes)
+        self.assertEqual(_puzzle_play_ids(events), ())
+
+    def test_simulated_replay_rem_end_stops_active_block_before_next_cue(self):
+        events, decisions, scheduler = _run_scheduler_replay(
+            [
+                _tick(0.0, 0.82),
+                _tick(30.0, 0.84),
+                _tick(60.0, 0.20),
+                _tick(90.0, 0.86),
+                _tick(120.0, 0.88),
+            ]
+        )
+
+        _assert_puzzle_plays_are_eligible(self, events, decisions, scheduler)
+        self.assertTrue(decisions[1].gate_open)
+        self.assertFalse(decisions[2].gate_open)
+        self.assertIn("below_exit_threshold", decisions[2].reason_codes)
+        self.assertEqual(events[2].event_type, "pause")
+        self.assertIn("rem_gate_closed", events[2].reason_codes)
+        self.assertIn("below_exit_threshold", events[2].reason_codes)
+        self.assertEqual(events[3].event_type, "skip")
+        self.assertEqual(_puzzle_play_ids(events), ("p1", "p3"))
+
+    def test_simulated_replay_never_plays_uncued_puzzles_across_blocks(self):
+        events, decisions, scheduler = _run_scheduler_replay(
+            [
+                _tick(0.0, 0.82),
+                _tick(30.0, 0.84),
+                _tick(60.0, 0.86),
+                _tick(90.0, 0.20),
+                _tick(120.0, 0.88),
+                _tick(150.0, 0.89),
+                _tick(180.0, 0.90),
+            ]
+        )
+
+        _assert_puzzle_plays_are_eligible(self, events, decisions, scheduler)
+        uncued_puzzle_ids = {"p2", "p4"}
+        self.assertEqual(scheduler.scheduled_puzzle_ids, ("p1", "p3"))
+        self.assertFalse(uncued_puzzle_ids.intersection(_puzzle_play_ids(events)))
+        self.assertTrue(set(_puzzle_play_ids(events)).issubset(scheduler.scheduled_puzzle_ids))
+
+
+@dataclass(frozen=True)
+class _ReplayTick:
+    timestamp_seconds: float
+    probability: float
+    reason_codes: Tuple[str, ...] = ()
+    guard_decision: Optional[ArousalGuardDecision] = None
+    duration_seconds: float = 30.0
+
+
 def _scheduler(config=None, tlr_block_plan=None, event_log_path=None):
     catalog = PuzzleCatalog(
         puzzles=(
@@ -338,6 +455,78 @@ def _scheduler(config=None, tlr_block_plan=None, event_log_path=None):
         tlr_block_plan=tlr_block_plan,
         event_log_path=event_log_path,
     )
+
+
+def _run_scheduler_replay(
+    ticks: Iterable[_ReplayTick],
+) -> Tuple[Tuple[TmrSchedulerEvent, ...], Tuple[RemGateDecision, ...], TmrCueScheduler]:
+    gate = StableRemGate(
+        RemGateConfig(
+            enter_threshold=0.70,
+            exit_threshold=0.45,
+            min_stable_seconds=60.0,
+            epoch_seconds=30.0,
+            cooldown_seconds=0.0,
+        )
+    )
+    scheduler = _scheduler(
+        tlr_block_plan=None,
+        config=TmrSchedulerConfig(
+            puzzle_cue_interval_seconds=30.0,
+            cooldown_seconds=30.0,
+            max_puzzle_cues_per_block=4,
+            enable_tlr_block=False,
+        ),
+    )
+    decisions = []
+    events = []
+    for tick in ticks:
+        decision = gate.update(
+            RemPrediction(
+                probability=tick.probability,
+                reason_codes=tick.reason_codes,
+                source="simulated_replay",
+            ),
+            duration_seconds=tick.duration_seconds,
+        )
+        decisions.append(decision)
+        events.extend(
+            scheduler.update(
+                decision,
+                timestamp_seconds=tick.timestamp_seconds,
+                guard_decision=tick.guard_decision,
+            )
+        )
+    return tuple(events), tuple(decisions), scheduler
+
+
+def _tick(
+    timestamp_seconds: float,
+    probability: float,
+    *reason_codes: str,
+    guard_decision: Optional[ArousalGuardDecision] = None,
+) -> _ReplayTick:
+    return _ReplayTick(
+        timestamp_seconds=timestamp_seconds,
+        probability=probability,
+        reason_codes=tuple(reason_codes),
+        guard_decision=guard_decision,
+    )
+
+
+def _puzzle_play_ids(events: Iterable[TmrSchedulerEvent]) -> Tuple[str, ...]:
+    return tuple(
+        event.puzzle_id
+        for event in events
+        if event.event_type == "play" and event.protocol == "puzzle" and event.puzzle_id is not None
+    )
+
+
+def _assert_puzzle_plays_are_eligible(test_case, events, decisions, scheduler):
+    for event, decision in zip(events, decisions):
+        if event.event_type == "play" and event.protocol == "puzzle":
+            test_case.assertTrue(decision.gate_open)
+            test_case.assertIn(event.puzzle_id, scheduler.scheduled_puzzle_ids)
 
 
 def _gate_open(*reason_codes):
