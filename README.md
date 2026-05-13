@@ -371,6 +371,24 @@ cue interval, cooldown, and max-per-block limits, and logs structured `play`, `s
 allow cueing, lower volume, pause cueing, or stop a session from motion, alpha, HR-jump,
 and artifact-quality proxies. Neither layer calls audio playback directly.
 
+M6 morning dream report:
+
+```bash
+muse-tmr record-dream-report data/protocol/night-001_puzzles.json \
+  --catalog data/protocol/puzzle_catalog.json \
+  --output data/reports/night-001_dream_report.json \
+  --lucid yes \
+  --cues-heard no \
+  --confidence 0.7 \
+  --dream-text "I found the answer written in a notebook." \
+  --puzzle-link "p1=the first puzzle answer appeared in the notebook"
+```
+
+Dream reports save local JSON with lucid yes/no, cues-heard yes/no, confidence,
+free-text recall, and optional per-puzzle links. Each `--puzzle-link` is validated
+against the generated night puzzle session so reports can connect dream content back
+to the experimental puzzle IDs without making uncued assumptions.
+
 > **Finally!** Direct BLE connection to Muse S without proprietary SDKs. We're quite *amused* that we cracked the protocol nobody else has published online!
 
 ## 🎉 The Real Story

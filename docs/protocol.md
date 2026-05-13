@@ -101,6 +101,27 @@ HR jumps, and out-of-range HR pause cueing. Repeated pause or artifact epochs st
 session plan. Decisions can be appended to JSONL for replay analysis and passed into
 `TmrCueScheduler.update(..., guard_decision=decision)`.
 
+## Morning Dream Report
+
+`muse_tmr.reports.dream_report` captures the morning self-report for the generated night
+session. A report records lucid yes/no, cues heard yes/no, self-report confidence,
+free-text recall, and optional puzzle incorporation links. Puzzle links are validated
+against `NightPuzzleSession.puzzle_ids`; with a `PuzzleCatalog`, links also include the
+stable cue ID for analysis.
+
+The CLI command is:
+
+```bash
+muse-tmr record-dream-report data/protocol/night-001_puzzles.json \
+  --catalog data/protocol/puzzle_catalog.json \
+  --output data/reports/night-001_dream_report.json \
+  --lucid no \
+  --cues-heard yes \
+  --confidence 0.6 \
+  --dream-text "Free-text recall" \
+  --puzzle-link "p2=the second puzzle appeared as a sign"
+```
+
 Association checks compare a remembered response with the expected solution using a
 case-insensitive whitespace-normalized match and append the result to the night session
 metadata.

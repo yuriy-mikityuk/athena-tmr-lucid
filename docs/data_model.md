@@ -332,5 +332,19 @@ with `load_arousal_guard_decisions()`. The scheduler can consume a decision dire
 `lower_volume` scales cue event volume hints, `pause` records a pause and cooldown, and
 `stop` records a stop event.
 
+## Dream Reports
+
+`muse_tmr.reports.dream_report` defines versioned morning dream report records:
+
+- `DreamReport`: session ID, lucid yes/no, cues-heard yes/no, confidence, free-text
+  dream recall, notes, metadata, and puzzle incorporation links
+- `DreamPuzzleIncorporation`: puzzle ID, optional cue ID, dream-content excerpt, and
+  link confidence
+
+`build_dream_report()` validates links against `NightPuzzleSession` and can enrich links
+with cue IDs from `PuzzleCatalog`. `muse-tmr record-dream-report` writes the report JSON.
+Dream text and puzzle-link excerpts are private morning data and should stay in
+gitignored report locations.
+
 Puzzle protocol files may contain private puzzle content, responses, and night/session
 metadata, so `data/protocol/` is gitignored.
