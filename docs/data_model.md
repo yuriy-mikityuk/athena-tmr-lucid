@@ -42,6 +42,15 @@ The adapter maps known OpenMuse stream names into `MuseFrame` modalities:
 LSL samples do not contain raw BLE packets, so `raw_packets` capability is false and
 recordings from this source may have `raw_packet_count=0`.
 
+## Muse SDK Source Stub
+
+`muse_tmr.sources.muse_sdk_source_stub.MuseSdkSourceStub` reserves the official SDK
+source contract without importing or bundling any proprietary SDK files. It implements
+`BaseMuseSource`, exposes a metadata template with `source_name="muse-sdk"`, and raises
+`MuseSdkUnavailableError` from runtime methods with a pointer to `docs/sdk_policy.md`.
+SDK binaries, headers, frameworks, archives, installers, copied docs, and vendor code
+must remain outside committed files.
+
 ## Offline Replay
 
 `muse_tmr.data.replay.ReplaySession` reads a recording directory or `raw_amused.bin`,

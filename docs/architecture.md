@@ -23,4 +23,8 @@ publishes Lab Streaming Layer streams; the adapter resolves stream names such as
 `Muse_EEG` and `Muse_ACCGYRO`, converts pulled samples into `MuseFrame` objects, and
 does not make OpenMuse or LSL packages mandatory for normal installation.
 
+`MuseSdkSourceStub` reserves the future official SDK source interface without importing
+or bundling any proprietary SDK files. Runtime SDK operations fail with a policy error
+until a local-only integration is explicitly implemented.
+
 `OvernightRecorder` consumes any `BaseMuseSource`, writes `raw_amused.bin`, `metadata.json`, `events.jsonl`, and `summary.json`, and uses `RecordingWatchdog` to detect no-data timeouts and modality dropouts.

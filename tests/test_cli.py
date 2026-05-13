@@ -47,6 +47,22 @@ class TestCli(unittest.TestCase):
         self.assertEqual(args.openmuse_eeg_stream, "Muse_EEG")
         self.assertEqual(args.openmuse_imu_stream, "Muse_ACCGYRO")
 
+    def test_stream_command_parses_sdk_stub_source(self):
+        args = build_parser().parse_args([
+            "stream",
+            "--source",
+            "sdk",
+            "--sdk-path",
+            "/tmp/local-muse-sdk",
+            "--duration-seconds",
+            "5",
+        ])
+
+        self.assertEqual(args.command, "stream")
+        self.assertEqual(args.source, "sdk")
+        self.assertEqual(args.sdk_path, Path("/tmp/local-muse-sdk"))
+        self.assertEqual(args.duration_seconds, 5)
+
     def test_record_command_parses_overnight_duration(self):
         args = build_parser().parse_args([
             "record",

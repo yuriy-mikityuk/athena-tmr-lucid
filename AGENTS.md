@@ -104,6 +104,10 @@ Prefer the existing simple module style until an issue explicitly introduces a p
   `mne_lsl`/`pylsl` optional, require OpenMuse to run separately, and convert LSL
   samples into normal `MuseFrame` objects with `source="openmuse"`. Do not make LSL
   dependencies part of the base install.
+- Official Muse SDK support is currently only `muse_tmr.sources.muse_sdk_source_stub`.
+  Keep it importable without SDK files, make runtime operations fail with the SDK
+  policy message, and update `scripts/check_forbidden_files.py` when adding any
+  SDK-adjacent paths. Never commit proprietary SDK binaries, headers, docs, or code.
 - For M2 replay/features, use `muse_tmr.data.replay.ReplaySession` as the offline source.
   It emits the same `MuseFrame` type as live BLE and supports real-time, accelerated,
   fastest-possible, and relative time-range replay. Keep feature tests synthetic or replay-based.

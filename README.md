@@ -62,6 +62,18 @@ OpenMuse must run separately and publish LSL streams such as `Muse_EEG` and
 `Muse_ACCGYRO`. The adapter reads available LSL modalities into the same `MuseFrame`
 contract as the BLE source; `mne_lsl` or `pylsl` plus local `liblsl` remains optional.
 
+M7 official SDK policy:
+
+```bash
+muse-tmr stream --source sdk --sdk-path /local/path/to/sdk
+```
+
+The SDK source is currently a policy-enforcing stub only. It imports without any SDK
+installed, but runtime operations fail until a local-only adapter is explicitly built.
+Do not commit official SDK binaries, headers, frameworks, archives, installers, docs,
+or copied vendor code. Run `python scripts/check_forbidden_files.py` before publishing
+SDK-adjacent changes.
+
 macOS BLE smoke-test note: if direct `python3 -m muse_tmr.cli.main discover --source amused`
 or `muse-tmr discover --source amused` aborts before printing Python logs, macOS TCC is
 likely blocking CoreBluetooth for the Python bundle. Use a virtual environment and launch

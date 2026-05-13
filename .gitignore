@@ -81,10 +81,31 @@ bugreport*.zip
 
 # Muse SDK / proprietary vendor files
 vendor/muse_sdk/
+vendor/muse-sdk/
+vendor/MuseSDK/
 sdk/
 *.framework
+*.xcframework
 *.dylib
 *.dll
+*.so
+*.a
+*.lib
+*.jar
+*.aar
+*.apk
+*.ipa
+*.pkg
+*.msi
+*.exe
+*MuseSDK*.zip
+*Muse-SDK*.zip
+*muse-sdk*.zip
+*muse_sdk*.zip
+*MuseSDK*.tar*
+*Muse-SDK*.tar*
+*muse-sdk*.tar*
+*muse_sdk*.tar*
 
 # Secrets
 .env
