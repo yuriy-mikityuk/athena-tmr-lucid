@@ -224,6 +224,68 @@ class TestCli(unittest.TestCase):
         self.assertEqual(args.min_stable_seconds, 30.0)
         self.assertTrue(args.disable_arousal_guard)
 
+    def test_pilot4_cueing_command_parses_safety_inputs(self):
+        args = build_parser().parse_args([
+            "run-pilot4-cueing",
+            "--source",
+            "amused",
+            "--address",
+            "AA-BB",
+            "--duration-hours",
+            "2",
+            "--output-dir",
+            "data/recordings/pilot4-night",
+            "--catalog",
+            "data/protocol/catalog.json",
+            "--session",
+            "data/protocol/session.json",
+            "--assignment",
+            "data/protocol/assignment.json",
+            "--cue-library",
+            "data/cues/starter.json",
+            "--calibration",
+            "data/calibration/volume_calibration.json",
+            "--device-name",
+            "Sleep Headphones",
+            "--backend",
+            "system",
+            "--default-volume",
+            "0.02",
+            "--hard-max-volume",
+            "0.2",
+            "--emergency-stop-file",
+            "data/recordings/pilot4-night/STOP_AUDIO",
+        ])
+
+        self.assertEqual(args.command, "run-pilot4-cueing")
+        self.assertEqual(args.source, "amused")
+        self.assertEqual(args.address, "AA-BB")
+        self.assertEqual(args.duration_hours, 2.0)
+        self.assertEqual(args.output_dir, Path("data/recordings/pilot4-night"))
+        self.assertEqual(args.calibration, Path("data/calibration/volume_calibration.json"))
+        self.assertEqual(args.device_name, "Sleep Headphones")
+        self.assertEqual(args.backend, "system")
+        self.assertEqual(args.default_volume, 0.02)
+        self.assertEqual(args.emergency_stop_file, Path("data/recordings/pilot4-night/STOP_AUDIO"))
+
+    def test_pilot4_awakening_log_command_parses_marker(self):
+        args = build_parser().parse_args([
+            "log-pilot4-awakening",
+            "data/recordings/pilot4-night/awakening_events.jsonl",
+            "--event-type",
+            "awakening",
+            "--notes",
+            "woke briefly after tone",
+            "--timestamp-utc",
+            "2026-05-13T22:00:00+00:00",
+        ])
+
+        self.assertEqual(args.command, "log-pilot4-awakening")
+        self.assertEqual(args.output, Path("data/recordings/pilot4-night/awakening_events.jsonl"))
+        self.assertEqual(args.event_type, "awakening")
+        self.assertEqual(args.notes, "woke briefly after tone")
+        self.assertEqual(args.timestamp_utc, "2026-05-13T22:00:00+00:00")
+
     def test_tlr_protocol_commands_parse_paths(self):
         create_args = build_parser().parse_args([
             "create-tlr-cue",

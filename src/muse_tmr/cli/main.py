@@ -203,6 +203,57 @@ def build_parser() -> argparse.ArgumentParser:
     pilot3_parser.add_argument("--max-puzzle-cues-per-block", type=int, default=4)
     pilot3_parser.add_argument("--disable-arousal-guard", action="store_true")
 
+    pilot4_parser = subparsers.add_parser(
+        "run-pilot4-cueing",
+        help="Run an M8 Pilot 4 low-volume REM-gated cueing night.",
+    )
+    pilot4_parser.add_argument("--source", choices=("amused", "openmuse", "sdk"), default="amused")
+    pilot4_parser.add_argument("--address", help="Muse BLE address. If omitted, discovery is used.")
+    pilot4_parser.add_argument("--name-filter", default="Muse")
+    pilot4_parser.add_argument("--preset", default="p1034")
+    pilot4_parser.add_argument("--duration-hours", type=float, default=8.0)
+    pilot4_parser.add_argument("--duration-seconds", type=float)
+    pilot4_parser.add_argument("--output-dir", type=Path, required=True, help="Pilot output directory.")
+    pilot4_parser.add_argument("--catalog", type=Path, required=True, help="Puzzle catalog .json path.")
+    pilot4_parser.add_argument("--session", type=Path, required=True, help="Night puzzle session .json path.")
+    pilot4_parser.add_argument("--assignment", type=Path, required=True, help="Cued/uncued assignment .json path.")
+    pilot4_parser.add_argument("--cue-library", type=Path, required=True, help="Cue metadata library .json path.")
+    pilot4_parser.add_argument("--calibration", type=Path, required=True, help="Volume calibration .json path.")
+    pilot4_parser.add_argument("--device-name", help="Selected calibration device. Defaults to latest.")
+    pilot4_parser.add_argument(
+        "--backend",
+        choices=("system", "afplay", "dry-run", "mock"),
+        default="dry-run",
+        help="Playback backend. Use system for the actual Pilot 4 sleep run.",
+    )
+    pilot4_parser.add_argument("--hard-max-volume", type=float, default=0.20)
+    pilot4_parser.add_argument("--default-volume", type=float, default=0.02)
+    pilot4_parser.add_argument("--fade-in-seconds", type=float, default=0.25)
+    pilot4_parser.add_argument("--fade-out-seconds", type=float, default=0.25)
+    pilot4_parser.add_argument("--emergency-stop-file", type=Path)
+    pilot4_parser.add_argument("--epoch-seconds", type=float, default=30.0)
+    pilot4_parser.add_argument("--stride-seconds", type=float, default=30.0)
+    pilot4_parser.add_argument("--enter-threshold", type=float, default=0.70)
+    pilot4_parser.add_argument("--exit-threshold", type=float, default=0.45)
+    pilot4_parser.add_argument("--min-stable-seconds", type=float, default=60.0)
+    pilot4_parser.add_argument("--gate-cooldown-seconds", type=float, default=120.0)
+    pilot4_parser.add_argument("--puzzle-cue-interval-seconds", type=float, default=30.0)
+    pilot4_parser.add_argument("--scheduler-cooldown-seconds", type=float, default=120.0)
+    pilot4_parser.add_argument("--max-puzzle-cues-per-block", type=int, default=4)
+    pilot4_parser.add_argument("--allow-short", action="store_true", help="Allow short smoke-test cueing runs.")
+    pilot4_parser.add_argument("--quiet", action="store_true")
+    _add_openmuse_lsl_args(pilot4_parser)
+    _add_muse_sdk_args(pilot4_parser)
+
+    awakening_parser = subparsers.add_parser(
+        "log-pilot4-awakening",
+        help="Append a manual awakening marker to a Pilot 4 awakening_events.jsonl file.",
+    )
+    awakening_parser.add_argument("output", type=Path, help="awakening_events.jsonl path.")
+    awakening_parser.add_argument("--event-type", default="awakening")
+    awakening_parser.add_argument("--notes", default="")
+    awakening_parser.add_argument("--timestamp-utc", default="")
+
     list_cues_parser = subparsers.add_parser("list-cues", help="List cues from a cue metadata library.")
     list_cues_parser.add_argument("input", type=Path, help="Input cue library .json path.")
     list_cues_parser.add_argument("--protocol", choices=("puzzle", "tlr", "test", "generic"))
@@ -443,6 +494,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return _validate_pilot2_calibration(args)
     if args.command == "simulate-replay-cues":
         return asyncio.run(_simulate_replay_cues(args))
+    if args.command == "run-pilot4-cueing":
+        return asyncio.run(_run_pilot4_cueing(args))
+    if args.command == "log-pilot4-awakening":
+        return _log_pilot4_awakening(args)
     if args.command == "list-cues":
         return _list_cues(args)
     if args.command == "create-tlr-cue":
@@ -840,6 +895,103 @@ async def _simulate_replay_cues(args: argparse.Namespace) -> int:
     if scheduler_events_output is not None:
         print(f"scheduler_events={scheduler_events_output}")
     return 0 if report.passed else 1
+
+
+async def _run_pilot4_cueing(args: argparse.Namespace) -> int:
+    from muse_tmr.audio import load_cue_library, load_volume_calibrations
+    from muse_tmr.features import EpochConfig
+    from muse_tmr.models import RemGateConfig
+    from muse_tmr.protocol import (
+        TmrSchedulerConfig,
+        load_night_puzzle_session,
+        load_puzzle_catalog,
+        load_puzzle_cue_assignment,
+    )
+    from muse_tmr.protocol.arousal_guard import ArousalGuardConfig
+    from muse_tmr.validation import Pilot4CueingConfig, run_pilot4_cueing_night
+
+    duration_seconds = (
+        args.duration_seconds
+        if args.duration_seconds is not None
+        else args.duration_hours * 3600
+    )
+    store = load_volume_calibrations(_resolve_output_path(args.calibration))
+    calibration = (
+        store.latest_for_device(args.device_name)
+        if args.device_name is not None
+        else store.latest()
+    )
+    output_dir = _resolve_output_dir(args.output_dir)
+    config = Pilot4CueingConfig(
+        output_dir=output_dir,
+        duration_seconds=duration_seconds,
+        source_name=args.source,
+        allow_short=args.allow_short,
+        hard_max_volume=args.hard_max_volume,
+        default_volume=args.default_volume,
+        fade_in_seconds=args.fade_in_seconds,
+        fade_out_seconds=args.fade_out_seconds,
+        audio_backend_name=args.backend,
+        emergency_stop_path=(
+            _resolve_output_path(args.emergency_stop_file)
+            if args.emergency_stop_file is not None
+            else None
+        ),
+        epoch_config=EpochConfig(
+            epoch_seconds=args.epoch_seconds,
+            stride_seconds=args.stride_seconds,
+        ),
+        gate_config=RemGateConfig(
+            enter_threshold=args.enter_threshold,
+            exit_threshold=args.exit_threshold,
+            min_stable_seconds=args.min_stable_seconds,
+            epoch_seconds=args.epoch_seconds,
+            cooldown_seconds=args.gate_cooldown_seconds,
+        ),
+        scheduler_config=TmrSchedulerConfig(
+            puzzle_cue_interval_seconds=args.puzzle_cue_interval_seconds,
+            cooldown_seconds=args.scheduler_cooldown_seconds,
+            max_puzzle_cues_per_block=args.max_puzzle_cues_per_block,
+            enable_tlr_block=False,
+        ),
+        arousal_guard_config=ArousalGuardConfig(),
+    )
+    source = _build_source(args, duration_seconds=int(duration_seconds))
+    summary = await run_pilot4_cueing_night(
+        source,
+        config=config,
+        catalog=load_puzzle_catalog(_resolve_output_path(args.catalog)),
+        session=load_night_puzzle_session(_resolve_output_path(args.session)),
+        assignment=load_puzzle_cue_assignment(_resolve_output_path(args.assignment)),
+        cue_library=load_cue_library(_resolve_output_path(args.cue_library)),
+        calibration=calibration,
+    )
+    print(
+        "pilot4 cueing complete "
+        f"passed={summary.passed} "
+        f"epochs={summary.epoch_count} "
+        f"scheduler_play={summary.cue_play_count} "
+        f"audio_status={dict(summary.audio_status_counts)} "
+        f"max_effective_volume={summary.max_effective_volume} "
+        f"emergency_stop={summary.emergency_stop_path} "
+        f"summary={summary.summary_path}"
+    )
+    return 0 if summary.passed else 1
+
+
+def _log_pilot4_awakening(args: argparse.Namespace) -> int:
+    from muse_tmr.validation import AwakeningEvent, append_awakening_event
+
+    output_path = append_awakening_event(
+        _resolve_output_path(args.output),
+        AwakeningEvent(
+            event_type=args.event_type,
+            timestamp_utc=args.timestamp_utc,
+            notes=args.notes,
+        ),
+    )
+    print(f"awakening event logged output={output_path}")
+    return 0
 
 
 def _list_cues(args: argparse.Namespace) -> int:

@@ -26,6 +26,12 @@ change, and artifact-quality proxies before scheduler decisions. Its conservativ
 defaults can lower volume, pause cueing with cooldown, or stop the session plan, and
 each decision is JSONL-loggable for replay review.
 
+`muse-tmr run-pilot4-cueing` is the first command intended for sleep-time cueing.
+It requires a volume calibration file, defaults to the non-audible `dry-run` backend,
+and only uses real audio when an operator explicitly selects a backend such as
+`system`. Its output directory includes scheduler, arousal, audio, awakening, and
+emergency-stop artifacts for post-run review.
+
 Cue libraries must validate private sound-file availability before a sleep session.
 Missing cue files should block the session plan rather than failing after the subject
 is asleep.
