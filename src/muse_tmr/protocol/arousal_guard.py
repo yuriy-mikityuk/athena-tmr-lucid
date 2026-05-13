@@ -264,6 +264,11 @@ class ArousalGuard:
         alpha_power = float(eeg.relative_band_powers.get("alpha", math.nan))
         metadata["relative_alpha_power"] = alpha_power
         metadata["eeg_coverage"] = eeg.eeg_coverage
+        if eeg.channel_diagnostics:
+            metadata["eeg_channel_diagnostics"] = {
+                channel: dict(diagnostics)
+                for channel, diagnostics in sorted(eeg.channel_diagnostics.items())
+            }
         if math.isfinite(alpha_power):
             if alpha_power >= self.config.alpha_pause_relative_power:
                 pause_reasons.append("alpha_arousal_proxy")

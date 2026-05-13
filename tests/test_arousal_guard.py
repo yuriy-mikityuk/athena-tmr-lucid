@@ -100,6 +100,28 @@ class TestArousalGuard(unittest.TestCase):
         self.assertIn("repeated_artifact_quality", second.reason_codes)
         self.assertIn("eeg_artifact_flags", second.reason_codes)
 
+    def test_eeg_channel_diagnostics_are_logged_for_artifacts(self):
+        decision = ArousalGuard().evaluate(
+            timestamp_seconds=0.0,
+            eeg=_eeg(
+                artifact_flags=("eeg_clipping_AF7",),
+                channel_diagnostics={
+                    "AF7": {
+                        "max_uv": 760.0,
+                        "median_uv": 725.0,
+                        "centered_abs_max_uv": 35.0,
+                    }
+                },
+            ),
+        )
+
+        self.assertEqual(decision.action, "lower_volume")
+        self.assertIn("eeg_channel_diagnostics", decision.metadata)
+        self.assertEqual(
+            decision.metadata["eeg_channel_diagnostics"]["AF7"]["centered_abs_max_uv"],
+            35.0,
+        )
+
     def test_config_rejects_unordered_alpha_thresholds(self):
         with self.assertRaises(ValueError):
             ArousalGuardConfig(
@@ -108,7 +130,7 @@ class TestArousalGuard(unittest.TestCase):
             ).validate()
 
 
-def _eeg(alpha=0.10, artifact_flags=()):
+def _eeg(alpha=0.10, artifact_flags=(), channel_diagnostics=None):
     return EEGFeatureRow(
         epoch_index=1,
         start_time=0.0,
@@ -124,6 +146,7 @@ def _eeg(alpha=0.10, artifact_flags=()):
         eye_movement_proxy=0.0,
         artifact_flags=artifact_flags,
         quality_flags=(),
+        channel_diagnostics=channel_diagnostics or {},
     )
 
 

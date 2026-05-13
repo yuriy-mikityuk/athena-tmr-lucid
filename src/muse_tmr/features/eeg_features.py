@@ -28,6 +28,7 @@ class EEGFeatureConfig:
     sample_rate_hz: float = 256.0
     bands: Mapping[str, Tuple[float, float]] = field(default_factory=lambda: dict(EEG_BANDS))
     artifact_abs_uv_threshold: float = 500.0
+    artifact_clipping_fraction_threshold: float = 0.05
     flat_std_uv_threshold: float = 1e-6
     min_eeg_coverage: float = 0.5
     frontal_channels: Tuple[str, str] = ("AF7", "AF8")
@@ -38,6 +39,8 @@ class EEGFeatureConfig:
             raise ValueError("sample_rate_hz must be positive")
         if not 0 <= self.min_eeg_coverage <= 1:
             raise ValueError("min_eeg_coverage must be between 0 and 1")
+        if not 0 < self.artifact_clipping_fraction_threshold <= 1:
+            raise ValueError("artifact_clipping_fraction_threshold must be inside (0, 1]")
         for band_name, (low_hz, high_hz) in self.bands.items():
             if low_hz < 0 or high_hz <= low_hz:
                 raise ValueError(f"invalid EEG band {band_name}")
@@ -59,6 +62,7 @@ class EEGFeatureRow:
     eye_movement_proxy: float
     artifact_flags: Tuple[str, ...]
     quality_flags: Tuple[str, ...]
+    channel_diagnostics: Mapping[str, Mapping[str, float]] = field(default_factory=dict)
 
     @property
     def is_noisy(self) -> bool:
@@ -79,6 +83,9 @@ class EEGFeatureRow:
         }
         for channel, count in sorted(self.channel_sample_counts.items()):
             payload[f"channel_samples_{channel}"] = count
+        for channel, diagnostics in sorted(self.channel_diagnostics.items()):
+            for name, value in sorted(diagnostics.items()):
+                payload[f"channel_{channel}_{name}"] = value
         for band, value in sorted(self.band_powers.items()):
             payload[f"band_power_{band}"] = value
         for band, value in sorted(self.relative_band_powers.items()):
@@ -102,8 +109,10 @@ def extract_eeg_features(
     sample_count = max(channel_sample_counts.values(), default=0)
     eeg_coverage = float(epoch.coverage.get("eeg", 0.0))
     quality_flags = tuple(flag for flag in epoch.quality_flags if "eeg" in flag)
+    channel_diagnostics = _channel_diagnostics(channels, config)
     artifact_flags = _artifact_flags(
         channels=channels,
+        channel_diagnostics=channel_diagnostics,
         eeg_coverage=eeg_coverage,
         quality_flags=quality_flags,
         config=config,
@@ -139,6 +148,7 @@ def extract_eeg_features(
         eye_movement_proxy=eye_movement_proxy,
         artifact_flags=artifact_flags,
         quality_flags=quality_flags,
+        channel_diagnostics=channel_diagnostics,
     )
 
 
@@ -300,6 +310,7 @@ def _eye_movement_proxy(
 
 def _artifact_flags(
     channels: Mapping[str, np.ndarray],
+    channel_diagnostics: Mapping[str, Mapping[str, float]],
     eeg_coverage: float,
     quality_flags: Tuple[str, ...],
     config: EEGFeatureConfig,
@@ -319,11 +330,57 @@ def _artifact_flags(
         if finite.size == 0:
             flags.add(f"eeg_nonfinite_{channel}")
             continue
-        if float(np.max(np.abs(finite))) >= config.artifact_abs_uv_threshold:
+        diagnostics = channel_diagnostics.get(channel, {})
+        over_threshold_fraction = float(
+            diagnostics.get("centered_abs_over_threshold_fraction", math.nan)
+        )
+        if (
+            math.isfinite(over_threshold_fraction)
+            and over_threshold_fraction >= config.artifact_clipping_fraction_threshold
+        ):
             flags.add(f"eeg_clipping_{channel}")
         if float(np.std(finite)) <= config.flat_std_uv_threshold:
             flags.add(f"eeg_flatline_{channel}")
     return tuple(sorted(flags))
+
+
+def _channel_diagnostics(
+    channels: Mapping[str, np.ndarray],
+    config: EEGFeatureConfig,
+) -> Mapping[str, Mapping[str, float]]:
+    diagnostics: Dict[str, Mapping[str, float]] = {}
+    for channel, values in channels.items():
+        finite = values[np.isfinite(values)]
+        if finite.size == 0:
+            diagnostics[channel] = {
+                "finite_sample_count": 0.0,
+                "min_uv": math.nan,
+                "max_uv": math.nan,
+                "mean_uv": math.nan,
+                "median_uv": math.nan,
+                "peak_to_peak_uv": math.nan,
+                "centered_abs_max_uv": math.nan,
+                "centered_abs_p95_uv": math.nan,
+                "centered_abs_over_threshold_fraction": math.nan,
+            }
+            continue
+
+        median = float(np.median(finite))
+        centered_abs = np.abs(finite - median)
+        diagnostics[channel] = {
+            "finite_sample_count": float(finite.size),
+            "min_uv": float(np.min(finite)),
+            "max_uv": float(np.max(finite)),
+            "mean_uv": float(np.mean(finite)),
+            "median_uv": median,
+            "peak_to_peak_uv": float(np.ptp(finite)),
+            "centered_abs_max_uv": float(np.max(centered_abs)),
+            "centered_abs_p95_uv": float(np.percentile(centered_abs, 95)),
+            "centered_abs_over_threshold_fraction": float(
+                np.mean(centered_abs >= config.artifact_abs_uv_threshold)
+            ),
+        }
+    return diagnostics
 
 
 def _safe_sum(values: Iterable[float]) -> float:
