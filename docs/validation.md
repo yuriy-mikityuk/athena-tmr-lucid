@@ -27,4 +27,9 @@ Morning retest results should cover every generated session puzzle. Solved/unsol
 duration, confidence, and stored cue condition are the minimum fields needed before
 cued-vs-uncued analysis.
 
+Cued-vs-uncued analysis should keep raw report text out of summary metrics, preserve
+per-puzzle rows for auditability, and report cue timing from scheduler logs when
+available. Treat solve-rate and incorporation-rate deltas as descriptive until repeated
+sessions provide enough samples per condition.
+
 All reports must include limitations, especially small sample sizes and the difference between consumer EEG and laboratory PSG scoring.

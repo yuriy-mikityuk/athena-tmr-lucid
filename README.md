@@ -410,6 +410,22 @@ duration, confidence, cue ID, blind order, and `cue_condition` (`cued` or `uncue
 from the assignment for later analysis. During administration, do not reveal the
 cued/uncued condition to the subject.
 
+M6 cued-vs-uncued analysis:
+
+```bash
+muse-tmr analyze-cued-uncued data/protocol/night-001_puzzles.json \
+  --assignment data/protocol/night-001_assignment.json \
+  --retest data/reports/night-001_retest.json \
+  --dream-report data/reports/night-001_dream_report.json \
+  --scheduler-events data/reports/night-001_scheduler.jsonl \
+  --output data/reports/night-001_analysis.json \
+  --markdown-output data/reports/night-001_analysis.md
+```
+
+The analysis report compares cued and uncued solve rates, dream incorporation rates,
+mean retest duration/confidence, and scheduler cue timing. It is intentionally
+descriptive and records limitations such as small sample size or missing cue logs.
+
 > **Finally!** Direct BLE connection to Muse S without proprietary SDKs. We're quite *amused* that we cracked the protocol nobody else has published online!
 
 ## 🎉 The Real Story

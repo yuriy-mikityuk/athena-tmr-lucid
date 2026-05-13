@@ -149,6 +149,30 @@ muse-tmr record-puzzle-retest data/protocol/night-001_puzzles.json \
 The retest should remain blind during administration: do not reveal which puzzles were
 cued. The output stores `cue_condition` only for later analysis.
 
+## Cued-vs-Uncued Analysis
+
+`muse_tmr.reports.analysis` combines the generated night puzzle session, cue assignment,
+morning retest, optional dream report, and optional scheduler JSONL events into a
+descriptive analysis report. It reports cued vs uncued solve rates, dream incorporation
+rates, retest duration/confidence, and puzzle cue timing from `TmrSchedulerEvent`
+records.
+
+The CLI command is:
+
+```bash
+muse-tmr analyze-cued-uncued data/protocol/night-001_puzzles.json \
+  --assignment data/protocol/night-001_assignment.json \
+  --retest data/reports/night-001_retest.json \
+  --dream-report data/reports/night-001_dream_report.json \
+  --scheduler-events data/reports/night-001_scheduler.jsonl \
+  --output data/reports/night-001_analysis.json \
+  --markdown-output data/reports/night-001_analysis.md
+```
+
+Reports must be interpreted as exploratory home-run data, not statistical proof. The
+JSON output includes limitations such as `small_n`, missing dream report, missing
+scheduler events, missing cued timing, or any accidental uncued cue play.
+
 Association checks compare a remembered response with the expected solution using a
 case-insensitive whitespace-normalized match and append the result to the night session
 metadata.
