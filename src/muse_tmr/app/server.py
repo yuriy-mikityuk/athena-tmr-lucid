@@ -133,6 +133,8 @@ class LocalMuseAppState:
                 devices = tuple(_device_to_dict(device) for device in asyncio.run(self._amused_source().discover()))
             with self._lock:
                 self._devices = devices
+                self._connection_state = "disconnected"
+                self._error_message = None if devices else "No Muse devices found"
                 return self._state_unlocked(extra={"devices": list(devices)})
         except Exception as exc:
             self._set_state("error", error_message=str(exc))

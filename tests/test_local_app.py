@@ -3,6 +3,7 @@ import threading
 import unittest
 import urllib.request
 import urllib.error
+from unittest.mock import AsyncMock, patch
 
 from muse_tmr.app import AppConfig, create_local_app_server
 
@@ -76,7 +77,7 @@ class TestLocalMuseApp(unittest.TestCase):
         contact = self.get_json("/api/muse/contact")
         disconnected = self.post_json("/api/muse/disconnect")
 
-        self.assertEqual(scanned["connection_state"], "scanning")
+        self.assertEqual(scanned["connection_state"], "disconnected")
         self.assertEqual(scanned["devices"][0]["address"], "mock://muse-s")
         self.assertEqual(connected["connection_state"], "connected")
         self.assertEqual(connected["device"]["name"], "Muse Mock Headband")
@@ -134,6 +135,37 @@ class TestLocalMuseAppReadyGate(unittest.TestCase):
         self.assertTrue(armed["ready"])
         self.assertEqual(started["state"], "starting")
         self.assertTrue(started["ready"])
+
+
+class TestLocalMuseAppAmusedScan(unittest.TestCase):
+    def test_empty_live_scan_returns_disconnected_error_without_sticking_scanning(self):
+        with patch(
+            "muse_tmr.sources.amused_source.AmusedSource.discover",
+            new_callable=AsyncMock,
+        ) as discover:
+            discover.return_value = []
+            server = create_local_app_server(AppConfig(port=0, source="amused"))
+            thread = threading.Thread(target=server.serve_forever)
+            thread.start()
+            host, port = server.server_address
+            base_url = f"http://{host}:{port}"
+            try:
+                request = urllib.request.Request(
+                    f"{base_url}/api/muse/scan",
+                    data=b"",
+                    method="POST",
+                )
+                with urllib.request.urlopen(request, timeout=2) as response:
+                    scanned = json.loads(response.read().decode("utf-8"))
+
+                self.assertEqual(scanned["connection_state"], "disconnected")
+                self.assertEqual(scanned["devices"], [])
+                self.assertEqual(scanned["error_message"], "No Muse devices found")
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.app_state.shutdown()
+                server.server_close()
 
 
 if __name__ == "__main__":

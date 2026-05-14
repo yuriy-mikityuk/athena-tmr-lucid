@@ -74,6 +74,7 @@ class AmusedSource(BaseMuseSource):
 
         self._queue: asyncio.Queue[MuseFrame] = asyncio.Queue(maxsize=queue_size)
         self._stream_task: Optional[asyncio.Task] = None
+        self._stream_loop: Optional[asyncio.AbstractEventLoop] = None
         self._stop_requested = False
 
     async def discover(self) -> Sequence[MuseDeviceInfo]:
@@ -130,6 +131,7 @@ class AmusedSource(BaseMuseSource):
             await self.connect()
 
         if self._stream_task is None or self._stream_task.done():
+            self._stream_loop = asyncio.get_running_loop()
             self._stream_task = asyncio.create_task(self._run_client())
 
         while not self._stop_requested:
@@ -146,12 +148,17 @@ class AmusedSource(BaseMuseSource):
     async def stop(self) -> None:
         self._stop_requested = True
         if self._stream_task and not self._stream_task.done():
-            self._stream_task.cancel()
-            try:
-                await self._stream_task
-            except asyncio.CancelledError:
-                pass
+            current_loop = asyncio.get_running_loop()
+            if self._stream_loop is current_loop:
+                self._stream_task.cancel()
+                try:
+                    await self._stream_task
+                except asyncio.CancelledError:
+                    pass
+            elif self._stream_loop and self._stream_loop.is_running():
+                self._stream_loop.call_soon_threadsafe(self._stream_task.cancel)
         self._stream_task = None
+        self._stream_loop = None
 
     async def _run_client(self) -> None:
         assert self.client is not None

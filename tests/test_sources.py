@@ -1,6 +1,7 @@
 import asyncio
 import datetime as dt
 import subprocess
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -111,6 +112,41 @@ class TestSources(unittest.IsolatedAsyncioTestCase):
         ):
             with self.assertRaisesRegex(RuntimeError, "Muse BLE discovery crashed"):
                 await source.discover()
+
+    async def test_amused_stop_cancels_stream_task_from_another_loop(self):
+        source = AmusedSource(verbose=False)
+        ready = threading.Event()
+        stopped = threading.Event()
+        task_holder = {}
+
+        async def sleeper():
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                stopped.set()
+                raise
+
+        def run_loop():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            task_holder["loop"] = loop
+            task_holder["task"] = loop.create_task(sleeper())
+            ready.set()
+            loop.run_forever()
+            loop.close()
+
+        thread = threading.Thread(target=run_loop)
+        thread.start()
+        ready.wait(timeout=2)
+        source._stream_loop = task_holder["loop"]
+        source._stream_task = task_holder["task"]
+
+        await source.stop()
+
+        self.assertTrue(source._stop_requested)
+        self.assertTrue(stopped.wait(timeout=2))
+        task_holder["loop"].call_soon_threadsafe(task_holder["loop"].stop)
+        thread.join(timeout=2)
 
 
 if __name__ == "__main__":
