@@ -4,10 +4,12 @@ const deviceSummary = document.querySelector("#device-summary");
 const errorBox = document.querySelector("#error-box");
 const scanButton = document.querySelector("#scan-button");
 const connectButton = document.querySelector("#connect-button");
+const startButton = document.querySelector("#start-button");
 const disconnectButton = document.querySelector("#disconnect-button");
 const contactSummary = document.querySelector("#contact-summary");
 const contactList = document.querySelector("#contact-list");
 const allGoodCheck = document.querySelector("#all-good-check");
+const gateSummary = document.querySelector("#gate-summary");
 
 const contactChannels = ["TP9", "AF7", "AF8", "TP10"];
 
@@ -110,24 +112,52 @@ async function refreshContact() {
   renderContact(await requestJson("/api/muse/contact"));
 }
 
+function renderGate(gate) {
+  const stableFor = Number(gate.stable_for_seconds || 0).toFixed(1);
+  const required = Number(gate.required_stability_seconds || 0).toFixed(1);
+  if (gate.state === "ready" || gate.state === "starting") {
+    gateSummary.textContent = "Contact gate ready";
+  } else if (gate.armed) {
+    gateSummary.textContent = `Waiting for stable contact: ${stableFor}s / ${required}s`;
+  } else if (gate.state === "running") {
+    gateSummary.textContent = "Session running; contact drops are warnings only";
+  } else {
+    gateSummary.textContent = "Contact gate idle";
+  }
+  startButton.disabled = gate.state === "starting" || gate.state === "running";
+}
+
+async function refreshGate() {
+  renderGate(await requestJson("/api/muse/gate"));
+}
+
 scanButton.addEventListener("click", async () => {
   renderState({ connection_state: "scanning", source: sourceLabel.textContent });
   renderState(await requestJson("/api/muse/scan", { method: "POST" }));
   await refreshContact();
+  await refreshGate();
 });
 
 connectButton.addEventListener("click", async () => {
   renderState({ connection_state: "connecting", source: sourceLabel.textContent });
   renderState(await requestJson("/api/muse/connect", { method: "POST" }));
   await refreshContact();
+  await refreshGate();
+});
+
+startButton.addEventListener("click", async () => {
+  renderGate(await requestJson("/api/muse/start-when-ready", { method: "POST" }));
 });
 
 disconnectButton.addEventListener("click", async () => {
   renderState(await requestJson("/api/muse/disconnect", { method: "POST" }));
   await refreshContact();
+  await refreshGate();
 });
 
 refreshState();
 refreshContact();
+refreshGate();
 window.setInterval(refreshState, 2000);
 window.setInterval(refreshContact, 1000);
+window.setInterval(refreshGate, 1000);

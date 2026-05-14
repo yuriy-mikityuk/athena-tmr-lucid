@@ -46,6 +46,15 @@ class ContactQualityConfig:
 
 
 @dataclass(frozen=True)
+class ContactGateConfig:
+    required_stability_seconds: float = 5.0
+
+    def validate(self) -> None:
+        if self.required_stability_seconds < 0:
+            raise ValueError("required_stability_seconds must be non-negative")
+
+
+@dataclass(frozen=True)
 class ChannelContactState:
     channel: str
     status: str
@@ -276,6 +285,196 @@ class ContactQualityMonitor:
             status = "good"
 
         return _state(channel, status, fill, coverage, sample_count, tuple(sorted(set(reasons))))
+
+
+@dataclass(frozen=True)
+class ContactGateState:
+    state: str
+    all_good: bool
+    stable_for_seconds: float
+    required_stability_seconds: float
+    armed: bool
+    ready: bool
+    reason_codes: Tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "state", str(self.state))
+        object.__setattr__(self, "all_good", bool(self.all_good))
+        object.__setattr__(self, "stable_for_seconds", max(0.0, float(self.stable_for_seconds)))
+        object.__setattr__(
+            self,
+            "required_stability_seconds",
+            max(0.0, float(self.required_stability_seconds)),
+        )
+        object.__setattr__(self, "armed", bool(self.armed))
+        object.__setattr__(self, "ready", bool(self.ready))
+        object.__setattr__(self, "reason_codes", tuple(str(code) for code in self.reason_codes))
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "state": self.state,
+            "all_good": self.all_good,
+            "stable_for_seconds": self.stable_for_seconds,
+            "required_stability_seconds": self.required_stability_seconds,
+            "armed": self.armed,
+            "ready": self.ready,
+            "reason_codes": list(self.reason_codes),
+        }
+
+
+class ContactGate:
+    """Backend-enforced pre-session contact gate."""
+
+    def __init__(
+        self,
+        config: Optional[ContactGateConfig] = None,
+        time_fn=time.time,
+    ) -> None:
+        self.config = config or ContactGateConfig()
+        self.config.validate()
+        self.time_fn = time_fn
+        self.armed = False
+        self.ready = False
+        self.running = False
+        self._stable_since: Optional[float] = None
+        self._last_state = ContactGateState(
+            state="disconnected",
+            all_good=False,
+            stable_for_seconds=0.0,
+            required_stability_seconds=self.config.required_stability_seconds,
+            armed=False,
+            ready=False,
+            reason_codes=("not_connected",),
+        )
+
+    def arm(
+        self,
+        snapshot: ContactQualitySnapshot,
+        now_seconds: Optional[float] = None,
+    ) -> ContactGateState:
+        self.armed = True
+        self.ready = False
+        self.running = False
+        self._stable_since = None
+        return self.update(snapshot, now_seconds=now_seconds)
+
+    def disarm(self) -> ContactGateState:
+        self.armed = False
+        self.ready = False
+        self.running = False
+        self._stable_since = None
+        self._last_state = ContactGateState(
+            state="connected_contact_check",
+            all_good=False,
+            stable_for_seconds=0.0,
+            required_stability_seconds=self.config.required_stability_seconds,
+            armed=False,
+            ready=False,
+            reason_codes=("gate_disarmed",),
+        )
+        return self._last_state
+
+    def update(
+        self,
+        snapshot: ContactQualitySnapshot,
+        now_seconds: Optional[float] = None,
+    ) -> ContactGateState:
+        now = float(self.time_fn() if now_seconds is None else now_seconds)
+        all_good = snapshot.all_good
+        reasons = _gate_reasons(snapshot)
+
+        if self.running:
+            state_reasons = tuple(reasons + (("in_session_contact_warning",) if reasons else ()))
+            self._last_state = ContactGateState(
+                state="running",
+                all_good=all_good,
+                stable_for_seconds=self._stable_for(now),
+                required_stability_seconds=self.config.required_stability_seconds,
+                armed=True,
+                ready=True,
+                reason_codes=state_reasons,
+            )
+            return self._last_state
+
+        if not self.armed:
+            state = "connected_contact_check" if snapshot.connection_state == "connected" else snapshot.connection_state
+            self._stable_since = now if all_good else None
+            self._last_state = ContactGateState(
+                state=state,
+                all_good=all_good,
+                stable_for_seconds=self._stable_for(now) if all_good else 0.0,
+                required_stability_seconds=self.config.required_stability_seconds,
+                armed=False,
+                ready=False,
+                reason_codes=tuple(reasons or ["gate_disarmed"]),
+            )
+            return self._last_state
+
+        if not all_good:
+            self.ready = False
+            self._stable_since = None
+            self._last_state = ContactGateState(
+                state="armed_waiting_contact",
+                all_good=False,
+                stable_for_seconds=0.0,
+                required_stability_seconds=self.config.required_stability_seconds,
+                armed=True,
+                ready=False,
+                reason_codes=tuple(reasons or ["contact_not_good"]),
+            )
+            return self._last_state
+
+        if self._stable_since is None:
+            self._stable_since = now
+        stable_for = self._stable_for(now)
+        self.ready = stable_for >= self.config.required_stability_seconds
+        self._last_state = ContactGateState(
+            state="ready" if self.ready else "ready_countdown",
+            all_good=True,
+            stable_for_seconds=stable_for,
+            required_stability_seconds=self.config.required_stability_seconds,
+            armed=True,
+            ready=self.ready,
+            reason_codes=() if self.ready else ("stability_window_pending",),
+        )
+        return self._last_state
+
+    def start(
+        self,
+        snapshot: ContactQualitySnapshot,
+        now_seconds: Optional[float] = None,
+    ) -> ContactGateState:
+        state = self.update(snapshot, now_seconds=now_seconds)
+        if not state.ready:
+            self._last_state = ContactGateState(
+                state="blocked_contact",
+                all_good=state.all_good,
+                stable_for_seconds=state.stable_for_seconds,
+                required_stability_seconds=state.required_stability_seconds,
+                armed=state.armed,
+                ready=False,
+                reason_codes=tuple(sorted(set(state.reason_codes + ("contact_gate_not_ready",)))),
+            )
+            return self._last_state
+        self.running = True
+        self._last_state = ContactGateState(
+            state="starting",
+            all_good=state.all_good,
+            stable_for_seconds=state.stable_for_seconds,
+            required_stability_seconds=state.required_stability_seconds,
+            armed=True,
+            ready=True,
+            reason_codes=(),
+        )
+        return self._last_state
+
+    def state(self) -> ContactGateState:
+        return self._last_state
+
+    def _stable_for(self, now_seconds: float) -> float:
+        if self._stable_since is None:
+            return 0.0
+        return max(0.0, now_seconds - self._stable_since)
 
 
 class MockContactProvider:
@@ -523,10 +722,28 @@ def _clipping_fraction(values: Sequence[float], threshold: float) -> float:
     return clipped / len(values)
 
 
+def _gate_reasons(snapshot: ContactQualitySnapshot) -> Tuple[str, ...]:
+    reasons = []
+    if snapshot.connection_state == "disconnected":
+        reasons.append("disconnected")
+    elif snapshot.connection_state != "connected":
+        reasons.append(snapshot.connection_state)
+    if snapshot.stale:
+        reasons.append("stale_contact")
+    for channel in snapshot.required_channels:
+        state = snapshot.channels.get(channel, _missing_channel(channel))
+        if state.status != "good":
+            reasons.append(f"{channel.lower()}_{state.status}")
+    return tuple(sorted(set(reasons)))
+
+
 __all__ = [
     "CONTACT_STATUSES",
     "REQUIRED_CONTACT_CHANNELS",
     "ChannelContactState",
+    "ContactGate",
+    "ContactGateConfig",
+    "ContactGateState",
     "ContactQualityConfig",
     "ContactQualityMonitor",
     "ContactQualitySnapshot",

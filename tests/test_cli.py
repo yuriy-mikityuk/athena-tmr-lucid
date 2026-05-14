@@ -34,6 +34,7 @@ class TestCli(unittest.TestCase):
         self.assertEqual(args.host, "127.0.0.1")
         self.assertEqual(args.port, 8765)
         self.assertEqual(args.mock_scenario, "all_good")
+        self.assertEqual(args.contact_stability_seconds, 5.0)
 
     def test_app_command_parses_amused_address_and_explicit_host(self):
         args = build_parser().parse_args([

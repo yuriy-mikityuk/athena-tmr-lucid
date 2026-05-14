@@ -17,7 +17,10 @@ from typing import Any, Dict, Mapping, Optional, Sequence
 from urllib.parse import parse_qs, urlparse
 
 from muse_tmr.contact import (
+    ContactGate,
+    ContactGateConfig,
     ContactQualityMonitor,
+    ContactQualitySnapshot,
     MockContactProvider,
     available_mock_contact_scenarios,
     builtin_contact_snapshots,
@@ -36,6 +39,7 @@ class AppConfig:
     preset: str = "p1034"
     mock_scenario: str = "mixed_fair_good"
     mock_interval_seconds: float = 1.0
+    gate_stability_seconds: float = 5.0
 
     def validate(self) -> None:
         if self.source not in {"mock", "amused"}:
@@ -46,6 +50,8 @@ class AppConfig:
             raise ValueError(f"unknown mock contact scenario: {self.mock_scenario}")
         if self.mock_interval_seconds < 0:
             raise ValueError("mock_interval_seconds must be non-negative")
+        if self.gate_stability_seconds < 0:
+            raise ValueError("gate_stability_seconds must be non-negative")
 
 
 class LocalMuseAppState:
@@ -75,6 +81,10 @@ class LocalMuseAppState:
             if config.source != "mock"
             else None
         )
+        self._contact_gate = ContactGate(
+            ContactGateConfig(required_stability_seconds=config.gate_stability_seconds)
+        )
+        self._last_contact_snapshot = None
 
     def health(self) -> Mapping[str, Any]:
         return {
@@ -89,16 +99,24 @@ class LocalMuseAppState:
 
     def contact(self) -> Mapping[str, Any]:
         with self._lock:
-            if self._contact_provider is not None:
-                return self._contact_provider.next_snapshot().to_dict()
-            if self._contact_monitor is not None:
-                return self._contact_monitor.snapshot(
-                    connection_state=self._connection_state,
-                ).to_dict()
-            snapshot = builtin_contact_snapshots("all_missing")[0].to_dict()
-            snapshot["source"] = self.config.source
-            snapshot["connection_state"] = self._connection_state
-            return snapshot
+            snapshot = self._contact_snapshot_unlocked(advance_mock=True)
+            self._contact_gate.update(snapshot)
+            return snapshot.to_dict()
+
+    def gate(self) -> Mapping[str, Any]:
+        with self._lock:
+            snapshot = self._contact_snapshot_unlocked(advance_mock=False)
+            return self._contact_gate.update(snapshot).to_dict()
+
+    def arm_gate(self) -> Mapping[str, Any]:
+        with self._lock:
+            snapshot = self._contact_snapshot_unlocked(advance_mock=False)
+            return self._contact_gate.arm(snapshot).to_dict()
+
+    def start_session(self) -> Mapping[str, Any]:
+        with self._lock:
+            snapshot = self._contact_snapshot_unlocked(advance_mock=False)
+            return self._contact_gate.start(snapshot).to_dict()
 
     def scan(self) -> Mapping[str, Any]:
         self._set_state("scanning", error_message=None)
@@ -211,6 +229,25 @@ class LocalMuseAppState:
             )
         return self._source
 
+    def _contact_snapshot_unlocked(self, advance_mock: bool):
+        if self._contact_provider is not None:
+            if advance_mock or self._last_contact_snapshot is None:
+                self._last_contact_snapshot = self._contact_provider.next_snapshot()
+            if self._connection_state != "connected":
+                missing = builtin_contact_snapshots("all_missing")[0].to_dict()
+                missing["source"] = self.config.source
+                missing["connection_state"] = self._connection_state
+                return ContactQualitySnapshot.from_dict(missing)
+            return self._last_contact_snapshot
+        if self._contact_monitor is not None:
+            self._last_contact_snapshot = self._contact_monitor.snapshot(
+                connection_state=self._connection_state,
+            )
+            return self._last_contact_snapshot
+        snapshot = builtin_contact_snapshots("all_missing")[0]
+        self._last_contact_snapshot = snapshot
+        return snapshot
+
     def _start_contact_stream(self, source) -> None:
         if self._contact_monitor is None:
             return
@@ -272,6 +309,9 @@ class LocalMuseAppHandler(BaseHTTPRequestHandler):
         if path == "/api/muse/contact/stream":
             self._write_contact_stream(parse_qs(parsed.query))
             return
+        if path == "/api/muse/gate":
+            self._write_json(self.server.app_state.gate())
+            return
         self._serve_static()
 
     def do_POST(self) -> None:
@@ -283,6 +323,14 @@ class LocalMuseAppHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/api/muse/disconnect":
             self._write_json(self.server.app_state.disconnect())
+            return
+        if self.path == "/api/muse/start-when-ready":
+            self._write_json(self.server.app_state.arm_gate())
+            return
+        if self.path == "/api/session/start":
+            state = self.server.app_state.start_session()
+            status = HTTPStatus.OK if state.get("ready") else HTTPStatus.CONFLICT
+            self._write_json(state, status=status)
             return
         self.send_error(HTTPStatus.NOT_FOUND, "unknown app endpoint")
 

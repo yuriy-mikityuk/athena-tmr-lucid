@@ -240,6 +240,13 @@ button:disabled {
   opacity: 0.55;
 }
 
+.gate-summary {
+  min-height: 24px;
+  margin-top: 14px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
 .error {
   margin-top: 16px;
   color: var(--danger);

@@ -41,6 +41,7 @@ def run_fast_tests():
         'tests.test_ppg_features',
         'tests.test_contact',
         'tests.test_contact_monitor',
+        'tests.test_contact_gate',
         'tests.test_rem_detector',
         'tests.test_rem_annotations',
         'tests.test_personal_rem_classifier',

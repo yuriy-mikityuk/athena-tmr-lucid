@@ -36,6 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Mock contact scenario for local UI development.",
     )
     app_parser.add_argument("--mock-interval-seconds", type=float, default=1.0)
+    app_parser.add_argument("--contact-stability-seconds", type=float, default=5.0)
 
     discover_parser = subparsers.add_parser("discover", help="Discover Muse devices.")
     discover_parser.add_argument("--source", choices=("amused", "openmuse", "sdk"), default="amused")
@@ -603,6 +604,7 @@ def _run_app(args: argparse.Namespace) -> int:
             preset=args.preset,
             mock_scenario=args.mock_scenario,
             mock_interval_seconds=args.mock_interval_seconds,
+            gate_stability_seconds=args.contact_stability_seconds,
         )
     )
 
