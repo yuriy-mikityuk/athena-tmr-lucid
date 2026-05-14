@@ -505,6 +505,17 @@ runs epochs, REM detection, the stable gate, arousal guard, and scheduler on a
 recording with mocked audio. It writes an inspectable cue plan and fails if any uncued
 puzzle receives a scheduler `play` event. No real audio is played.
 
+M10 local Muse contact setup app:
+
+```bash
+muse-tmr app --source mock --host 127.0.0.1 --port 8765
+muse-tmr app --source amused --address "$MUSE_ADDR" --host 127.0.0.1 --port 8765
+```
+
+See `docs/contact_setup_local_app.md` before overnight Pilot sessions. The setup app
+is local-only, tracks `TP9`, `AF7`, `AF8`, and `TP10`, and uses a backend-enforced
+`Start when ready` contact gate before session start.
+
 M8 Pilot 4 low-volume REM-gated cueing:
 
 ```bash
