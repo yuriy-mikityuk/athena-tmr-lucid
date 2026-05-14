@@ -7,14 +7,17 @@ import json
 import mimetypes
 import posixpath
 import threading
+import time
 from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Sequence
+from urllib.parse import parse_qs, urlparse
 
 from muse_tmr.contact import (
+    ContactQualityMonitor,
     MockContactProvider,
     available_mock_contact_scenarios,
     builtin_contact_snapshots,
@@ -56,6 +59,8 @@ class LocalMuseAppState:
         self._error_message: Optional[str] = None
         self._devices: Sequence[Mapping[str, Any]] = ()
         self._source = None
+        self._contact_stop_requested = threading.Event()
+        self._contact_thread: Optional[threading.Thread] = None
         self._contact_provider = (
             MockContactProvider.for_scenario(
                 config.mock_scenario,
@@ -63,6 +68,11 @@ class LocalMuseAppState:
                 loop=True,
             )
             if config.source == "mock"
+            else None
+        )
+        self._contact_monitor = (
+            ContactQualityMonitor(source=config.source)
+            if config.source != "mock"
             else None
         )
 
@@ -81,6 +91,10 @@ class LocalMuseAppState:
         with self._lock:
             if self._contact_provider is not None:
                 return self._contact_provider.next_snapshot().to_dict()
+            if self._contact_monitor is not None:
+                return self._contact_monitor.snapshot(
+                    connection_state=self._connection_state,
+                ).to_dict()
             snapshot = builtin_contact_snapshots("all_missing")[0].to_dict()
             snapshot["source"] = self.config.source
             snapshot["connection_state"] = self._connection_state
@@ -124,14 +138,20 @@ class LocalMuseAppState:
                 self._device_address = metadata.device_id
                 self._connection_state = "connected"
                 self._error_message = None
-                return self._state_unlocked()
+                state = self._state_unlocked()
+            self._start_contact_stream(source)
+            return state
         except Exception as exc:
             self._set_state("error", error_message=str(exc))
             return self.state()
 
     def disconnect(self) -> Mapping[str, Any]:
         source = None
+        thread = None
         with self._lock:
+            self._contact_stop_requested.set()
+            thread = self._contact_thread
+            self._contact_thread = None
             source = self._source
             self._source = None
             self._connection_state = "disconnected"
@@ -140,6 +160,8 @@ class LocalMuseAppState:
             self._error_message = None
         if source is not None:
             asyncio.run(source.stop())
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=2.0)
         return self.state()
 
     def shutdown(self) -> None:
@@ -189,6 +211,33 @@ class LocalMuseAppState:
             )
         return self._source
 
+    def _start_contact_stream(self, source) -> None:
+        if self._contact_monitor is None:
+            return
+        self._contact_stop_requested.clear()
+        thread = threading.Thread(
+            target=self._run_contact_stream,
+            args=(source,),
+            daemon=True,
+        )
+        with self._lock:
+            self._contact_thread = thread
+        thread.start()
+
+    def _run_contact_stream(self, source) -> None:
+        async def consume() -> None:
+            try:
+                async for frame in source.stream():
+                    if self._contact_stop_requested.is_set():
+                        break
+                    with self._lock:
+                        assert self._contact_monitor is not None
+                        self._contact_monitor.update(frame)
+            except Exception as exc:
+                self._set_state("error", error_message=str(exc))
+
+        asyncio.run(consume())
+
 
 class LocalMuseAppServer(ThreadingHTTPServer):
     daemon_threads = True
@@ -209,14 +258,19 @@ class LocalMuseAppHandler(BaseHTTPRequestHandler):
     server: LocalMuseAppServer
 
     def do_GET(self) -> None:
-        if self.path == "/api/health":
+        parsed = urlparse(self.path)
+        path = parsed.path
+        if path == "/api/health":
             self._write_json(self.server.app_state.health())
             return
-        if self.path == "/api/muse/state":
+        if path == "/api/muse/state":
             self._write_json(self.server.app_state.state())
             return
-        if self.path == "/api/muse/contact":
+        if path == "/api/muse/contact":
             self._write_json(self.server.app_state.contact())
+            return
+        if path == "/api/muse/contact/stream":
+            self._write_contact_stream(parse_qs(parsed.query))
             return
         self._serve_static()
 
@@ -242,6 +296,27 @@ class LocalMuseAppHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _write_contact_stream(self, params: Mapping[str, Sequence[str]]) -> None:
+        count = int(params.get("count", ["0"])[0] or "0")
+        interval_seconds = float(params.get("interval", ["1.0"])[0] or "1.0")
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+
+        sent = 0
+        while count <= 0 or sent < count:
+            payload = json.dumps(self.server.app_state.contact(), sort_keys=True)
+            event = f"event: contact\ndata: {payload}\n\n".encode("utf-8")
+            try:
+                self.wfile.write(event)
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                break
+            sent += 1
+            if interval_seconds > 0 and (count <= 0 or sent < count):
+                time.sleep(interval_seconds)
 
     def _serve_static(self) -> None:
         relative_path = self.path.split("?", 1)[0]

@@ -4,12 +4,45 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
+import time
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, Mapping, Sequence, Tuple
+from typing import Any, AsyncIterator, Deque, Dict, Iterable, Mapping, Optional, Sequence, Tuple
+
+from muse_tmr.data.sample_types import MuseFrame
 
 CONTACT_STATUSES = ("missing", "poor", "fair", "good")
 REQUIRED_CONTACT_CHANNELS = ("TP9", "AF7", "AF8", "TP10")
+
+
+@dataclass(frozen=True)
+class ContactQualityConfig:
+    window_seconds: float = 2.0
+    sample_rate_hz: float = 256.0
+    stale_timeout_seconds: float = 3.0
+    fair_fill_threshold: float = 0.35
+    good_fill_threshold: float = 0.80
+    clipping_abs_uv_threshold: float = 500.0
+    clipping_fraction_threshold: float = 0.05
+    flat_std_uv_threshold: float = 1e-6
+
+    def validate(self) -> None:
+        if self.window_seconds <= 0:
+            raise ValueError("window_seconds must be positive")
+        if self.sample_rate_hz <= 0:
+            raise ValueError("sample_rate_hz must be positive")
+        if self.stale_timeout_seconds <= 0:
+            raise ValueError("stale_timeout_seconds must be positive")
+        if not 0 <= self.fair_fill_threshold <= self.good_fill_threshold <= 1:
+            raise ValueError("fill thresholds must satisfy 0 <= fair <= good <= 1")
+        if self.clipping_abs_uv_threshold <= 0:
+            raise ValueError("clipping_abs_uv_threshold must be positive")
+        if not 0 < self.clipping_fraction_threshold <= 1:
+            raise ValueError("clipping_fraction_threshold must be inside (0, 1]")
+        if self.flat_std_uv_threshold < 0:
+            raise ValueError("flat_std_uv_threshold must be non-negative")
 
 
 @dataclass(frozen=True)
@@ -149,6 +182,100 @@ class ContactQualitySnapshot:
             },
             all_good=bool(data.get("all_good", False)),
         )
+
+
+class ContactQualityMonitor:
+    """Rolling-window EEG contact quality monitor for setup flows."""
+
+    def __init__(
+        self,
+        source: str,
+        config: Optional[ContactQualityConfig] = None,
+        required_channels: Sequence[str] = REQUIRED_CONTACT_CHANNELS,
+    ) -> None:
+        self.source = source
+        self.config = config or ContactQualityConfig()
+        self.config.validate()
+        self.required_channels = tuple(required_channels)
+        self._frames: Deque[MuseFrame] = deque()
+        self._last_frame_timestamp: Optional[float] = None
+        self._sequence = 0
+
+    def update(self, frame: MuseFrame) -> ContactQualitySnapshot:
+        self._last_frame_timestamp = float(frame.timestamp)
+        if frame.eeg is not None:
+            self._frames.append(frame)
+            self._prune(frame.timestamp)
+        self._sequence += 1
+        return self.snapshot(now_seconds=frame.timestamp)
+
+    def snapshot(
+        self,
+        now_seconds: Optional[float] = None,
+        connection_state: str = "connected",
+    ) -> ContactQualitySnapshot:
+        now = float(time.time() if now_seconds is None else now_seconds)
+        self._prune(now)
+        stale = (
+            self._last_frame_timestamp is not None
+            and now - self._last_frame_timestamp > self.config.stale_timeout_seconds
+        )
+        channels = {
+            channel: self._channel_state(channel)
+            for channel in self.required_channels
+        }
+        return ContactQualitySnapshot(
+            source=self.source,
+            connection_state=connection_state,
+            sequence=self._sequence,
+            timestamp_seconds=now,
+            stale=stale,
+            required_channels=self.required_channels,
+            channels=channels,
+        )
+
+    def _prune(self, now_seconds: float) -> None:
+        cutoff = float(now_seconds) - self.config.window_seconds
+        while self._frames and self._frames[0].timestamp < cutoff:
+            self._frames.popleft()
+
+    def _channel_state(self, channel: str) -> ChannelContactState:
+        values = tuple(_channel_values(self._frames, channel))
+        sample_count = len(values)
+        if sample_count == 0:
+            return _state(channel, "missing", 0.0, 0.0, 0, ("no_recent_samples",))
+
+        expected_count = max(1, int(self.config.window_seconds * self.config.sample_rate_hz))
+        coverage = min(1.0, sample_count / expected_count)
+        finite_values = tuple(value for value in values if math.isfinite(value))
+        finite_fraction = len(finite_values) / sample_count
+        clipping_fraction = _clipping_fraction(finite_values, self.config.clipping_abs_uv_threshold)
+        fill = max(0.0, min(1.0, coverage * finite_fraction * (1.0 - clipping_fraction)))
+
+        reasons = []
+        hard_artifact = False
+        if finite_fraction < 1.0:
+            hard_artifact = True
+            reasons.append("non_finite")
+        if finite_values and _std(finite_values) <= self.config.flat_std_uv_threshold:
+            hard_artifact = True
+            reasons.append("flatline")
+        if clipping_fraction >= self.config.clipping_fraction_threshold:
+            hard_artifact = True
+            reasons.append("clipping")
+        if coverage < self.config.good_fill_threshold:
+            reasons.append("low_coverage")
+        if fill < self.config.fair_fill_threshold:
+            reasons.append("low_fill")
+
+        if hard_artifact or fill < self.config.fair_fill_threshold:
+            status = "poor"
+        elif fill < self.config.good_fill_threshold or reasons:
+            status = "fair"
+        else:
+            status = "good"
+
+        return _state(channel, status, fill, coverage, sample_count, tuple(sorted(set(reasons))))
 
 
 class MockContactProvider:
@@ -373,10 +500,35 @@ def _stale_channels() -> Mapping[str, ChannelContactState]:
     }
 
 
+def _channel_values(frames: Iterable[MuseFrame], channel: str) -> Iterable[float]:
+    for frame in frames:
+        if frame.eeg is None:
+            continue
+        for value in frame.eeg.channels_uv.get(channel, ()):
+            yield float(value)
+
+
+def _std(values: Sequence[float]) -> float:
+    if not values:
+        return 0.0
+    mean = sum(values) / len(values)
+    variance = sum((value - mean) ** 2 for value in values) / len(values)
+    return math.sqrt(variance)
+
+
+def _clipping_fraction(values: Sequence[float], threshold: float) -> float:
+    if not values:
+        return 1.0
+    clipped = sum(1 for value in values if abs(value) >= threshold)
+    return clipped / len(values)
+
+
 __all__ = [
     "CONTACT_STATUSES",
     "REQUIRED_CONTACT_CHANNELS",
     "ChannelContactState",
+    "ContactQualityConfig",
+    "ContactQualityMonitor",
     "ContactQualitySnapshot",
     "MockContactProvider",
     "available_mock_contact_scenarios",
