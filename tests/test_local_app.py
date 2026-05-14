@@ -141,6 +141,11 @@ class TestLocalMuseApp(unittest.TestCase):
         self.assertIn("/api/muse/start-when-ready", script)
         self.assertIn("Waiting for contact", script)
         self.assertIn("Starting session", script)
+        self.assertIn('scanButton.hidden = connection === "connected"', script)
+        self.assertLess(
+            script.index('gate.state === "running"'),
+            script.index('`Waiting for stable contact: ${stableFor}s / ${required}s`'),
+        )
 
     def test_diagnostics_endpoint_reports_state_and_last_contact(self):
         self.post_json("/api/muse/connect")

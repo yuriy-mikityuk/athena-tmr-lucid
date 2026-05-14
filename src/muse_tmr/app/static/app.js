@@ -50,6 +50,10 @@ function renderState(state) {
 
   errorBox.hidden = !state.error_message;
   errorBox.textContent = state.error_message || "";
+  scanButton.hidden = connection === "connected";
+  connectButton.hidden = connection === "connected";
+  startButton.hidden = connection !== "connected";
+  disconnectButton.hidden = connection !== "connected";
   connectButton.classList.toggle("primary", connection !== "connected");
   connectButton.disabled = connection === "connecting";
   scanButton.disabled = connection === "scanning" || connection === "connecting";
@@ -122,10 +126,10 @@ function renderGate(gate) {
     gateSummary.textContent = "Starting session";
   } else if (gate.state === "ready") {
     gateSummary.textContent = "Contact gate ready; starting session";
-  } else if (gate.armed) {
-    gateSummary.textContent = `Waiting for stable contact: ${stableFor}s / ${required}s`;
   } else if (gate.state === "running") {
     gateSummary.textContent = "Session running; contact drops are warnings only";
+  } else if (gate.armed) {
+    gateSummary.textContent = `Waiting for stable contact: ${stableFor}s / ${required}s`;
   } else {
     gateSummary.textContent = "Contact gate idle";
   }
