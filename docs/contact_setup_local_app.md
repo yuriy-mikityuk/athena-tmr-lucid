@@ -81,6 +81,34 @@ you intentionally pass an explicit host such as `--host 0.0.0.0`.
 
 Stop the app with `Ctrl-C`.
 
+## macOS Launcher Icon
+
+To create a clickable launcher on your Desktop:
+
+```bash
+cd /path/to/athena-tmr-lucid
+export MUSE_ADDR="<MUSE_BLE_ADDRESS>"
+.venv/bin/python scripts/install_macos_launcher.py --address "$MUSE_ADDR"
+```
+
+This installs:
+
+```text
+~/Desktop/Muse TMR Setup.app
+```
+
+Double-clicking the app starts the local setup server through Terminal and opens
+`http://127.0.0.1:8765` when the server is ready. If the server is already running,
+the launcher just opens the browser UI. Stop the app with `Ctrl-C` in the Terminal
+window.
+
+Use `--force` to replace an existing launcher after changing the Muse address,
+repo path, or port:
+
+```bash
+.venv/bin/python scripts/install_macos_launcher.py --address "$MUSE_ADDR" --force
+```
+
 ## macOS Bluetooth Permission Troubleshooting
 
 On macOS, CoreBluetooth can terminate or block BLE access when the launching app

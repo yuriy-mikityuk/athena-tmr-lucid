@@ -26,6 +26,7 @@ def run_fast_tests():
         'tests.test_ppg_fnirs_fast',  # Fast version
         'tests.test_sample_types',
         'tests.test_cli',
+        'tests.test_macos_launcher',
         'tests.test_local_app',
         'tests.test_audio_player',
         'tests.test_cue_library',
