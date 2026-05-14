@@ -88,6 +88,46 @@ class TestRealtimeDecoder(unittest.TestCase):
         self.assertIsNotNone(decoded.ppg)
         self.assertEqual(decoded.packet_type, 'MULTI')
 
+    def test_repeated_eeg_subpackets_append_channel_samples(self):
+        """Repeated EEG subpackets in one notification should not overwrite."""
+        packet = build_tag_packet(
+            proto.TAG_EEG_4CH, bytes(28),
+            extra_subpackets=[
+                (proto.TAG_EEG_4CH, bytes(28)),
+            ]
+        )
+
+        decoded = self.decoder.decode(packet)
+        stats = self.decoder.get_stats()
+
+        self.assertIsNotNone(decoded.eeg)
+        for name in proto.EEG_CHANNELS_4:
+            self.assertEqual(len(decoded.eeg[name]), 8)
+        self.assertEqual(stats['eeg_subpackets'], 2)
+        self.assertEqual(stats['eeg_sample_rows'], 8)
+        self.assertEqual(stats['eeg_values'], 32)
+        self.assertEqual(stats['eeg_samples'], 32)
+
+    def test_repeated_ppg_subpackets_append_channel_samples(self):
+        """Repeated PPG subpackets in one notification should not overwrite."""
+        packet = build_tag_packet(
+            proto.TAG_OPTICS_8CH, bytes(40),
+            extra_subpackets=[
+                (proto.TAG_OPTICS_8CH, bytes(40)),
+            ]
+        )
+
+        decoded = self.decoder.decode(packet)
+        stats = self.decoder.get_stats()
+
+        self.assertIsNotNone(decoded.ppg)
+        for name in proto.OPTICS_CHANNELS_8:
+            self.assertEqual(len(decoded.ppg[name]), 4)
+        self.assertEqual(stats['ppg_subpackets'], 2)
+        self.assertEqual(stats['ppg_sample_rows'], 4)
+        self.assertEqual(stats['ppg_values'], 32)
+        self.assertEqual(stats['ppg_samples'], 4)
+
     def test_callback_system(self):
         """Test callback registration and triggering"""
         eeg_called = False
@@ -121,8 +161,24 @@ class TestRealtimeDecoder(unittest.TestCase):
 
         self.assertEqual(stats['packets_decoded'], 2)
         self.assertGreater(stats['eeg_samples'], 0)
+        self.assertEqual(stats['eeg_subpackets'], 1)
+        self.assertEqual(stats['eeg_sample_rows'], 4)
+        self.assertEqual(stats['eeg_values'], 16)
         self.assertGreater(stats['imu_samples'], 0)
         self.assertEqual(stats['decode_errors'], 0)
+
+    def test_effective_eeg_sample_rate_uses_sample_rows(self):
+        """Sample-rate accounting is based on per-channel EEG sample rows."""
+        self.decoder.reset_stats()
+        eeg_packet = build_tag_packet(proto.TAG_EEG_4CH, bytes(28))
+        t0 = datetime.datetime(2026, 1, 1, 0, 0, 0)
+
+        self.decoder.decode(eeg_packet, timestamp=t0)
+        self.decoder.decode(eeg_packet, timestamp=t0 + datetime.timedelta(seconds=1))
+
+        stats = self.decoder.get_stats()
+        self.assertEqual(stats['eeg_sample_rows'], 8)
+        self.assertAlmostEqual(stats['eeg_effective_sample_rate_hz'], 8.0)
 
     def test_error_handling(self):
         """Test error handling for malformed packets"""

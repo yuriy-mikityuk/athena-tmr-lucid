@@ -800,7 +800,7 @@ All sensor data arrives as subpackets within each BLE notification:
 | 0x36 | Optics  | 16       | 1           | 64 Hz   | 40         |
 
 ### Data Encoding
-- **EEG**: 14-bit unsigned, LSB-first bit packing. Scale: 1450/16383 uV/bit
+- **EEG**: 14-bit unsigned, LSB-first bit packing, centered at ADC midscale. Scale: 1450/16383 uV/bit
 - **Optics/PPG**: 20-bit unsigned, LSB-first bit packing
 - **IMU**: 16-bit signed, little-endian. Accel scale: 0.0000610352 g/bit, Gyro scale: -0.0074768 deg/s/bit
 

@@ -63,14 +63,7 @@ class MuseRealtimeDecoder:
         }
 
         # Statistics
-        self.stats = {
-            'packets_decoded': 0,
-            'eeg_samples': 0,
-            'ppg_samples': 0,
-            'imu_samples': 0,
-            'decode_errors': 0,
-            'last_packet_time': None
-        }
+        self.stats = self._initial_stats()
 
         # Buffers for derived metrics
         self.ppg_buffer = []
@@ -90,6 +83,24 @@ class MuseRealtimeDecoder:
         if data_type in self.callbacks:
             self.callbacks[data_type].append(callback)
 
+    @staticmethod
+    def _initial_stats() -> Dict[str, Any]:
+        return {
+            'packets_decoded': 0,
+            'eeg_samples': 0,
+            'eeg_subpackets': 0,
+            'eeg_sample_rows': 0,
+            'eeg_values': 0,
+            'ppg_samples': 0,
+            'ppg_subpackets': 0,
+            'ppg_sample_rows': 0,
+            'ppg_values': 0,
+            'imu_samples': 0,
+            'decode_errors': 0,
+            'first_packet_time': None,
+            'last_packet_time': None,
+        }
+
     def decode(self, data: bytes, timestamp: Optional[datetime.datetime] = None) -> DecodedData:
         """
         Decode a raw BLE packet in real-time
@@ -105,6 +116,8 @@ class MuseRealtimeDecoder:
             timestamp = datetime.datetime.now()
 
         self.stats['packets_decoded'] += 1
+        if self.stats['first_packet_time'] is None:
+            self.stats['first_packet_time'] = timestamp
         self.stats['last_packet_time'] = timestamp
 
         if not data:
@@ -137,14 +150,19 @@ class MuseRealtimeDecoder:
             for subpacket in parsed["EEG"]:
                 arr = subpacket["data"]  # shape (n_samples, n_channels)
                 n_channels = subpacket["n_channels"]
+                sample_rows = arr.shape[0]
+                values = sample_rows * n_channels
+                self.stats['eeg_subpackets'] += 1
+                self.stats['eeg_sample_rows'] += sample_rows
+                self.stats['eeg_values'] += values
+                self.stats['eeg_samples'] += values
                 if n_channels == 4:
                     names = proto.EEG_CHANNELS_4
                 else:
                     names = proto.EEG_CHANNELS_8
                 for ch_idx in range(n_channels):
                     ch_name = names[ch_idx] if ch_idx < len(names) else f"ch{ch_idx}"
-                    decoded.eeg[ch_name] = arr[:, ch_idx].tolist()
-                    self.stats['eeg_samples'] += arr.shape[0]
+                    decoded.eeg.setdefault(ch_name, []).extend(arr[:, ch_idx].tolist())
             decoded.packet_type = 'EEG'
 
         # ACCGYRO (IMU)
@@ -164,14 +182,18 @@ class MuseRealtimeDecoder:
             for subpacket in parsed["OPTICS"]:
                 arr = subpacket["data"]  # shape (n_samples, n_channels)
                 n_channels = subpacket["n_channels"]
+                sample_rows = arr.shape[0]
+                self.stats['ppg_subpackets'] += 1
+                self.stats['ppg_sample_rows'] += sample_rows
+                self.stats['ppg_values'] += sample_rows * n_channels
                 if n_channels == 8:
                     names = proto.OPTICS_CHANNELS_8
                 else:
                     names = [f"opt{i}" for i in range(n_channels)]
                 for ch_idx in range(n_channels):
                     ch_name = names[ch_idx] if ch_idx < len(names) else f"opt{ch_idx}"
-                    decoded.ppg[ch_name] = arr[:, ch_idx].tolist()
-                self.stats['ppg_samples'] += arr.shape[0]
+                    decoded.ppg.setdefault(ch_name, []).extend(arr[:, ch_idx].tolist())
+                self.stats['ppg_samples'] += sample_rows
 
                 # Update heart rate buffer using IR channel (index 0)
                 ir_samples = arr[:, 0].tolist()
@@ -244,27 +266,49 @@ class MuseRealtimeDecoder:
 
     def get_stats(self) -> Dict[str, Any]:
         """Get decoder statistics"""
+        elapsed_seconds = self._stats_elapsed_seconds()
+        eeg_rate = self._effective_rate(self.stats['eeg_sample_rows'], elapsed_seconds)
+        ppg_rate = self._effective_rate(self.stats['ppg_sample_rows'], elapsed_seconds)
         return {
             'packets_decoded': self.stats['packets_decoded'],
             'eeg_samples': self.stats['eeg_samples'],
+            'eeg_subpackets': self.stats['eeg_subpackets'],
+            'eeg_sample_rows': self.stats['eeg_sample_rows'],
+            'eeg_values': self.stats['eeg_values'],
+            'eeg_effective_sample_rate_hz': eeg_rate,
             'ppg_samples': self.stats['ppg_samples'],
+            'ppg_subpackets': self.stats['ppg_subpackets'],
+            'ppg_sample_rows': self.stats['ppg_sample_rows'],
+            'ppg_values': self.stats['ppg_values'],
+            'ppg_effective_sample_rate_hz': ppg_rate,
             'imu_samples': self.stats['imu_samples'],
             'decode_errors': self.stats['decode_errors'],
             'error_rate': self.stats['decode_errors'] / max(1, self.stats['packets_decoded']),
             'last_heart_rate': self.last_heart_rate,
+            'first_packet': self.stats['first_packet_time'],
             'last_packet': self.stats['last_packet_time']
         }
 
     def reset_stats(self):
         """Reset statistics"""
-        self.stats = {
-            'packets_decoded': 0,
-            'eeg_samples': 0,
-            'ppg_samples': 0,
-            'imu_samples': 0,
-            'decode_errors': 0,
-            'last_packet_time': None
-        }
+        self.stats = self._initial_stats()
+
+    def _stats_elapsed_seconds(self) -> Optional[float]:
+        first = self.stats['first_packet_time']
+        last = self.stats['last_packet_time']
+        if first is None or last is None:
+            return None
+        try:
+            elapsed = (last - first).total_seconds()
+        except AttributeError:
+            return None
+        return elapsed if elapsed > 0 else None
+
+    @staticmethod
+    def _effective_rate(samples: int, elapsed_seconds: Optional[float]) -> Optional[float]:
+        if elapsed_seconds is None:
+            return None
+        return samples / elapsed_seconds
 
 
 # Example real-time processing
@@ -294,7 +338,7 @@ def example_realtime_processing():
     # 14-byte header (byte 9 = TAG_EEG_4CH = 0x11) + 28 bytes EEG data
     header = bytearray(14)
     header[9] = proto.TAG_EEG_4CH
-    eeg_data = bytes(28)  # zeros = all channels at 0 uV
+    eeg_data = bytes(28)  # zeros = all channels at negative ADC midscale
     test_packet = bytes(header) + eeg_data
 
     decoded = decoder.decode(test_packet)
