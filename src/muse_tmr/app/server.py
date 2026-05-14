@@ -167,6 +167,10 @@ class LocalMuseAppState:
             return self.state()
 
     def connect(self) -> Mapping[str, Any]:
+        with self._lock:
+            if self._connection_state == "connected":
+                return self._state_unlocked()
+
         self._set_state("connecting", error_message=None)
         try:
             if self.config.source == "mock":
@@ -188,6 +192,9 @@ class LocalMuseAppState:
             self._start_contact_stream(source)
             return state
         except Exception as exc:
+            with self._lock:
+                self._source = None
+                self._contact_thread = None
             self._set_state("error", error_message=str(exc))
             return self.state()
 
@@ -279,13 +286,15 @@ class LocalMuseAppState:
     def _start_contact_stream(self, source) -> None:
         if self._contact_monitor is None:
             return
-        self._contact_stop_requested.clear()
-        thread = threading.Thread(
-            target=self._run_contact_stream,
-            args=(source,),
-            daemon=True,
-        )
         with self._lock:
+            if self._contact_thread is not None and self._contact_thread.is_alive():
+                return
+            self._contact_stop_requested.clear()
+            thread = threading.Thread(
+                target=self._run_contact_stream,
+                args=(source,),
+                daemon=True,
+            )
             self._contact_thread = thread
         thread.start()
 

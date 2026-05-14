@@ -1,11 +1,50 @@
+import asyncio
 import json
 import threading
+import time
 import unittest
 import urllib.request
 import urllib.error
 from unittest.mock import AsyncMock, patch
 
 from muse_tmr.app import AppConfig, create_local_app_server
+from muse_tmr.sources.base_source import MuseSourceMetadata
+
+
+class LoopSafeFakeAmusedSource:
+    instances = []
+
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self.connect_calls = 0
+        self.stream_calls = 0
+        self.stop_requested = False
+        LoopSafeFakeAmusedSource.instances.append(self)
+
+    async def discover(self):
+        return []
+
+    async def connect(self, device=None):
+        self.connect_calls += 1
+        return MuseSourceMetadata(
+            source_name="amused",
+            device_name="Muse Test",
+            device_id=self.kwargs.get("address") or "test-address",
+            capabilities={"eeg": True},
+        )
+
+    async def stream(self):
+        self.stream_calls += 1
+        while not self.stop_requested:
+            await asyncio.sleep(0.01)
+        if False:
+            yield
+
+    async def stop(self):
+        self.stop_requested = True
+
+    def diagnostics(self):
+        return {"connect_calls": self.connect_calls, "stream_calls": self.stream_calls}
 
 
 class TestLocalMuseApp(unittest.TestCase):
@@ -184,6 +223,34 @@ class TestLocalMuseAppAmusedScan(unittest.TestCase):
             finally:
                 server.shutdown()
                 thread.join(timeout=2)
+                server.app_state.shutdown()
+                server.server_close()
+
+
+class TestLocalMuseAppAmusedConnect(unittest.TestCase):
+    def test_repeated_live_connect_is_idempotent(self):
+        LoopSafeFakeAmusedSource.instances = []
+        with patch("muse_tmr.sources.amused_source.AmusedSource", LoopSafeFakeAmusedSource):
+            server = create_local_app_server(
+                AppConfig(
+                    port=0,
+                    source="amused",
+                    address="2C48FFC8-A1C5-BDFD-A5A4-EEA280A7BBA6",
+                )
+            )
+            try:
+                first = server.app_state.connect()
+                second = server.app_state.connect()
+                time.sleep(0.05)
+
+                self.assertEqual(first["connection_state"], "connected")
+                self.assertEqual(second["connection_state"], "connected")
+                self.assertEqual(len(LoopSafeFakeAmusedSource.instances), 1)
+                source = LoopSafeFakeAmusedSource.instances[0]
+                self.assertEqual(source.connect_calls, 1)
+                self.assertEqual(source.stream_calls, 1)
+                self.assertEqual(server.app_state.state()["connection_state"], "connected")
+            finally:
                 server.app_state.shutdown()
                 server.server_close()
 

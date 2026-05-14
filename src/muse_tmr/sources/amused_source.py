@@ -73,7 +73,8 @@ class AmusedSource(BaseMuseSource):
         self.last_packet_monotonic: Optional[float] = None
         self.disconnect_reason: Optional[str] = None
 
-        self._queue: asyncio.Queue[MuseFrame] = asyncio.Queue(maxsize=queue_size)
+        self._queue: Optional[asyncio.Queue[MuseFrame]] = None
+        self._queue_loop: Optional[asyncio.AbstractEventLoop] = None
         self._stream_task: Optional[asyncio.Task] = None
         self._stream_loop: Optional[asyncio.AbstractEventLoop] = None
         self._stop_requested = False
@@ -90,6 +91,9 @@ class AmusedSource(BaseMuseSource):
         self.packet_count = 0
         self.frame_count = 0
         self.last_packet_monotonic = None
+        if self._stream_task is None or self._stream_task.done():
+            self._queue = None
+            self._queue_loop = None
 
         if device is not None:
             self.address = device.address
@@ -131,18 +135,27 @@ class AmusedSource(BaseMuseSource):
         if self.client is None:
             await self.connect()
 
+        current_loop = asyncio.get_running_loop()
+        if (
+            self._stream_task is not None
+            and not self._stream_task.done()
+            and self._stream_loop is not current_loop
+        ):
+            raise RuntimeError("amused stream is already active in another event loop")
+
+        queue = self._ensure_queue()
         if self._stream_task is None or self._stream_task.done():
-            self._stream_loop = asyncio.get_running_loop()
+            self._stream_loop = current_loop
             self._stream_task = asyncio.create_task(self._run_client())
 
         while not self._stop_requested:
-            if self._stream_task.done() and self._queue.empty():
+            if self._stream_task.done() and queue.empty():
                 exc = self._stream_task.exception()
                 if exc is not None:
                     raise exc
                 break
             try:
-                yield await asyncio.wait_for(self._queue.get(), timeout=0.25)
+                yield await asyncio.wait_for(queue.get(), timeout=0.25)
             except asyncio.TimeoutError:
                 continue
 
@@ -199,8 +212,26 @@ class AmusedSource(BaseMuseSource):
     def _handle_decoded(self, decoded: DecodedData) -> None:
         frame = frame_from_decoded(decoded, source="amused")
         self.frame_count += 1
+        queue = self._queue
+        if queue is None:
+            return
+        queue_loop = self._queue_loop
+        current_loop = _running_loop_or_none()
+        if queue_loop is not None and queue_loop.is_running() and queue_loop is not current_loop:
+            queue_loop.call_soon_threadsafe(self._put_frame_nowait, queue, frame)
+            return
+        self._put_frame_nowait(queue, frame)
+
+    def _ensure_queue(self) -> asyncio.Queue[MuseFrame]:
+        current_loop = asyncio.get_running_loop()
+        if self._queue is None or self._queue_loop is not current_loop:
+            self._queue = asyncio.Queue(maxsize=self.queue_size)
+            self._queue_loop = current_loop
+        return self._queue
+
+    def _put_frame_nowait(self, queue: asyncio.Queue[MuseFrame], frame: MuseFrame) -> None:
         try:
-            self._queue.put_nowait(frame)
+            queue.put_nowait(frame)
         except asyncio.QueueFull:
             self.disconnect_reason = "frame_queue_full"
 
@@ -273,3 +304,10 @@ def _json_safe(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [_json_safe(item) for item in value]
     return value
+
+
+def _running_loop_or_none() -> Optional[asyncio.AbstractEventLoop]:
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        return None
