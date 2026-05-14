@@ -63,7 +63,13 @@ SENSOR_CONFIG = {
 # ---------------------------------------------------------------------------
 # Scaling factors
 # ---------------------------------------------------------------------------
-EEG_SCALE = 1450.0 / 16383.0    # 14-bit raw → microvolts
+EEG_BITS = 14
+EEG_COUNTS = 1 << EEG_BITS
+EEG_MAX_COUNT = EEG_COUNTS - 1
+EEG_MID_COUNT = 1 << (EEG_BITS - 1)
+EEG_FULL_SCALE_UV = 1450.0
+EEG_SCALE_UV_PER_COUNT = EEG_FULL_SCALE_UV / EEG_MAX_COUNT
+EEG_SCALE = EEG_SCALE_UV_PER_COUNT  # Compatibility alias.
 ACC_SCALE = 0.0000610352         # raw → g
 GYRO_SCALE = -0.0074768          # raw → deg/s
 OPTICS_SCALE = 1.0 / 32768.0    # raw → normalized
@@ -181,15 +187,15 @@ def _extract_values_from_bits(bits: List[int], n_values: int,
 # ---------------------------------------------------------------------------
 # Decoders
 # ---------------------------------------------------------------------------
-def decode_eeg(data: bytes, n_channels: int) -> np.ndarray:
-    """Decode EEG data from 14-bit LSB-first packed bytes.
+def decode_eeg_raw_counts(data: bytes, n_channels: int) -> np.ndarray:
+    """Decode EEG data from 14-bit LSB-first packed bytes to raw ADC counts.
 
     Args:
         data: Raw data bytes (28 bytes for both 4ch and 8ch modes).
         n_channels: Number of EEG channels (4 or 8).
 
     Returns:
-        np.ndarray of shape (n_samples, n_channels) in microvolts.
+        np.ndarray of shape (n_samples, n_channels) with unsigned 14-bit counts.
         - 4ch mode: (4, 4) -- 4 samples x 4 channels
         - 8ch mode: (2, 8) -- 2 samples x 8 channels
     """
@@ -199,9 +205,37 @@ def decode_eeg(data: bytes, n_channels: int) -> np.ndarray:
     bits = _unpack_bits_lsb(data[:28], 14)
     raw_values = _extract_values_from_bits(bits, n_values, 14)
 
-    result = np.array(raw_values, dtype=np.float32).reshape(n_samples, n_channels)
-    result *= EEG_SCALE
-    return result
+    return np.array(raw_values, dtype=np.uint16).reshape(n_samples, n_channels)
+
+
+def eeg_counts_to_uv_centered(raw_counts: np.ndarray) -> np.ndarray:
+    """Convert Athena unsigned EEG ADC counts to centered microvolts."""
+    return (
+        raw_counts.astype(np.float32) - EEG_MID_COUNT
+    ) * EEG_SCALE_UV_PER_COUNT
+
+
+def decode_eeg(data: bytes, n_channels: int, *, centered: bool = True) -> np.ndarray:
+    """Decode EEG data from 14-bit LSB-first packed bytes.
+
+    Athena EEG packets carry unsigned 14-bit ADC counts biased around midscale.
+    The public decoder output defaults to centered microvolts so downstream EEG
+    consumers see physiological signal around 0 uV instead of 0..1450 uV counts.
+
+    Args:
+        data: Raw data bytes (28 bytes for both 4ch and 8ch modes).
+        n_channels: Number of EEG channels (4 or 8).
+        centered: When true, subtract ADC midscale before scaling to microvolts.
+
+    Returns:
+        np.ndarray of shape (n_samples, n_channels) in microvolts.
+        - 4ch mode: (4, 4) -- 4 samples x 4 channels
+        - 8ch mode: (2, 8) -- 2 samples x 8 channels
+    """
+    raw_counts = decode_eeg_raw_counts(data, n_channels)
+    if centered:
+        return eeg_counts_to_uv_centered(raw_counts)
+    return raw_counts.astype(np.float32) * EEG_SCALE_UV_PER_COUNT
 
 
 def decode_accgyro(data: bytes) -> np.ndarray:

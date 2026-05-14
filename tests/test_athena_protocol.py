@@ -39,12 +39,13 @@ def build_tag_packet(first_tag, first_data, extra_subpackets=None):
 class TestEEGDecoding(unittest.TestCase):
     """Test 14-bit LSB-first EEG decoding"""
 
-    def test_all_zeros(self):
-        """All-zero data should decode to all zeros"""
+    def test_all_zero_counts_center_to_negative_midscale(self):
+        """All-zero ADC counts should decode below physiological zero."""
         data = bytes(28)
         result = proto.decode_eeg(data, n_channels=4)
         self.assertEqual(result.shape, (4, 4))
-        np.testing.assert_array_equal(result, np.zeros((4, 4)))
+        expected = -proto.EEG_MID_COUNT * proto.EEG_SCALE_UV_PER_COUNT
+        np.testing.assert_allclose(result, np.full((4, 4), expected), rtol=1e-6)
 
     def test_known_14bit_values(self):
         """Test decoding a known 14-bit LSB-first packed value"""
@@ -56,8 +57,8 @@ class TestEEGDecoding(unittest.TestCase):
         data[0] = 0x01  # bit0 of first value = 1
 
         result = proto.decode_eeg(data, n_channels=4)
-        # First value (sample 0, channel 0) should be 1 * EEG_SCALE
-        expected = 1.0 * proto.EEG_SCALE
+        # First value is centered around the unsigned ADC midscale.
+        expected = (1.0 - proto.EEG_MID_COUNT) * proto.EEG_SCALE_UV_PER_COUNT
         self.assertAlmostEqual(result[0, 0], expected, places=5)
 
     def test_max_14bit_value(self):
@@ -70,8 +71,46 @@ class TestEEGDecoding(unittest.TestCase):
         data[1] = 0x3F  # bits 8-13 of first value
 
         result = proto.decode_eeg(data, n_channels=4)
-        expected = 16383.0 * proto.EEG_SCALE
+        expected = (16383.0 - proto.EEG_MID_COUNT) * proto.EEG_SCALE_UV_PER_COUNT
         self.assertAlmostEqual(result[0, 0], expected, places=3)
+
+    def test_decode_eeg_raw_counts(self):
+        """Raw-count decoder exposes unsigned wire values for diagnostics."""
+        data = bytearray(28)
+        data[0] = 0x01
+
+        result = proto.decode_eeg_raw_counts(data, n_channels=4)
+
+        self.assertEqual(result.dtype, np.uint16)
+        self.assertEqual(result.shape, (4, 4))
+        self.assertEqual(result[0, 0], 1)
+
+    def test_midscale_count_centers_to_zero_uv(self):
+        """ADC midscale should be physiological zero in public EEG output."""
+        raw = np.array([[0, proto.EEG_MID_COUNT, proto.EEG_MAX_COUNT]], dtype=np.uint16)
+
+        result = proto.eeg_counts_to_uv_centered(raw)
+
+        self.assertAlmostEqual(
+            result[0, 0],
+            -proto.EEG_MID_COUNT * proto.EEG_SCALE_UV_PER_COUNT,
+            places=5,
+        )
+        self.assertAlmostEqual(result[0, 1], 0.0, places=5)
+        self.assertAlmostEqual(
+            result[0, 2],
+            (proto.EEG_MAX_COUNT - proto.EEG_MID_COUNT) * proto.EEG_SCALE_UV_PER_COUNT,
+            places=5,
+        )
+
+    def test_decode_eeg_uncentered_uv_keeps_raw_scale(self):
+        """Callers can still request raw scaled ADC counts when needed."""
+        data = bytearray(28)
+        data[0] = 0x01
+
+        result = proto.decode_eeg(data, n_channels=4, centered=False)
+
+        self.assertAlmostEqual(result[0, 0], proto.EEG_SCALE_UV_PER_COUNT, places=5)
 
     def test_4ch_shape(self):
         """4-channel mode produces (4, 4) array"""
@@ -85,7 +124,7 @@ class TestEEGDecoding(unittest.TestCase):
 
     def test_scale_factor(self):
         """EEG scale factor should convert to microvolts"""
-        # At full scale (16383), output should be ~1450 uV
+        # The unsigned 14-bit ADC range represents a 1450 uV peak-to-peak span.
         self.assertAlmostEqual(proto.EEG_SCALE * 16383, 1450.0, places=0)
 
 
