@@ -36,12 +36,16 @@ class TestLocalMuseApp(unittest.TestCase):
     def test_health_and_initial_state_are_available_without_ble(self):
         health = self.get_json("/api/health")
         state = self.get_json("/api/muse/state")
+        contact = self.get_json("/api/muse/contact")
 
         self.assertTrue(health["ok"])
         self.assertEqual(health["source"], "mock")
         self.assertEqual(state["connection_state"], "disconnected")
         self.assertEqual(state["source"], "mock")
         self.assertEqual(state["device"], None)
+        self.assertEqual(set(contact["required_channels"]), {"TP9", "AF7", "AF8", "TP10"})
+        self.assertEqual(set(contact["channels"]), {"TP9", "AF7", "AF8", "TP10"})
+        self.assertEqual(contact["channels"]["AF7"]["status"], "fair")
 
     def test_mock_scan_connect_and_disconnect_states(self):
         scanned = self.post_json("/api/muse/scan")
@@ -61,7 +65,13 @@ class TestLocalMuseApp(unittest.TestCase):
             script = response.read().decode("utf-8")
 
         self.assertIn("Connect Muse", body)
+        self.assertIn("headband-title", body)
+        self.assertIn("data-channel=\"TP9\"", body)
+        self.assertIn("data-channel=\"AF7\"", body)
+        self.assertIn("data-channel=\"AF8\"", body)
+        self.assertIn("data-channel=\"TP10\"", body)
         self.assertIn("/api/muse/state", script)
+        self.assertIn("/api/muse/contact", script)
 
 
 if __name__ == "__main__":

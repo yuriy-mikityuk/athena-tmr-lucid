@@ -14,7 +14,11 @@ from importlib import resources
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Sequence
 
-from muse_tmr.contact import available_mock_contact_scenarios
+from muse_tmr.contact import (
+    MockContactProvider,
+    available_mock_contact_scenarios,
+    builtin_contact_snapshots,
+)
 
 CONNECTION_STATES = ("disconnected", "scanning", "connecting", "connected", "error")
 
@@ -52,6 +56,15 @@ class LocalMuseAppState:
         self._error_message: Optional[str] = None
         self._devices: Sequence[Mapping[str, Any]] = ()
         self._source = None
+        self._contact_provider = (
+            MockContactProvider.for_scenario(
+                config.mock_scenario,
+                interval_seconds=config.mock_interval_seconds,
+                loop=True,
+            )
+            if config.source == "mock"
+            else None
+        )
 
     def health(self) -> Mapping[str, Any]:
         return {
@@ -63,6 +76,15 @@ class LocalMuseAppState:
     def state(self) -> Mapping[str, Any]:
         with self._lock:
             return self._state_unlocked()
+
+    def contact(self) -> Mapping[str, Any]:
+        with self._lock:
+            if self._contact_provider is not None:
+                return self._contact_provider.next_snapshot().to_dict()
+            snapshot = builtin_contact_snapshots("all_missing")[0].to_dict()
+            snapshot["source"] = self.config.source
+            snapshot["connection_state"] = self._connection_state
+            return snapshot
 
     def scan(self) -> Mapping[str, Any]:
         self._set_state("scanning", error_message=None)
@@ -192,6 +214,9 @@ class LocalMuseAppHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/api/muse/state":
             self._write_json(self.server.app_state.state())
+            return
+        if self.path == "/api/muse/contact":
+            self._write_json(self.server.app_state.contact())
             return
         self._serve_static()
 

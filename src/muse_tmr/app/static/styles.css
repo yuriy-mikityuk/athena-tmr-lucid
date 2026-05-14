@@ -95,6 +95,121 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.contact-panel {
+  margin-top: 24px;
+}
+
+.contact-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.contact-heading h2 {
+  margin: 0;
+  font-size: 1rem;
+  letter-spacing: 0;
+}
+
+#contact-summary {
+  color: var(--muted);
+  font-size: 0.9rem;
+  text-align: right;
+}
+
+.headband-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(180px, 220px);
+  gap: 18px;
+  align-items: center;
+}
+
+.headband-svg {
+  width: 100%;
+  max-width: 360px;
+  justify-self: center;
+}
+
+.segment-base {
+  stroke: #dbe5ec;
+}
+
+.segment-fill {
+  stroke-dasharray: 0 1;
+  transition: stroke-dasharray 180ms ease, stroke 180ms ease;
+}
+
+.segment-fill.missing,
+.segment-fill.poor {
+  stroke: #cbd7df;
+}
+
+.segment-fill.fair {
+  stroke: #2dd4bf;
+}
+
+.segment-fill.good {
+  stroke: var(--good);
+}
+
+.headband-marker {
+  fill: var(--panel);
+  stroke: var(--muted);
+  stroke-width: 2;
+}
+
+.side-label {
+  fill: var(--muted);
+  font-size: 0.8rem;
+}
+
+.all-good-check {
+  fill: none;
+  stroke: var(--good);
+  stroke-width: 12;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.contact-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.contact-row {
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 38px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 8px;
+}
+
+.contact-row:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.channel-name {
+  font-weight: 800;
+}
+
+.channel-status {
+  color: var(--muted);
+  text-transform: capitalize;
+}
+
+.channel-fill {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;
@@ -147,5 +262,18 @@ button:disabled {
 
   button {
     width: 100%;
+  }
+
+  .contact-heading,
+  .headband-layout {
+    display: grid;
+  }
+
+  #contact-summary {
+    text-align: left;
+  }
+
+  .headband-layout {
+    grid-template-columns: 1fr;
   }
 }

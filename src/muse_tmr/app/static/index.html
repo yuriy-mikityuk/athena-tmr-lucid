@@ -22,6 +22,34 @@
           <span data-state="connected"></span>
         </div>
         <div class="device-summary" id="device-summary">No headset selected</div>
+        <section class="contact-panel" aria-labelledby="contact-title">
+          <div class="contact-heading">
+            <h2 id="contact-title">Contact Quality</h2>
+            <span id="contact-summary">Waiting for contact data</span>
+          </div>
+          <div class="headband-layout">
+            <svg class="headband-svg" viewBox="0 0 320 210" role="img" aria-labelledby="headband-title headband-desc">
+              <title id="headband-title">Muse contact quality</title>
+              <desc id="headband-desc">Contact status for TP9, AF7, AF8, and TP10.</desc>
+              <g fill="none" stroke-linecap="round" stroke-width="18">
+                <path class="segment-base" d="M42 154 C48 118 62 88 90 68"></path>
+                <path class="segment-base" d="M94 66 C112 54 135 47 158 46"></path>
+                <path class="segment-base" d="M162 46 C185 47 208 54 226 66"></path>
+                <path class="segment-base" d="M230 68 C258 88 272 118 278 154"></path>
+                <path class="segment-fill missing" data-channel="TP9" pathLength="1" d="M42 154 C48 118 62 88 90 68"><title>TP9 missing</title></path>
+                <path class="segment-fill missing" data-channel="AF7" pathLength="1" d="M94 66 C112 54 135 47 158 46"><title>AF7 missing</title></path>
+                <path class="segment-fill missing" data-channel="AF8" pathLength="1" d="M162 46 C185 47 208 54 226 66"><title>AF8 missing</title></path>
+                <path class="segment-fill missing" data-channel="TP10" pathLength="1" d="M230 68 C258 88 272 118 278 154"><title>TP10 missing</title></path>
+              </g>
+              <circle class="headband-marker" cx="42" cy="154" r="6"></circle>
+              <circle class="headband-marker" cx="278" cy="154" r="6"></circle>
+              <text class="side-label" x="42" y="188" text-anchor="middle">Left</text>
+              <text class="side-label" x="278" y="188" text-anchor="middle">Right</text>
+              <path id="all-good-check" class="all-good-check" d="M132 118 L151 137 L190 82" hidden></path>
+            </svg>
+            <ul class="contact-list" id="contact-list" aria-label="Contact channel statuses"></ul>
+          </div>
+        </section>
         <div class="actions">
           <button type="button" id="scan-button">Scan</button>
           <button type="button" id="connect-button">Connect Muse</button>
