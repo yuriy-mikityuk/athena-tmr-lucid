@@ -47,6 +47,17 @@ class TestLocalMuseApp(unittest.TestCase):
         self.assertEqual(set(contact["channels"]), {"TP9", "AF7", "AF8", "TP10"})
         self.assertEqual(contact["channels"]["AF7"]["status"], "fair")
 
+    def test_contact_stream_emits_sse_snapshots(self):
+        with urllib.request.urlopen(
+            f"{self.base_url}/api/muse/contact/stream?count=2&interval=0",
+            timeout=2,
+        ) as response:
+            body = response.read().decode("utf-8")
+
+        self.assertEqual(response.headers["Content-Type"], "text/event-stream; charset=utf-8")
+        self.assertEqual(body.count("event: contact"), 2)
+        self.assertIn("\"required_channels\": [\"TP9\", \"AF7\", \"AF8\", \"TP10\"]", body)
+
     def test_mock_scan_connect_and_disconnect_states(self):
         scanned = self.post_json("/api/muse/scan")
         connected = self.post_json("/api/muse/connect")
