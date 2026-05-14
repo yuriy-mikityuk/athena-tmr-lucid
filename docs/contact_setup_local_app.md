@@ -197,8 +197,9 @@ GET /api/muse/diagnostics
 ```
 
 For the `amused` source, the payload includes packet/frame counts, decoder
-TAG counts, unknown TAG counts, decode errors, cumulative sample rates, and
-rolling sample rates over the decoder window. Use this when checking whether a
-short live smoke is seeing startup jitter or steady-state EEG/PPG rates.
+TAG counts, unknown TAG counts, decode errors, telemetry/battery summaries,
+cumulative sample rates, and rolling sample rates over the decoder window. Use
+this when checking whether a short live smoke is seeing startup jitter or
+steady-state EEG/PPG rates.
 
 Run this checklist before Pilot 4 or Pilot 5 overnight sessions.

@@ -264,6 +264,81 @@ class TestPayloadParsing(unittest.TestCase):
         self.assertFalse(unknown_result["truncated"])
         self.assertTrue(truncated_result["truncated"])
 
+    def test_battery_new_firmware_tag_consumes_variable_payload(self):
+        """TAG 0x88 telemetry should consume to packet boundary."""
+        battery_raw = int(88.5 * 256).to_bytes(2, byteorder="little") + bytes(198)
+        packet = bytearray(build_tag_packet(proto.TAG_BATTERY_1, battery_raw))
+        packet[0] = len(packet)
+
+        inspection = proto.inspect_payload(bytes(packet))
+        parsed = proto.parse_payload(bytes(packet))
+
+        self.assertEqual(inspection["tags"], [proto.TAG_BATTERY_1])
+        self.assertEqual(inspection["decoded_tag_types"], ["BATTERY"])
+        self.assertEqual(inspection["unknown_tags"], [])
+        self.assertFalse(inspection["truncated"])
+        self.assertEqual(inspection["bytes_consumed"], len(packet))
+        self.assertEqual(len(parsed["BATTERY"]), 1)
+        telemetry = parsed["BATTERY"][0]["data"]
+        self.assertEqual(telemetry["payload_size"], 200)
+        self.assertAlmostEqual(telemetry["battery_percent"], 88.5)
+
+    def test_battery_new_firmware_subpacket_consumes_to_boundary(self):
+        """A variable telemetry subpacket should not create trailing fake TAGs."""
+        battery_raw = int(93.0 * 256).to_bytes(2, byteorder="little") + bytes(198)
+        packet = bytearray(
+            build_tag_packet(
+                proto.TAG_EEG_4CH,
+                bytes(28),
+                extra_subpackets=[(proto.TAG_BATTERY_1, battery_raw)],
+            )
+        )
+        packet[0] = len(packet)
+
+        inspection = proto.inspect_payload(bytes(packet))
+        parsed = proto.parse_payload(bytes(packet))
+
+        self.assertEqual(inspection["tags"], [proto.TAG_EEG_4CH, proto.TAG_BATTERY_1])
+        self.assertEqual(inspection["decoded_tag_types"], ["EEG", "BATTERY"])
+        self.assertEqual(inspection["unknown_tags"], [])
+        self.assertFalse(inspection["truncated"])
+        self.assertEqual(len(parsed["EEG"]), 1)
+        self.assertEqual(len(parsed["BATTERY"]), 1)
+        self.assertAlmostEqual(parsed["BATTERY"][0]["data"]["battery_percent"], 93.0)
+
+    def test_battery_old_firmware_tag_allows_following_subpacket(self):
+        """TAG 0x98 keeps the fixed 20-byte telemetry payload length."""
+        battery_raw = int(77.25 * 256).to_bytes(2, byteorder="little") + bytes(18)
+        packet = build_tag_packet(
+            proto.TAG_BATTERY_2,
+            battery_raw,
+            extra_subpackets=[(proto.TAG_EEG_4CH, bytes(28))],
+        )
+
+        inspection = proto.inspect_payload(packet)
+        parsed = proto.parse_payload(packet)
+
+        self.assertEqual(inspection["tags"], [proto.TAG_BATTERY_2, proto.TAG_EEG_4CH])
+        self.assertEqual(inspection["decoded_tag_types"], ["BATTERY", "EEG"])
+        self.assertEqual(inspection["unknown_tags"], [])
+        self.assertFalse(inspection["truncated"])
+        self.assertAlmostEqual(parsed["BATTERY"][0]["data"]["battery_percent"], 77.25)
+        self.assertEqual(len(parsed["EEG"]), 1)
+
+    def test_drl_ref_tag_is_known_telemetry(self):
+        """TAG 0x53 should be counted as known DRL/REF telemetry."""
+        packet = build_tag_packet(proto.TAG_DRL_REF, bytes(24))
+
+        inspection = proto.inspect_payload(packet)
+        parsed = proto.parse_payload(packet)
+
+        self.assertEqual(inspection["tags"], [proto.TAG_DRL_REF])
+        self.assertEqual(inspection["decoded_tag_types"], ["DRLREF"])
+        self.assertEqual(inspection["unknown_tags"], [])
+        self.assertFalse(inspection["truncated"])
+        self.assertEqual(len(parsed["DRLREF"]), 1)
+        self.assertEqual(parsed["DRLREF"][0]["data"]["payload_size"], 24)
+
     def test_short_payload_returns_empty(self):
         """Payload shorter than header returns empty result"""
         result = proto.parse_payload(bytes(10))
@@ -340,7 +415,7 @@ class TestSensorConfig(unittest.TestCase):
         """All defined TAGs should have sensor config"""
         tags = [proto.TAG_EEG_4CH, proto.TAG_EEG_8CH, proto.TAG_ACCGYRO,
                 proto.TAG_OPTICS_4CH, proto.TAG_OPTICS_8CH, proto.TAG_OPTICS_16CH,
-                proto.TAG_BATTERY_1, proto.TAG_BATTERY_2]
+                proto.TAG_DRL_REF, proto.TAG_BATTERY_1, proto.TAG_BATTERY_2]
         for tag in tags:
             self.assertIn(tag, proto.SENSOR_CONFIG)
 

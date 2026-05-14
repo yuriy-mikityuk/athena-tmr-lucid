@@ -802,11 +802,15 @@ All sensor data arrives as subpackets within each BLE notification:
 | 0x34 | Optics  | 4        | 3           | 64 Hz   | 30         |
 | 0x35 | Optics  | 8        | 2           | 64 Hz   | 40         |
 | 0x36 | Optics  | 16       | 1           | 64 Hz   | 40         |
+| 0x53 | DRL/REF telemetry | 1 | 1      | 32 Hz   | 24         |
+| 0x88 | Battery/telemetry | 1 | 1         | ~0.2 Hz | 188-230    |
+| 0x98 | Battery/telemetry | 1 | 1         | ~1 Hz   | 20         |
 
 ### Data Encoding
 - **EEG**: 14-bit unsigned, LSB-first bit packing, centered at ADC midscale. Scale: 1450/16383 uV/bit
 - **Optics/PPG**: 20-bit unsigned, LSB-first bit packing
 - **IMU**: 16-bit signed, little-endian. Accel scale: 0.0000610352 g/bit, Gyro scale: -0.0074768 deg/s/bit
+- **Battery/telemetry**: first two payload bytes are little-endian battery percent scaled by 256.
 
 ## Troubleshooting
 

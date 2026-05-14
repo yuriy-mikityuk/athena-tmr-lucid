@@ -44,8 +44,9 @@ TAG_OPTICS_4CH = 0x34    # 4 channels, 3 samples/pkt, 30 data bytes
 TAG_OPTICS_8CH = 0x35    # 8 channels, 2 samples/pkt, 40 data bytes
 TAG_OPTICS_16CH = 0x36   # 16 channels, 1 sample/pkt, 40 data bytes
 TAG_ACCGYRO = 0x47       # 6 channels, 3 samples/pkt, 36 data bytes
-TAG_BATTERY_1 = 0x88     # Battery info, 188 data bytes
-TAG_BATTERY_2 = 0x98     # Battery info, 20 data bytes
+TAG_DRL_REF = 0x53       # DRL/REF telemetry, 24 data bytes
+TAG_BATTERY_1 = 0x88     # Battery/telemetry, variable data length on newer firmware
+TAG_BATTERY_2 = 0x98     # Battery/telemetry, 20 data bytes on older firmware
 
 # Sensor configuration per TAG
 # Format: (type, n_channels, n_samples, data_len, sample_rate_hz)
@@ -56,9 +57,12 @@ SENSOR_CONFIG = {
     TAG_OPTICS_8CH:  ("OPTICS",  8,  2, 40,  64),
     TAG_OPTICS_16CH: ("OPTICS",  16, 1, 40,  64),
     TAG_ACCGYRO:     ("ACCGYRO", 6,  3, 36,  52),
-    TAG_BATTERY_1:   ("BATTERY", 1,  1, 188, 0.2),
+    TAG_DRL_REF:     ("DRLREF",  1,  1, 24,  32),
+    TAG_BATTERY_1:   ("BATTERY", 1,  1, 188, 0.2),  # Minimum/fallback length.
     TAG_BATTERY_2:   ("BATTERY", 1,  1, 20,  1.0),
 }
+
+VARIABLE_LENGTH_TAGS = {TAG_BATTERY_1}
 
 # ---------------------------------------------------------------------------
 # Scaling factors
@@ -291,8 +295,27 @@ def decode_battery(data: bytes, tag: int) -> dict:
     Returns:
         Dict with battery info. Exact structure depends on firmware.
     """
-    # Battery packets contain JSON-like status; for now return raw
-    return {"raw": data, "tag": tag}
+    result = {
+        "raw": data,
+        "tag": tag,
+        "payload_size": len(data),
+    }
+    if len(data) >= 2:
+        result["battery_percent"] = int.from_bytes(data[:2], byteorder="little") / 256.0
+    return result
+
+
+def decode_drl_ref(data: bytes) -> dict:
+    """Decode DRL/REF telemetry enough for diagnostics.
+
+    The payload is kept raw until the channel semantics are validated against
+    live captures. Counting it as a known TAG keeps diagnostics focused on
+    genuinely unknown packet layouts.
+    """
+    return {
+        "raw": data[:24],
+        "payload_size": min(len(data), 24),
+    }
 
 
 def decode_subpacket(tag: int, data: bytes) -> Optional[dict]:
@@ -321,6 +344,8 @@ def decode_subpacket(tag: int, data: bytes) -> Optional[dict]:
         decoded = decode_optics(data, n_channels)
     elif sensor_type == "BATTERY":
         decoded = decode_battery(data, tag)
+    elif sensor_type == "DRLREF":
+        decoded = decode_drl_ref(data)
     else:
         return None
 
@@ -374,17 +399,17 @@ def inspect_payload(payload: bytes) -> Dict[str, object]:
             "payload_size": len(payload),
         }
 
-    data_len = config[3]
-    data_end = HEADER_SIZE + data_len
-    if data_end > len(payload):
+    boundary = _payload_boundary(payload)
+    data_end = _subpacket_data_end(payload, first_tag, HEADER_SIZE, boundary)
+    if data_end > boundary:
         truncated = True
         offset = HEADER_SIZE
     else:
         decoded_tag_types.append(config[0])
         offset = data_end
 
-    while not truncated and offset < len(payload):
-        if offset + 5 > len(payload):
+    while not truncated and offset < boundary:
+        if offset + 5 > boundary:
             truncated = True
             break
 
@@ -395,10 +420,9 @@ def inspect_payload(payload: bytes) -> Dict[str, object]:
             unknown_tags.append(tag)
             break
 
-        data_len = cfg[3]
         data_start = offset + 5
-        data_end = data_start + data_len
-        if data_end > len(payload):
+        data_end = _subpacket_data_end(payload, tag, data_start, boundary)
+        if data_end > boundary:
             truncated = True
             break
 
@@ -439,18 +463,19 @@ def parse_payload(payload: bytes) -> Dict[str, list]:
         "ACCGYRO": [],
         "OPTICS": [],
         "BATTERY": [],
+        "DRLREF": [],
     }
 
     if len(payload) < HEADER_SIZE + 1:
         return result
+    boundary = _payload_boundary(payload)
 
     # First subpacket: TAG is at header byte 9, data starts at offset 14
     first_tag = payload[9]
     config = SENSOR_CONFIG.get(first_tag)
     if config is not None:
-        data_len = config[3]  # data_len field
-        data_end = HEADER_SIZE + data_len
-        if data_end <= len(payload):
+        data_end = _subpacket_data_end(payload, first_tag, HEADER_SIZE, boundary)
+        if data_end <= boundary:
             data_bytes = payload[HEADER_SIZE:data_end]
             decoded = decode_subpacket(first_tag, data_bytes)
             if decoded is not None:
@@ -463,17 +488,16 @@ def parse_payload(payload: bytes) -> Dict[str, list]:
         return result
 
     # Subsequent subpackets: [TAG(1)] [header(4)] [data(N)]
-    while offset + 5 < len(payload):
+    while offset + 5 <= boundary:
         tag = payload[offset]
         cfg = SENSOR_CONFIG.get(tag)
         if cfg is None:
             break  # Unknown TAG, stop parsing
 
-        data_len = cfg[3]
         data_start = offset + 5  # 1 byte TAG + 4 bytes header
-        data_end = data_start + data_len
+        data_end = _subpacket_data_end(payload, tag, data_start, boundary)
 
-        if data_end > len(payload):
+        if data_end > boundary:
             break  # Not enough data
 
         data_bytes = payload[data_start:data_end]
@@ -484,3 +508,23 @@ def parse_payload(payload: bytes) -> Dict[str, list]:
         offset = data_end
 
     return result
+
+
+def _payload_boundary(payload: bytes) -> int:
+    """Return the declared packet boundary when byte 0 carries a usable length.
+
+    Some synthetic tests and captures leave byte 0 as 0, so fall back to the
+    notification length unless the declared length is plausible.
+    """
+    if payload:
+        declared = payload[0]
+        if HEADER_SIZE <= declared <= len(payload):
+            return declared
+    return len(payload)
+
+
+def _subpacket_data_end(payload: bytes, tag: int, data_start: int, boundary: int) -> int:
+    """Return the exclusive end offset for a subpacket payload."""
+    if tag in VARIABLE_LENGTH_TAGS and boundary >= data_start:
+        return boundary
+    return data_start + SENSOR_CONFIG[tag][3]

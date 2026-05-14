@@ -219,6 +219,39 @@ class TestRealtimeDecoder(unittest.TestCase):
         self.assertEqual(stats['short_notifications'], 1)
         self.assertEqual(stats['truncated_notifications'], 1)
 
+    def test_battery_telemetry_updates_decoder_diagnostics(self):
+        """Battery telemetry should decode without polluting unknown TAG stats."""
+        battery_raw = int(91.5 * 256).to_bytes(2, byteorder="little") + bytes(198)
+        packet = bytearray(build_tag_packet(proto.TAG_BATTERY_1, battery_raw))
+        packet[0] = len(packet)
+
+        decoded = self.decoder.decode(bytes(packet))
+
+        self.assertEqual(decoded.packet_type, 'BATTERY')
+        self.assertAlmostEqual(decoded.battery, 91.5)
+        stats = self.decoder.get_stats()
+        self.assertEqual(stats['tag_counts'], {'0x88': 1})
+        self.assertEqual(stats['tag_type_counts'], {'BATTERY': 1})
+        self.assertEqual(stats['unknown_tag_counts'], {})
+        self.assertEqual(stats['battery_packets'], 1)
+        self.assertEqual(stats['battery_payload_bytes'], 200)
+        self.assertAlmostEqual(stats['battery_last_percent'], 91.5)
+
+    def test_drl_ref_telemetry_updates_decoder_diagnostics(self):
+        """DRL/REF telemetry should be known but not emitted as contact data."""
+        packet = build_tag_packet(proto.TAG_DRL_REF, bytes(24))
+
+        decoded = self.decoder.decode(packet)
+
+        self.assertEqual(decoded.packet_type, 'SENSOR')
+        self.assertIsNone(decoded.eeg)
+        stats = self.decoder.get_stats()
+        self.assertEqual(stats['tag_counts'], {'0x53': 1})
+        self.assertEqual(stats['tag_type_counts'], {'DRLREF': 1})
+        self.assertEqual(stats['unknown_tag_counts'], {})
+        self.assertEqual(stats['drl_ref_packets'], 1)
+        self.assertEqual(stats['drl_ref_payload_bytes'], 24)
+
     def test_error_handling(self):
         """Test error handling for malformed packets"""
         # Empty packet

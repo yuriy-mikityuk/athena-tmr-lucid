@@ -35,7 +35,7 @@ class DecodedData:
     ppg: Optional[Dict[str, List[float]]] = None
     imu: Optional[Dict[str, List[float]]] = None
     heart_rate: Optional[float] = None
-    battery: Optional[int] = None
+    battery: Optional[float] = None
     raw_bytes: bytes = b''
 
 
@@ -113,6 +113,11 @@ class MuseRealtimeDecoder:
             'imu_samples': 0,
             'imu_first_sample_time': None,
             'imu_last_sample_time': None,
+            'battery_packets': 0,
+            'battery_payload_bytes': 0,
+            'battery_last_percent': None,
+            'drl_ref_packets': 0,
+            'drl_ref_payload_bytes': 0,
             'tag_counts': {},
             'tag_type_counts': {},
             'unknown_tag_counts': {},
@@ -241,7 +246,22 @@ class MuseRealtimeDecoder:
 
         # Battery
         if parsed["BATTERY"]:
+            for subpacket in parsed["BATTERY"]:
+                data = subpacket["data"]
+                self.stats['battery_packets'] += 1
+                self.stats['battery_payload_bytes'] += int(data.get("payload_size", 0))
+                percent = data.get("battery_percent")
+                if percent is not None:
+                    decoded.battery = float(percent)
+                    self.stats['battery_last_percent'] = decoded.battery
             decoded.packet_type = 'BATTERY'
+
+        # DRL/REF telemetry
+        if parsed["DRLREF"]:
+            for subpacket in parsed["DRLREF"]:
+                data = subpacket["data"]
+                self.stats['drl_ref_packets'] += 1
+                self.stats['drl_ref_payload_bytes'] += int(data.get("payload_size", 0))
 
         # Combined packet type
         if parsed["EEG"] and (parsed["OPTICS"] or parsed["ACCGYRO"]):
@@ -344,6 +364,11 @@ class MuseRealtimeDecoder:
                 imu_elapsed_seconds,
             ),
             'imu_rolling_sample_rate_hz': self._rolling_rate('imu_sample_rows'),
+            'battery_packets': self.stats['battery_packets'],
+            'battery_payload_bytes': self.stats['battery_payload_bytes'],
+            'battery_last_percent': self.stats['battery_last_percent'],
+            'drl_ref_packets': self.stats['drl_ref_packets'],
+            'drl_ref_payload_bytes': self.stats['drl_ref_payload_bytes'],
             'tag_counts': dict(self.stats['tag_counts']),
             'tag_type_counts': dict(self.stats['tag_type_counts']),
             'unknown_tag_counts': dict(self.stats['unknown_tag_counts']),
