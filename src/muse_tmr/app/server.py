@@ -88,6 +88,7 @@ class LocalMuseAppState:
         self._contact_gate = ContactGate(
             ContactGateConfig(required_stability_seconds=config.gate_stability_seconds)
         )
+        self._start_when_ready_requested = False
         self._last_contact_snapshot = None
 
     def health(self) -> Mapping[str, Any]:
@@ -104,13 +105,13 @@ class LocalMuseAppState:
     def contact(self) -> Mapping[str, Any]:
         with self._lock:
             snapshot = self._contact_snapshot_unlocked(advance_mock=True)
-            self._contact_gate.update(snapshot)
+            self._advance_gate_unlocked(snapshot)
             return snapshot.to_dict()
 
     def gate(self) -> Mapping[str, Any]:
         with self._lock:
             snapshot = self._contact_snapshot_unlocked(advance_mock=False)
-            return self._contact_gate.update(snapshot).to_dict()
+            return self._advance_gate_unlocked(snapshot).to_dict()
 
     def diagnostics(self) -> Mapping[str, Any]:
         with self._lock:
@@ -137,12 +138,20 @@ class LocalMuseAppState:
     def arm_gate(self) -> Mapping[str, Any]:
         with self._lock:
             snapshot = self._contact_snapshot_unlocked(advance_mock=False)
-            return self._contact_gate.arm(snapshot).to_dict()
+            self._start_when_ready_requested = True
+            state = self._contact_gate.arm(snapshot)
+            if state.ready:
+                self._start_when_ready_requested = False
+                state = self._contact_gate.start(snapshot)
+            return state.to_dict()
 
     def start_session(self) -> Mapping[str, Any]:
         with self._lock:
             snapshot = self._contact_snapshot_unlocked(advance_mock=False)
-            return self._contact_gate.start(snapshot).to_dict()
+            state = self._contact_gate.start(snapshot)
+            if state.ready:
+                self._start_when_ready_requested = False
+            return state.to_dict()
 
     def scan(self) -> Mapping[str, Any]:
         self._set_state("scanning", error_message=None)
@@ -211,6 +220,8 @@ class LocalMuseAppState:
             self._device_name = None
             self._device_address = self.config.address
             self._error_message = None
+            self._start_when_ready_requested = False
+            self._contact_gate.disarm()
         if source is not None:
             asyncio.run(source.stop())
         if thread is not None and thread.is_alive():
@@ -250,6 +261,13 @@ class LocalMuseAppState:
         with self._lock:
             self._connection_state = connection_state
             self._error_message = error_message
+
+    def _advance_gate_unlocked(self, snapshot: ContactQualitySnapshot):
+        state = self._contact_gate.update(snapshot)
+        if self._start_when_ready_requested and state.ready:
+            self._start_when_ready_requested = False
+            return self._contact_gate.start(snapshot)
+        return state
 
     def _amused_source(self):
         from muse_tmr.sources.amused_source import AmusedSource

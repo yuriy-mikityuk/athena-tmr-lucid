@@ -139,6 +139,8 @@ class TestLocalMuseApp(unittest.TestCase):
         self.assertIn("/api/muse/state", script)
         self.assertIn("/api/muse/contact", script)
         self.assertIn("/api/muse/start-when-ready", script)
+        self.assertIn("Waiting for contact", script)
+        self.assertIn("Starting session", script)
 
     def test_diagnostics_endpoint_reports_state_and_last_contact(self):
         self.post_json("/api/muse/connect")
@@ -177,15 +179,19 @@ class TestLocalMuseAppReadyGate(unittest.TestCase):
         with urllib.request.urlopen(request, timeout=2) as response:
             return json.loads(response.read().decode("utf-8"))
 
-    def test_direct_start_succeeds_after_ready_gate(self):
+    def get_json(self, path):
+        with urllib.request.urlopen(f"{self.base_url}{path}", timeout=2) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def test_start_when_ready_auto_starts_after_ready_gate(self):
         self.post_json("/api/muse/connect")
         armed = self.post_json("/api/muse/start-when-ready")
-        started = self.post_json("/api/session/start")
+        running = self.get_json("/api/muse/gate")
 
-        self.assertEqual(armed["state"], "ready")
+        self.assertEqual(armed["state"], "starting")
         self.assertTrue(armed["ready"])
-        self.assertEqual(started["state"], "starting")
-        self.assertTrue(started["ready"])
+        self.assertEqual(running["state"], "running")
+        self.assertTrue(running["ready"])
 
 
 class TestLocalMuseAppAmusedScan(unittest.TestCase):

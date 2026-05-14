@@ -54,6 +54,9 @@ function renderState(state) {
   connectButton.disabled = connection === "connecting";
   scanButton.disabled = connection === "scanning" || connection === "connecting";
   disconnectButton.disabled = connection === "disconnected";
+  if (connection === "disconnected") {
+    startButton.textContent = "Start when ready";
+  }
 }
 
 async function refreshState() {
@@ -115,8 +118,10 @@ async function refreshContact() {
 function renderGate(gate) {
   const stableFor = Number(gate.stable_for_seconds || 0).toFixed(1);
   const required = Number(gate.required_stability_seconds || 0).toFixed(1);
-  if (gate.state === "ready" || gate.state === "starting") {
-    gateSummary.textContent = "Contact gate ready";
+  if (gate.state === "starting") {
+    gateSummary.textContent = "Starting session";
+  } else if (gate.state === "ready") {
+    gateSummary.textContent = "Contact gate ready; starting session";
   } else if (gate.armed) {
     gateSummary.textContent = `Waiting for stable contact: ${stableFor}s / ${required}s`;
   } else if (gate.state === "running") {
@@ -125,6 +130,15 @@ function renderGate(gate) {
     gateSummary.textContent = "Contact gate idle";
   }
   startButton.disabled = gate.state === "starting" || gate.state === "running";
+  if (gate.state === "starting") {
+    startButton.textContent = "Starting";
+  } else if (gate.state === "running") {
+    startButton.textContent = "Running";
+  } else if (gate.armed && !gate.ready) {
+    startButton.textContent = "Waiting for contact";
+  } else {
+    startButton.textContent = "Start when ready";
+  }
 }
 
 async function refreshGate() {
@@ -146,6 +160,8 @@ connectButton.addEventListener("click", async () => {
 });
 
 startButton.addEventListener("click", async () => {
+  startButton.disabled = true;
+  startButton.textContent = "Waiting for contact";
   renderGate(await requestJson("/api/muse/start-when-ready", { method: "POST" }));
 });
 
