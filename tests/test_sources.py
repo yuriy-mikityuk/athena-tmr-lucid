@@ -1,6 +1,8 @@
 import asyncio
 import datetime as dt
+import subprocess
 import unittest
+from unittest.mock import patch
 
 from muse_realtime_decoder import DecodedData
 from muse_tmr.data.sample_types import EEGSample, MuseFrame
@@ -93,6 +95,22 @@ class TestSources(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(source.frame_count, 1)
         self.assertEqual(frames[0].eeg.channels_uv["TP9"], (0.25,))
         self.assertEqual(frames[0].raw_packet, b"\x11\x22")
+
+    async def test_amused_discover_reports_corebluetooth_child_crash(self):
+        completed = subprocess.CompletedProcess(
+            args=["python", "-c", "..."],
+            returncode=137,
+            stdout="",
+            stderr="Fatal Python error: Aborted\n",
+        )
+        source = AmusedSource(verbose=False)
+
+        with patch("muse_tmr.sources.amused_source.sys.platform", "darwin"), patch(
+            "muse_tmr.sources.amused_source.subprocess.run",
+            return_value=completed,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "Muse BLE discovery crashed"):
+                await source.discover()
 
 
 if __name__ == "__main__":

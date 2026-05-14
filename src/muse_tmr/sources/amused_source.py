@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import subprocess
+import sys
 import time
 from typing import AsyncIterator, Callable, Optional, Sequence
 
@@ -11,6 +14,32 @@ from muse_stream_client import MuseStreamClient
 
 from muse_tmr.data.sample_types import MuseFrame, frame_from_decoded
 from muse_tmr.sources.base_source import BaseMuseSource, MuseDeviceInfo, MuseSourceMetadata
+
+_DISCOVERY_CHILD_TIMEOUT_SECONDS = 15.0
+_DISCOVERY_CHILD_CODE = r"""
+import asyncio
+import contextlib
+import json
+import sys
+
+from muse_discovery import find_muse_devices
+
+
+async def main():
+    with contextlib.redirect_stdout(sys.stderr):
+        devices = await find_muse_devices()
+    print(json.dumps([
+        {
+            "name": device.name,
+            "address": device.address,
+            "rssi": getattr(device, "rssi", -100),
+        }
+        for device in devices
+    ]))
+
+
+asyncio.run(main())
+"""
 
 
 class AmusedSource(BaseMuseSource):
@@ -48,15 +77,10 @@ class AmusedSource(BaseMuseSource):
         self._stop_requested = False
 
     async def discover(self) -> Sequence[MuseDeviceInfo]:
-        from muse_discovery import find_muse_devices
-
-        devices = await find_muse_devices()
+        devices = await _discover_muse_devices()
         if self.name_filter:
             devices = [device for device in devices if self.name_filter in device.name]
-        return [
-            MuseDeviceInfo(name=device.name, address=device.address, rssi=device.rssi)
-            for device in devices
-        ]
+        return devices
 
     async def connect(self, device: Optional[MuseDeviceInfo] = None) -> MuseSourceMetadata:
         self._stop_requested = False
@@ -152,3 +176,63 @@ class AmusedSource(BaseMuseSource):
             self._queue.put_nowait(frame)
         except asyncio.QueueFull:
             self.disconnect_reason = "frame_queue_full"
+
+
+async def _discover_muse_devices() -> Sequence[MuseDeviceInfo]:
+    if sys.platform == "darwin":
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, _discover_muse_devices_subprocess)
+
+    return await _discover_muse_devices_in_process()
+
+
+async def _discover_muse_devices_in_process() -> Sequence[MuseDeviceInfo]:
+    from muse_discovery import find_muse_devices
+
+    devices = await find_muse_devices()
+    return [
+        MuseDeviceInfo(name=device.name, address=device.address, rssi=device.rssi)
+        for device in devices
+    ]
+
+
+def _discover_muse_devices_subprocess() -> Sequence[MuseDeviceInfo]:
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-c", _DISCOVERY_CHILD_CODE],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=_DISCOVERY_CHILD_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            "Muse BLE discovery timed out in an isolated process. "
+            "Check macOS Bluetooth permission for the terminal/Python app, "
+            "then retry scan."
+        ) from exc
+
+    if completed.returncode != 0:
+        details = (completed.stderr or completed.stdout or "").strip()
+        if details:
+            details = f": {details.splitlines()[0]}"
+        raise RuntimeError(
+            "Muse BLE discovery crashed in an isolated process"
+            f" (exit {completed.returncode}){details}. "
+            "On macOS, grant Bluetooth permission to the terminal/Python app "
+            "running muse-tmr, then retry scan."
+        )
+
+    try:
+        payload = json.loads(completed.stdout or "[]")
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("Muse BLE discovery returned invalid device data") from exc
+
+    return [
+        MuseDeviceInfo(
+            name=str(device["name"]),
+            address=str(device["address"]),
+            rssi=int(device.get("rssi", -100)),
+        )
+        for device in payload
+    ]
