@@ -258,7 +258,8 @@ class ContactQualityMonitor:
         coverage = min(1.0, sample_count / expected_count)
         finite_values = tuple(value for value in values if math.isfinite(value))
         finite_fraction = len(finite_values) / sample_count
-        clipping_fraction = _clipping_fraction(finite_values, self.config.clipping_abs_uv_threshold)
+        centered_values = _centered_values(finite_values)
+        clipping_fraction = _clipping_fraction(centered_values, self.config.clipping_abs_uv_threshold)
         fill = max(0.0, min(1.0, coverage * finite_fraction * (1.0 - clipping_fraction)))
 
         reasons = []
@@ -266,7 +267,7 @@ class ContactQualityMonitor:
         if finite_fraction < 1.0:
             hard_artifact = True
             reasons.append("non_finite")
-        if finite_values and _std(finite_values) <= self.config.flat_std_uv_threshold:
+        if centered_values and _std(centered_values) <= self.config.flat_std_uv_threshold:
             hard_artifact = True
             reasons.append("flatline")
         if clipping_fraction >= self.config.clipping_fraction_threshold:
@@ -713,6 +714,13 @@ def _std(values: Sequence[float]) -> float:
     mean = sum(values) / len(values)
     variance = sum((value - mean) ** 2 for value in values) / len(values)
     return math.sqrt(variance)
+
+
+def _centered_values(values: Sequence[float]) -> Tuple[float, ...]:
+    if not values:
+        return ()
+    baseline = sorted(values)[len(values) // 2]
+    return tuple(value - baseline for value in values)
 
 
 def _clipping_fraction(values: Sequence[float], threshold: float) -> float:

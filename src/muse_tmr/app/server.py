@@ -19,6 +19,7 @@ from urllib.parse import parse_qs, urlparse
 from muse_tmr.contact import (
     ContactGate,
     ContactGateConfig,
+    ContactQualityConfig,
     ContactQualityMonitor,
     ContactQualitySnapshot,
     MockContactProvider,
@@ -77,7 +78,10 @@ class LocalMuseAppState:
             else None
         )
         self._contact_monitor = (
-            ContactQualityMonitor(source=config.source)
+            ContactQualityMonitor(
+                source=config.source,
+                config=ContactQualityConfig(sample_rate_hz=128.0),
+            )
             if config.source != "mock"
             else None
         )

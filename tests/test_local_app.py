@@ -138,6 +138,14 @@ class TestLocalMuseAppReadyGate(unittest.TestCase):
 
 
 class TestLocalMuseAppAmusedScan(unittest.TestCase):
+    def test_live_app_uses_effective_amused_contact_sample_rate(self):
+        server = create_local_app_server(AppConfig(port=0, source="amused"))
+        try:
+            self.assertEqual(server.app_state._contact_monitor.config.sample_rate_hz, 128.0)
+        finally:
+            server.app_state.shutdown()
+            server.server_close()
+
     def test_empty_live_scan_returns_disconnected_error_without_sticking_scanning(self):
         with patch(
             "muse_tmr.sources.amused_source.AmusedSource.discover",

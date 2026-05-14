@@ -84,6 +84,17 @@ class TestContactQualityMonitor(unittest.TestCase):
         self.assertEqual(snapshot.channels["AF8"].status, "poor")
         self.assertIn("clipping", snapshot.channels["AF8"].reason_codes)
 
+    def test_live_dc_offset_does_not_count_as_clipping(self):
+        monitor = ContactQualityMonitor(source="test")
+        offset_values = [725.0 + (10.0 if index % 2 == 0 else -10.0) for index in range(512)]
+
+        monitor.update(frame(0.0, {channel: offset_values for channel in REQUIRED_CONTACT_CHANNELS}))
+        snapshot = monitor.snapshot(now_seconds=1.0)
+
+        self.assertTrue(snapshot.all_good)
+        self.assertTrue(all(state.status == "good" for state in snapshot.channels.values()))
+        self.assertTrue(all("clipping" not in state.reason_codes for state in snapshot.channels.values()))
+
     def test_snapshot_marks_stale_when_frames_stop_arriving(self):
         monitor = ContactQualityMonitor(
             source="test",
