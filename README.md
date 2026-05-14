@@ -511,12 +511,14 @@ M10 local Muse contact setup app:
 muse-tmr app --source mock --host 127.0.0.1 --port 8765
 muse-tmr app --source amused --address "$MUSE_ADDR" --host 127.0.0.1 --port 8765
 muse-tmr stream --source amused --address "$MUSE_ADDR" --duration-seconds 30 --debug-stats
+.venv/bin/python scripts/install_macos_launcher.py --address "$MUSE_ADDR"
 ```
 
 See `docs/contact_setup_local_app.md` before overnight Pilot sessions. The setup app
 is local-only, tracks `TP9`, `AF7`, `AF8`, and `TP10`, and uses a backend-enforced
 `Start when ready` contact gate before session start. Live app diagnostics are
-available at `/api/muse/diagnostics`.
+available at `/api/muse/diagnostics`. On macOS, the launcher installer creates
+`~/Desktop/Muse TMR Setup.app` for one-click local startup.
 
 M8 Pilot 4 low-volume REM-gated cueing:
 
