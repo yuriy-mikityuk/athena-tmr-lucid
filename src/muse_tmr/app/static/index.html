@@ -11,17 +11,42 @@
       <section class="setup-panel" aria-labelledby="app-title">
         <div class="topline">
           <span class="local-badge">Local only</span>
-          <span id="source-label">mock</span>
+          <span class="source-badge mock" id="source-label">MOCK</span>
         </div>
         <h1 id="app-title">Connect Muse</h1>
         <p class="status-line" id="status-line">Disconnected</p>
+        <div class="session-strip" id="session-strip" hidden>
+          <strong id="session-status">Session running</strong>
+          <span id="session-elapsed">00:00</span>
+          <span id="session-warnings">contact warnings: 0</span>
+          <span id="session-stream-rate">stream: -- Hz</span>
+        </div>
         <div class="status-meter" aria-hidden="true">
           <span data-state="disconnected"></span>
           <span data-state="scanning"></span>
           <span data-state="connecting"></span>
           <span data-state="connected"></span>
         </div>
-        <div class="device-summary" id="device-summary">No headset selected</div>
+        <div class="device-card" id="device-summary">
+          <div class="device-main">
+            <strong id="device-name">No headset selected</strong>
+            <span id="device-connection-age">Disconnected</span>
+          </div>
+          <dl class="device-meta">
+            <div>
+              <dt>Address</dt>
+              <dd id="device-address">-</dd>
+            </div>
+            <div>
+              <dt>Source</dt>
+              <dd id="device-source">mock</dd>
+            </div>
+            <div>
+              <dt>Last packet</dt>
+              <dd id="device-last-packet">-</dd>
+            </div>
+          </dl>
+        </div>
         <section class="contact-panel" aria-labelledby="contact-title">
           <div class="contact-heading">
             <h2 id="contact-title">Contact Quality</h2>
@@ -53,10 +78,49 @@
         <div class="actions">
           <button type="button" id="scan-button">Scan</button>
           <button type="button" id="connect-button">Connect Muse</button>
-          <button type="button" id="start-button">Start when ready</button>
-          <button type="button" id="disconnect-button">Disconnect</button>
+          <button type="button" id="start-button" hidden>Start when ready</button>
+          <button type="button" id="disconnect-button" hidden>Disconnect</button>
         </div>
         <div class="gate-summary" id="gate-summary" role="status">Contact gate idle</div>
+        <div class="gate-progress" id="gate-progress" hidden>
+          <div class="gate-progress-track" aria-hidden="true">
+            <span id="gate-progress-fill"></span>
+          </div>
+          <div class="gate-progress-label" id="gate-progress-label">0.0s / 5.0s</div>
+        </div>
+        <section class="warning-log" id="warning-log-section" hidden>
+          <h2>Contact Warnings</h2>
+          <ol id="warning-log"></ol>
+        </section>
+        <details class="diagnostics-panel" id="diagnostics-panel">
+          <summary>Diagnostics</summary>
+          <dl class="diagnostics-grid">
+            <div>
+              <dt>Notifications/sec</dt>
+              <dd id="diag-notifications-rate">-</dd>
+            </div>
+            <div>
+              <dt>EEG rows/sec</dt>
+              <dd id="diag-eeg-rows-rate">-</dd>
+            </div>
+            <div>
+              <dt>EEG effective Hz</dt>
+              <dd id="diag-eeg-effective-rate">-</dd>
+            </div>
+            <div>
+              <dt>Decode errors</dt>
+              <dd id="diag-decode-errors">-</dd>
+            </div>
+            <div>
+              <dt>Unknown tags</dt>
+              <dd id="diag-unknown-tags">-</dd>
+            </div>
+            <div>
+              <dt>Last packet age</dt>
+              <dd id="diag-last-packet-age">-</dd>
+            </div>
+          </dl>
+        </details>
         <div class="error" id="error-box" role="alert" hidden></div>
       </section>
     </main>

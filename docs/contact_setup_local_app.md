@@ -180,12 +180,25 @@ Backend behavior:
 - Discovery finds the Muse.
 - Connect succeeds.
 - Contact data updates live.
+- The source badge clearly shows `MOCK` or `LIVE Muse`.
+- The device card shows the headset name, address, source, connected duration,
+  and last packet age when available.
 - Poor, fair, and good visual states are visible.
+- Fair/poor channels show their primary reason code in human-readable form.
 - Each channel maps to the expected segment: `TP9`, `AF7`, `AF8`, `TP10`.
+- Per-channel sparklines update for recent contact fill history.
 - All-good contact shows the centered check mark.
 - `Start when ready` arms the contact gate.
+- The stability progress bar counts toward the required contact window and
+  reports the channel that reset the countdown.
 - Session start remains blocked until all contacts are good for the stability
   window.
+- Once running, the session strip shows elapsed time, warning count, and stream
+  rate.
+- In-session contact drops appear in the contact warning log but do not stop the
+  session.
+- The diagnostics panel exposes notification rate, EEG rows/sec, EEG effective
+  rate, decode errors, unknown TAG counts, and last packet age.
 - Disconnect or stale contact resets readiness before session start.
 
 ## Live Diagnostics

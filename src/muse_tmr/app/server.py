@@ -13,7 +13,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from muse_tmr.contact import (
@@ -90,6 +90,13 @@ class LocalMuseAppState:
         )
         self._start_when_ready_requested = False
         self._last_contact_snapshot = None
+        self._connected_at_seconds: Optional[float] = None
+        self._session_started_at_seconds: Optional[float] = None
+        self._contact_warning_count = 0
+        self._contact_warning_events: List[Dict[str, Any]] = []
+        self._active_contact_warning_started_at: Optional[float] = None
+        self._active_contact_warning_channels: Tuple[str, ...] = ()
+        self._active_contact_warning_reasons: Tuple[str, ...] = ()
 
     def health(self) -> Mapping[str, Any]:
         return {
@@ -143,6 +150,7 @@ class LocalMuseAppState:
             if state.ready:
                 self._start_when_ready_requested = False
                 state = self._contact_gate.start(snapshot)
+                self._mark_session_started_unlocked()
             return state.to_dict()
 
     def start_session(self) -> Mapping[str, Any]:
@@ -151,6 +159,7 @@ class LocalMuseAppState:
             state = self._contact_gate.start(snapshot)
             if state.ready:
                 self._start_when_ready_requested = False
+                self._mark_session_started_unlocked()
             return state.to_dict()
 
     def scan(self) -> Mapping[str, Any]:
@@ -187,6 +196,7 @@ class LocalMuseAppState:
                     self._device_name = "Muse Mock Headband"
                     self._device_address = self.config.address or "mock://muse-s"
                     self._connection_state = "connected"
+                    self._connected_at_seconds = time.time()
                     return self._state_unlocked()
 
             source = self._amused_source()
@@ -197,6 +207,7 @@ class LocalMuseAppState:
                 self._device_address = metadata.device_id
                 self._connection_state = "connected"
                 self._error_message = None
+                self._connected_at_seconds = time.time()
                 state = self._state_unlocked()
             self._start_contact_stream(source)
             return state
@@ -219,8 +230,10 @@ class LocalMuseAppState:
             self._connection_state = "disconnected"
             self._device_name = None
             self._device_address = self.config.address
+            self._connected_at_seconds = None
             self._error_message = None
             self._start_when_ready_requested = False
+            self._reset_session_unlocked()
             self._contact_gate.disarm()
         if source is not None:
             asyncio.run(source.stop())
@@ -232,9 +245,16 @@ class LocalMuseAppState:
         self.disconnect()
 
     def _state_unlocked(self, extra: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
+        now = time.time()
         payload: Dict[str, Any] = {
             "source": self.config.source,
             "connection_state": self._connection_state,
+            "connected_at_seconds": self._connected_at_seconds,
+            "connected_elapsed_seconds": (
+                now - self._connected_at_seconds
+                if self._connected_at_seconds is not None
+                else None
+            ),
             "device": (
                 {
                     "name": self._device_name,
@@ -251,6 +271,7 @@ class LocalMuseAppState:
             }
             if self.config.source == "mock"
             else None,
+            "session": self._session_payload_unlocked(now),
             "available_states": list(CONNECTION_STATES),
         }
         if extra:
@@ -266,8 +287,115 @@ class LocalMuseAppState:
         state = self._contact_gate.update(snapshot)
         if self._start_when_ready_requested and state.ready:
             self._start_when_ready_requested = False
-            return self._contact_gate.start(snapshot)
+            state = self._contact_gate.start(snapshot)
+            self._mark_session_started_unlocked()
+            return state
+        if state.state == "running" and self._session_started_at_seconds is None:
+            self._mark_session_started_unlocked()
+        self._track_contact_warning_unlocked(snapshot, state)
         return state
+
+    def _mark_session_started_unlocked(self) -> None:
+        if self._session_started_at_seconds is not None:
+            return
+        self._session_started_at_seconds = time.time()
+        self._contact_warning_count = 0
+        self._contact_warning_events = []
+        self._active_contact_warning_started_at = None
+        self._active_contact_warning_channels = ()
+        self._active_contact_warning_reasons = ()
+
+    def _reset_session_unlocked(self) -> None:
+        self._session_started_at_seconds = None
+        self._contact_warning_count = 0
+        self._contact_warning_events = []
+        self._active_contact_warning_started_at = None
+        self._active_contact_warning_channels = ()
+        self._active_contact_warning_reasons = ()
+
+    def _session_payload_unlocked(self, now: float) -> Dict[str, Any]:
+        active_warning = None
+        if self._active_contact_warning_started_at is not None:
+            active_warning = {
+                "started_at_seconds": self._active_contact_warning_started_at,
+                "elapsed_seconds": now - self._active_contact_warning_started_at,
+                "channels": list(self._active_contact_warning_channels),
+                "reason_codes": list(self._active_contact_warning_reasons),
+            }
+        return {
+            "running": self._session_started_at_seconds is not None,
+            "started_at_seconds": self._session_started_at_seconds,
+            "elapsed_seconds": (
+                now - self._session_started_at_seconds
+                if self._session_started_at_seconds is not None
+                else None
+            ),
+            "contact_warning_count": self._contact_warning_count,
+            "active_contact_warning": active_warning,
+            "contact_warning_events": list(self._contact_warning_events[-20:]),
+        }
+
+    def _track_contact_warning_unlocked(self, snapshot: ContactQualitySnapshot, gate_state) -> None:
+        if gate_state.state != "running" or self._session_started_at_seconds is None:
+            return
+
+        bad_channels = []
+        reasons = []
+        for channel in snapshot.required_channels:
+            channel_state = snapshot.channels.get(channel)
+            if channel_state is None or channel_state.status == "good":
+                continue
+            bad_channels.append(f"{channel} {channel_state.status}")
+            reasons.extend(channel_state.reason_codes)
+
+        now = time.time()
+        if bad_channels:
+            bad_tuple = tuple(bad_channels)
+            reason_tuple = tuple(dict.fromkeys(str(reason) for reason in reasons if reason))
+            if self._active_contact_warning_started_at is None:
+                self._active_contact_warning_started_at = now
+                self._active_contact_warning_channels = bad_tuple
+                self._active_contact_warning_reasons = reason_tuple
+                self._contact_warning_count += 1
+                self._append_contact_warning_event_unlocked(
+                    {
+                        "timestamp_seconds": now,
+                        "kind": "contact_drop",
+                        "channels": list(bad_tuple),
+                        "reason_codes": list(reason_tuple),
+                        "duration_seconds": None,
+                    }
+                )
+            else:
+                self._active_contact_warning_channels = bad_tuple
+                self._active_contact_warning_reasons = reason_tuple
+            return
+
+        if self._active_contact_warning_started_at is None:
+            return
+
+        duration = now - self._active_contact_warning_started_at
+        for event in reversed(self._contact_warning_events):
+            if event.get("kind") == "contact_drop" and event.get("duration_seconds") is None:
+                event["duration_seconds"] = duration
+                break
+        self._append_contact_warning_event_unlocked(
+            {
+                "timestamp_seconds": now,
+                "kind": "contact_recovered",
+                "channels": [],
+                "reason_codes": [],
+                "duration_seconds": duration,
+            }
+        )
+        self._active_contact_warning_started_at = None
+        self._active_contact_warning_channels = ()
+        self._active_contact_warning_reasons = ()
+
+    def _append_contact_warning_event_unlocked(self, event: Dict[str, Any]) -> None:
+        self._contact_warning_events.append(event)
+        if len(self._contact_warning_events) > 50:
+            del self._contact_warning_events[:-50]
 
     def _amused_source(self):
         from muse_tmr.sources.amused_source import AmusedSource

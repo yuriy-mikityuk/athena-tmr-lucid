@@ -132,6 +132,11 @@ class TestLocalMuseApp(unittest.TestCase):
 
         self.assertIn("Connect Muse", body)
         self.assertIn("headband-title", body)
+        self.assertIn("session-strip", body)
+        self.assertIn("device-card", body)
+        self.assertIn("warning-log", body)
+        self.assertIn("diagnostics-panel", body)
+        self.assertIn("source-badge", body)
         self.assertIn("data-channel=\"TP9\"", body)
         self.assertIn("data-channel=\"AF7\"", body)
         self.assertIn("data-channel=\"AF8\"", body)
@@ -139,12 +144,16 @@ class TestLocalMuseApp(unittest.TestCase):
         self.assertIn("/api/muse/state", script)
         self.assertIn("/api/muse/contact", script)
         self.assertIn("/api/muse/start-when-ready", script)
+        self.assertIn("/api/muse/diagnostics", script)
         self.assertIn("Waiting for contact", script)
         self.assertIn("Starting session", script)
+        self.assertIn("Session running", script)
+        self.assertIn("contact warnings", script)
+        self.assertIn("contact-sparkline", script)
         self.assertIn('scanButton.hidden = connection === "connected"', script)
         self.assertLess(
             script.index('gate.state === "running"'),
-            script.index('`Waiting for stable contact: ${stableFor}s / ${required}s`'),
+            script.index('"Waiting for stable contact"'),
         )
 
     def test_diagnostics_endpoint_reports_state_and_last_contact(self):
@@ -157,6 +166,8 @@ class TestLocalMuseApp(unittest.TestCase):
         self.assertEqual(diagnostics["state"]["connection_state"], "connected")
         self.assertIsNone(diagnostics["source_diagnostics"])
         self.assertEqual(diagnostics["contact"]["channels"]["AF7"]["status"], "fair")
+        self.assertIn("session", diagnostics["state"])
+        self.assertFalse(diagnostics["state"]["session"]["running"])
 
 
 class TestLocalMuseAppReadyGate(unittest.TestCase):
@@ -192,11 +203,63 @@ class TestLocalMuseAppReadyGate(unittest.TestCase):
         self.post_json("/api/muse/connect")
         armed = self.post_json("/api/muse/start-when-ready")
         running = self.get_json("/api/muse/gate")
+        state = self.get_json("/api/muse/state")
 
         self.assertEqual(armed["state"], "starting")
         self.assertTrue(armed["ready"])
         self.assertEqual(running["state"], "running")
         self.assertTrue(running["ready"])
+        self.assertTrue(state["session"]["running"])
+        self.assertIsNotNone(state["session"]["started_at_seconds"])
+
+
+class TestLocalMuseAppContactWarningLog(unittest.TestCase):
+    def setUp(self):
+        self.server = create_local_app_server(
+            AppConfig(port=0, source="mock", mock_scenario="flapping_af7", gate_stability_seconds=0.0)
+        )
+        self.thread = threading.Thread(target=self.server.serve_forever)
+        self.thread.start()
+        host, port = self.server.server_address
+        self.base_url = f"http://{host}:{port}"
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.thread.join(timeout=2)
+        self.server.app_state.shutdown()
+        self.server.server_close()
+
+    def post_json(self, path):
+        request = urllib.request.Request(
+            f"{self.base_url}{path}",
+            data=b"",
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=2) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def get_json(self, path):
+        with urllib.request.urlopen(f"{self.base_url}{path}", timeout=2) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def test_running_session_logs_contact_drop_and_recovery(self):
+        self.post_json("/api/muse/connect")
+        self.post_json("/api/muse/start-when-ready")
+        self.get_json("/api/muse/gate")
+        self.get_json("/api/muse/contact")
+        self.get_json("/api/muse/contact")
+        state = self.get_json("/api/muse/state")
+
+        session = state["session"]
+        self.assertTrue(session["running"])
+        self.assertEqual(session["contact_warning_count"], 1)
+        self.assertIsNone(session["active_contact_warning"])
+        self.assertEqual(
+            [event["kind"] for event in session["contact_warning_events"]],
+            ["contact_drop", "contact_recovered"],
+        )
+        self.assertIn("AF7 poor", session["contact_warning_events"][0]["channels"])
+        self.assertIn("low_coverage", session["contact_warning_events"][0]["reason_codes"])
 
 
 class TestLocalMuseAppAmusedScan(unittest.TestCase):
