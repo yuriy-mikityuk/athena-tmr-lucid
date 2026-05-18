@@ -398,6 +398,13 @@ button:disabled {
   font-size: 0.95rem;
 }
 
+.active-warning-status {
+  margin-bottom: 8px;
+  color: var(--warning);
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
 .warning-log ol {
   display: grid;
   gap: 6px;
@@ -409,11 +416,6 @@ button:disabled {
 
 .warning-log li {
   padding-left: 2px;
-}
-
-.warning-log .active-warning {
-  color: var(--warning);
-  font-weight: 700;
 }
 
 .diagnostics-panel {

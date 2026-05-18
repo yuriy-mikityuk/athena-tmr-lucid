@@ -1,4 +1,5 @@
 const stateLabel = document.querySelector("#status-line");
+const appTitle = document.querySelector("#app-title");
 const sourceLabel = document.querySelector("#source-label");
 const deviceName = document.querySelector("#device-name");
 const deviceConnectionAge = document.querySelector("#device-connection-age");
@@ -23,6 +24,7 @@ const sessionElapsed = document.querySelector("#session-elapsed");
 const sessionWarnings = document.querySelector("#session-warnings");
 const sessionStreamRate = document.querySelector("#session-stream-rate");
 const warningLogSection = document.querySelector("#warning-log-section");
+const activeWarningStatus = document.querySelector("#active-warning-status");
 const warningLog = document.querySelector("#warning-log");
 const diagNotificationsRate = document.querySelector("#diag-notifications-rate");
 const diagEegRowsRate = document.querySelector("#diag-eeg-rows-rate");
@@ -83,25 +85,61 @@ function renderState(state) {
 
   errorBox.hidden = !latestState.error_message;
   errorBox.textContent = latestState.error_message || "";
-  scanButton.hidden = connection === "connected";
-  connectButton.hidden = connection === "connected";
-  startButton.hidden = connection !== "connected";
-  disconnectButton.hidden = connection !== "connected";
-  connectButton.classList.toggle("primary", connection !== "connected");
-  connectButton.disabled = connection === "connecting";
-  scanButton.disabled = connection === "scanning" || connection === "connecting";
-  disconnectButton.disabled = connection === "disconnected";
+  renderActions();
   if (connection === "disconnected") {
     startButton.textContent = "Start when ready";
   }
 
+  renderAppTitle();
   renderDeviceCard();
   renderSessionStrip();
   renderWarningLog();
 }
 
-async function refreshState() {
-  renderState(await requestJson("/api/muse/state"));
+async function refreshUiState() {
+  renderUiState(await requestJson("/api/muse/ui-state"));
+}
+
+function renderUiState(payload) {
+  latestDiagnostics = { source_diagnostics: payload.source_diagnostics || null };
+  renderState(payload.state || {});
+  renderContact(payload.contact || {});
+  renderGate(payload.gate || {});
+  renderDiagnostics(latestDiagnostics);
+  renderAppTitle();
+}
+
+function renderAppTitle() {
+  const connection = latestState.connection_state || "disconnected";
+  const gateState = latestGate.state || "";
+  const session = latestState.session || {};
+  if (session.running || gateState === "starting" || gateState === "running") {
+    appTitle.textContent = "Muse Session";
+  } else if (latestGate.armed && !latestGate.ready) {
+    appTitle.textContent = "Hold Contact";
+  } else if (connection === "connected") {
+    appTitle.textContent = "Check Contact";
+  } else {
+    appTitle.textContent = "Connect Muse";
+  }
+}
+
+function renderActions() {
+  const connection = latestState.connection_state || "disconnected";
+  const running = isRunningMode();
+  scanButton.hidden = connection === "connected";
+  connectButton.hidden = connection === "connected";
+  startButton.hidden = connection !== "connected" || running;
+  disconnectButton.hidden = connection !== "connected";
+  connectButton.classList.toggle("primary", connection !== "connected");
+  connectButton.disabled = connection === "connecting";
+  scanButton.disabled = connection === "scanning" || connection === "connecting";
+  disconnectButton.disabled = connection === "disconnected";
+}
+
+function isRunningMode() {
+  const session = latestState.session || {};
+  return Boolean(session.running || latestGate.state === "running");
 }
 
 function renderSourceBadge(source) {
@@ -130,7 +168,8 @@ function renderDeviceCard() {
       : stateText[connection] || connection;
   deviceAddress.textContent = device.address || "-";
   deviceSource.textContent = latestState.source || "unknown";
-  deviceLastPacket.textContent = formatAge(diagnostics.last_packet_age_seconds);
+  deviceLastPacket.textContent =
+    latestState.source === "mock" ? "n/a" : formatAge(diagnostics.last_packet_age_seconds);
 }
 
 function renderContact(snapshot) {
@@ -175,10 +214,6 @@ function renderContact(snapshot) {
   } else {
     contactSummary.textContent = badChannels.length > 0 ? `Adjust ${badChannels.join(", ")}` : "Checking contact";
   }
-}
-
-async function refreshContact() {
-  renderContact(await requestJson("/api/muse/contact"));
 }
 
 function contactRow(channel, status, fill, reason, reasonCodes) {
@@ -269,13 +304,11 @@ function renderGate(gate) {
   } else {
     startButton.textContent = "Start when ready";
   }
+  renderActions();
 
+  renderAppTitle();
   renderSessionStrip();
   renderWarningLog();
-}
-
-async function refreshGate() {
-  renderGate(await requestJson("/api/muse/gate"));
 }
 
 function renderDiagnostics(diagnostics) {
@@ -285,22 +318,27 @@ function renderDiagnostics(diagnostics) {
   const rollingEeg = numberOrNull(decoder.eeg_rolling_sample_rate_hz);
   const effectiveEeg = numberOrNull(decoder.eeg_effective_sample_rate_hz);
 
-  diagNotificationsRate.textContent = formatRate(
-    decoder.rolling_notifications_per_second ?? decoder.notifications_per_second,
-    "/s"
-  );
-  diagEegRowsRate.textContent = formatRate(rollingEeg ?? effectiveEeg, "rows/s");
-  diagEegEffectiveRate.textContent = formatRate(effectiveEeg);
-  diagDecodeErrors.textContent = String(decoder.decode_errors ?? 0);
-  diagUnknownTags.textContent = formatUnknownTags(decoder.unknown_tag_counts || {});
-  diagLastPacketAge.textContent = formatAge(source.last_packet_age_seconds);
+  if (latestState.source === "mock") {
+    diagNotificationsRate.textContent = "n/a";
+    diagEegRowsRate.textContent = "mock";
+    diagEegEffectiveRate.textContent = "mock";
+    diagDecodeErrors.textContent = "0";
+    diagUnknownTags.textContent = "0";
+    diagLastPacketAge.textContent = "n/a";
+  } else {
+    diagNotificationsRate.textContent = formatRate(
+      decoder.rolling_notifications_per_second ?? decoder.notifications_per_second,
+      "/s"
+    );
+    diagEegRowsRate.textContent = formatRate(rollingEeg ?? effectiveEeg, "rows/s");
+    diagEegEffectiveRate.textContent = formatRate(effectiveEeg);
+    diagDecodeErrors.textContent = String(decoder.decode_errors ?? 0);
+    diagUnknownTags.textContent = formatUnknownTags(decoder.unknown_tag_counts || {});
+    diagLastPacketAge.textContent = formatAge(source.last_packet_age_seconds);
+  }
 
   renderDeviceCard();
   renderSessionStrip();
-}
-
-async function refreshDiagnostics() {
-  renderDiagnostics(await requestJson("/api/muse/diagnostics"));
 }
 
 function renderSessionStrip() {
@@ -331,25 +369,29 @@ function renderWarningLog() {
 
   warningLogSection.hidden = !running && events.length === 0 && !active;
   if (warningLogSection.hidden) {
+    activeWarningStatus.hidden = true;
+    activeWarningStatus.textContent = "";
+    warningLog.innerHTML = "";
     return;
   }
 
-  warningLog.innerHTML = "";
-  if (active) {
-    const item = document.createElement("li");
-    item.className = "active-warning";
-    item.textContent = `${active.channels.join(", ")} for ${formatSeconds(active.elapsed_seconds)}`;
-    warningLog.appendChild(item);
-  }
+  activeWarningStatus.hidden = !active;
+  activeWarningStatus.textContent = active
+    ? `${active.channels.join(", ")} for ${formatSeconds(active.elapsed_seconds)}`
+    : "";
 
-  if (events.length === 0 && !active) {
+  const completedEvents = events.filter(
+    (event) => event.kind !== "contact_drop" || event.duration_seconds != null
+  );
+  warningLog.innerHTML = "";
+  if (completedEvents.length === 0 && !active) {
     const item = document.createElement("li");
     item.textContent = "No contact warnings";
     warningLog.appendChild(item);
     return;
   }
 
-  [...events].reverse().forEach((event) => {
+  [...completedEvents].reverse().forEach((event) => {
     const item = document.createElement("li");
     item.textContent = warningEventText(event);
     warningLog.appendChild(item);
@@ -358,42 +400,30 @@ function renderWarningLog() {
 
 scanButton.addEventListener("click", async () => {
   renderState({ ...latestState, connection_state: "scanning" });
-  renderState(await requestJson("/api/muse/scan", { method: "POST" }));
-  await refreshContact();
-  await refreshGate();
-  await refreshDiagnostics();
+  await requestJson("/api/muse/scan", { method: "POST" });
+  await refreshUiState();
 });
 
 connectButton.addEventListener("click", async () => {
   renderState({ ...latestState, connection_state: "connecting" });
-  renderState(await requestJson("/api/muse/connect", { method: "POST" }));
-  await refreshContact();
-  await refreshGate();
-  await refreshDiagnostics();
+  await requestJson("/api/muse/connect", { method: "POST" });
+  await refreshUiState();
 });
 
 startButton.addEventListener("click", async () => {
   startButton.disabled = true;
   startButton.textContent = "Waiting for contact";
-  renderGate(await requestJson("/api/muse/start-when-ready", { method: "POST" }));
-  await refreshState();
+  await requestJson("/api/muse/start-when-ready", { method: "POST" });
+  await refreshUiState();
 });
 
 disconnectButton.addEventListener("click", async () => {
-  renderState(await requestJson("/api/muse/disconnect", { method: "POST" }));
-  await refreshContact();
-  await refreshGate();
-  await refreshDiagnostics();
+  await requestJson("/api/muse/disconnect", { method: "POST" });
+  await refreshUiState();
 });
 
-refreshState();
-refreshContact();
-refreshGate();
-refreshDiagnostics();
-window.setInterval(refreshState, 1000);
-window.setInterval(refreshContact, 1000);
-window.setInterval(refreshGate, 1000);
-window.setInterval(refreshDiagnostics, 2000);
+refreshUiState();
+window.setInterval(refreshUiState, 1000);
 
 function updateContactHistory(channel, fill) {
   const now = Date.now() / 1000;

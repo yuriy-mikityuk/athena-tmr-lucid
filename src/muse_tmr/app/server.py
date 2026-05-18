@@ -109,6 +109,25 @@ class LocalMuseAppState:
         with self._lock:
             return self._state_unlocked()
 
+    def ui_state(self) -> Mapping[str, Any]:
+        with self._lock:
+            source = self._source
+            snapshot = self._contact_snapshot_unlocked(advance_mock=True)
+            gate = self._advance_gate_unlocked(snapshot)
+            generated_at_seconds = time.time()
+            state = self._state_unlocked(now_seconds=generated_at_seconds)
+            contact = snapshot.to_dict()
+            gate_payload = gate.to_dict()
+
+        return {
+            "service": "muse-tmr-local-app",
+            "generated_at_seconds": generated_at_seconds,
+            "state": state,
+            "contact": contact,
+            "gate": gate_payload,
+            "source_diagnostics": self._source_diagnostics(source),
+        }
+
     def contact(self) -> Mapping[str, Any]:
         with self._lock:
             snapshot = self._contact_snapshot_unlocked(advance_mock=True)
@@ -130,16 +149,11 @@ class LocalMuseAppState:
                 else None
             )
 
-        source_diagnostics = (
-            source.diagnostics()
-            if source is not None and hasattr(source, "diagnostics")
-            else None
-        )
         return {
             "service": "muse-tmr-local-app",
             "state": state,
             "contact": contact,
-            "source_diagnostics": source_diagnostics,
+            "source_diagnostics": self._source_diagnostics(source),
         }
 
     def arm_gate(self) -> Mapping[str, Any]:
@@ -244,8 +258,12 @@ class LocalMuseAppState:
     def shutdown(self) -> None:
         self.disconnect()
 
-    def _state_unlocked(self, extra: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
-        now = time.time()
+    def _state_unlocked(
+        self,
+        extra: Optional[Mapping[str, Any]] = None,
+        now_seconds: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        now = time.time() if now_seconds is None else float(now_seconds)
         payload: Dict[str, Any] = {
             "source": self.config.source,
             "connection_state": self._connection_state,
@@ -277,6 +295,13 @@ class LocalMuseAppState:
         if extra:
             payload.update(dict(extra))
         return payload
+
+    def _source_diagnostics(self, source) -> Optional[Mapping[str, Any]]:
+        return (
+            source.diagnostics()
+            if source is not None and hasattr(source, "diagnostics")
+            else None
+        )
 
     def _set_state(self, connection_state: str, error_message: Optional[str] = None) -> None:
         with self._lock:
@@ -482,6 +507,9 @@ class LocalMuseAppHandler(BaseHTTPRequestHandler):
         path = parsed.path
         if path == "/api/health":
             self._write_json(self.server.app_state.health())
+            return
+        if path == "/api/muse/ui-state":
+            self._write_json(self.server.app_state.ui_state())
             return
         if path == "/api/muse/state":
             self._write_json(self.server.app_state.state())

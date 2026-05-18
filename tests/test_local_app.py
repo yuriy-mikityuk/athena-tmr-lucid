@@ -78,6 +78,7 @@ class TestLocalMuseApp(unittest.TestCase):
         health = self.get_json("/api/health")
         state = self.get_json("/api/muse/state")
         contact = self.get_json("/api/muse/contact")
+        ui_state = self.get_json("/api/muse/ui-state")
 
         self.assertTrue(health["ok"])
         self.assertEqual(health["source"], "mock")
@@ -89,6 +90,12 @@ class TestLocalMuseApp(unittest.TestCase):
         self.assertEqual(contact["connection_state"], "disconnected")
         self.assertEqual(contact["channels"]["AF7"]["status"], "missing")
         self.assertEqual(contact["channels"]["AF7"]["quality_score"], contact["channels"]["AF7"]["fill"])
+        self.assertEqual(ui_state["service"], "muse-tmr-local-app")
+        self.assertIn("generated_at_seconds", ui_state)
+        self.assertEqual(ui_state["state"]["connection_state"], "disconnected")
+        self.assertEqual(ui_state["contact"]["connection_state"], "disconnected")
+        self.assertEqual(ui_state["gate"]["state"], "disconnected")
+        self.assertIsNone(ui_state["source_diagnostics"])
 
     def test_contact_stream_emits_sse_snapshots(self):
         with urllib.request.urlopen(
@@ -141,16 +148,21 @@ class TestLocalMuseApp(unittest.TestCase):
         self.assertIn("data-channel=\"AF7\"", body)
         self.assertIn("data-channel=\"AF8\"", body)
         self.assertIn("data-channel=\"TP10\"", body)
-        self.assertIn("/api/muse/state", script)
-        self.assertIn("/api/muse/contact", script)
+        self.assertIn("/api/muse/ui-state", script)
+        self.assertNotIn('requestJson("/api/muse/state"', script)
+        self.assertNotIn('requestJson("/api/muse/contact"', script)
+        self.assertNotIn('requestJson("/api/muse/gate"', script)
+        self.assertNotIn('requestJson("/api/muse/diagnostics"', script)
         self.assertIn("/api/muse/start-when-ready", script)
-        self.assertIn("/api/muse/diagnostics", script)
         self.assertIn("Waiting for contact", script)
         self.assertIn("Starting session", script)
         self.assertIn("Session running", script)
         self.assertIn("contact warnings", script)
         self.assertIn("contact-sparkline", script)
+        self.assertIn("active-warning-status", script)
+        self.assertIn("Muse Session", script)
         self.assertIn('scanButton.hidden = connection === "connected"', script)
+        self.assertIn("startButton.hidden = connection !== \"connected\" || running", script)
         self.assertLess(
             script.index('gate.state === "running"'),
             script.index('"Waiting for stable contact"'),
@@ -202,15 +214,16 @@ class TestLocalMuseAppReadyGate(unittest.TestCase):
     def test_start_when_ready_auto_starts_after_ready_gate(self):
         self.post_json("/api/muse/connect")
         armed = self.post_json("/api/muse/start-when-ready")
-        running = self.get_json("/api/muse/gate")
-        state = self.get_json("/api/muse/state")
+        ui_state = self.get_json("/api/muse/ui-state")
 
         self.assertEqual(armed["state"], "starting")
         self.assertTrue(armed["ready"])
-        self.assertEqual(running["state"], "running")
-        self.assertTrue(running["ready"])
-        self.assertTrue(state["session"]["running"])
-        self.assertIsNotNone(state["session"]["started_at_seconds"])
+        self.assertEqual(ui_state["contact"]["connection_state"], "connected")
+        self.assertTrue(ui_state["contact"]["all_good"])
+        self.assertEqual(ui_state["gate"]["state"], "running")
+        self.assertTrue(ui_state["gate"]["ready"])
+        self.assertTrue(ui_state["state"]["session"]["running"])
+        self.assertIsNotNone(ui_state["state"]["session"]["started_at_seconds"])
 
 
 class TestLocalMuseAppContactWarningLog(unittest.TestCase):
@@ -245,12 +258,20 @@ class TestLocalMuseAppContactWarningLog(unittest.TestCase):
     def test_running_session_logs_contact_drop_and_recovery(self):
         self.post_json("/api/muse/connect")
         self.post_json("/api/muse/start-when-ready")
-        self.get_json("/api/muse/gate")
-        self.get_json("/api/muse/contact")
-        self.get_json("/api/muse/contact")
-        state = self.get_json("/api/muse/state")
+        dropped = self.get_json("/api/muse/ui-state")
+        recovered = self.get_json("/api/muse/ui-state")
 
-        session = state["session"]
+        dropped_session = dropped["state"]["session"]
+        self.assertEqual(dropped["contact"]["channels"]["AF7"]["status"], "poor")
+        self.assertFalse(dropped["contact"]["all_good"])
+        self.assertEqual(dropped["gate"]["state"], "running")
+        self.assertTrue(dropped_session["running"])
+        self.assertEqual(dropped_session["contact_warning_count"], 1)
+        self.assertIsNotNone(dropped_session["active_contact_warning"])
+        self.assertIn("AF7 poor", dropped_session["active_contact_warning"]["channels"])
+
+        session = recovered["state"]["session"]
+        self.assertTrue(recovered["contact"]["all_good"])
         self.assertTrue(session["running"])
         self.assertEqual(session["contact_warning_count"], 1)
         self.assertIsNone(session["active_contact_warning"])
