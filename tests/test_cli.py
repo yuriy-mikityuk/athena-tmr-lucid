@@ -129,6 +129,14 @@ class TestCli(unittest.TestCase):
             "0.1",
             "--brainflow-chunk-samples",
             "128",
+            "--brainflow-connect-timeout",
+            "12",
+            "--brainflow-stream-start-timeout",
+            "7",
+            "--brainflow-stop-timeout",
+            "5",
+            "--brainflow-session-cooldown",
+            "0.25",
         ])
 
         self.assertEqual(args.command, "stream")
@@ -140,6 +148,10 @@ class TestCli(unittest.TestCase):
         self.assertTrue(args.brainflow_no_low_latency)
         self.assertEqual(args.brainflow_poll_interval, 0.1)
         self.assertEqual(args.brainflow_chunk_samples, 128)
+        self.assertEqual(args.brainflow_connect_timeout, 12.0)
+        self.assertEqual(args.brainflow_stream_start_timeout, 7.0)
+        self.assertEqual(args.brainflow_stop_timeout, 5.0)
+        self.assertEqual(args.brainflow_session_cooldown, 0.25)
 
     def test_stream_command_parses_sdk_stub_source(self):
         args = build_parser().parse_args([
@@ -613,6 +625,8 @@ class TestCli(unittest.TestCase):
 
         self.assertEqual(source.source_name, "brainflow")
         self.assertEqual(source.strategy, "optional-brainflow")
+        self.assertEqual(source.config.connect_timeout_seconds, 20.0)
+        self.assertEqual(source.config.session_cooldown_seconds, 2.0)
 
     def test_default_recording_dir_avoids_root_when_cwd_is_unusable(self):
         with patch("muse_tmr.cli.main.Path.cwd", return_value=Path("/")):

@@ -76,6 +76,19 @@ maps BrainFlow EEG, IMU, optics, and battery rows into the existing `MuseFrame`
 contract. Keep `amused` as the default until live smoke tests show BrainFlow is more
 reliable for Muse S Athena.
 
+If BrainFlow connect/reconnect is flaky, keep the process bounded and leave BLE time
+to settle between attempts:
+
+```bash
+muse-tmr stream --source brainflow --address "$MUSE_ADDR" \
+  --duration-seconds 10 \
+  --brainflow-connect-timeout 20 \
+  --brainflow-stream-start-timeout 10 \
+  --brainflow-stop-timeout 10 \
+  --brainflow-session-cooldown 5 \
+  --debug-stats
+```
+
 M7 official SDK policy:
 
 ```bash

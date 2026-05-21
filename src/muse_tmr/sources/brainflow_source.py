@@ -9,9 +9,10 @@ from __future__ import annotations
 import asyncio
 import importlib
 import math
+import threading
 import time
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, Mapping, Optional, Sequence, Tuple
+from typing import Any, AsyncIterator, Callable, Mapping, Optional, Sequence, Tuple
 
 from muse_tmr.data.sample_types import (
     BatterySample,
@@ -43,6 +44,10 @@ class BrainFlowSourceConfig:
     poll_interval_seconds: float = 0.05
     max_chunk_samples: int = 256
     streamer_params: str = ""
+    connect_timeout_seconds: float = 20.0
+    stream_start_timeout_seconds: float = 10.0
+    stop_timeout_seconds: float = 10.0
+    session_cooldown_seconds: float = 2.0
 
     def __post_init__(self) -> None:
         if not self.board_name:
@@ -53,6 +58,14 @@ class BrainFlowSourceConfig:
             raise ValueError("poll_interval_seconds must be positive")
         if self.max_chunk_samples <= 0:
             raise ValueError("max_chunk_samples must be positive")
+        if self.connect_timeout_seconds <= 0:
+            raise ValueError("connect_timeout_seconds must be positive")
+        if self.stream_start_timeout_seconds <= 0:
+            raise ValueError("stream_start_timeout_seconds must be positive")
+        if self.stop_timeout_seconds <= 0:
+            raise ValueError("stop_timeout_seconds must be positive")
+        if self.session_cooldown_seconds < 0:
+            raise ValueError("session_cooldown_seconds must be non-negative")
 
 
 class BrainFlowSource(BaseMuseSource):
@@ -112,11 +125,20 @@ class BrainFlowSource(BaseMuseSource):
             setattr(params, "mac_address", address)
         if self.config.serial_number:
             setattr(params, "serial_number", self.config.serial_number)
+        setattr(params, "timeout", int(math.ceil(self.config.connect_timeout_seconds)))
         if self.config.preset:
             setattr(params, "other_info", self._other_info())
 
         board = backend.board_shim(board_id, params)
-        await asyncio.to_thread(board.prepare_session)
+        try:
+            await _run_blocking_with_timeout(
+                board.prepare_session,
+                self.config.connect_timeout_seconds,
+                "BrainFlow prepare_session",
+            )
+        except TimeoutError as exc:
+            self.disconnect_reason = "connect_timeout"
+            raise RuntimeError(str(exc)) from exc
         self._board = board
         self._board_id = board_id
         self._prepared = True
@@ -155,27 +177,37 @@ class BrainFlowSource(BaseMuseSource):
         assert self._board_id is not None
 
         if not self._streaming:
-            await asyncio.to_thread(
-                self._board.start_stream,
-                self.config.max_chunk_samples * 10,
-                self.config.streamer_params,
-            )
+            try:
+                await _run_blocking_with_timeout(
+                    lambda: self._board.start_stream(
+                        self.config.max_chunk_samples * 10,
+                        self.config.streamer_params,
+                    ),
+                    self.config.stream_start_timeout_seconds,
+                    "BrainFlow start_stream",
+                )
+            except TimeoutError as exc:
+                self.disconnect_reason = "stream_start_timeout"
+                raise RuntimeError(str(exc)) from exc
             self._streaming = True
 
-        deadline = (
-            time.monotonic() + self.config.duration_seconds
-            if self.config.duration_seconds > 0
-            else None
-        )
-        while not self._stop_requested and (deadline is None or time.monotonic() < deadline):
-            frames = await asyncio.to_thread(self._poll_frames)
-            if frames:
-                for frame in frames:
-                    self.frame_count += 1
-                    self.last_frame_timestamp = frame.timestamp
-                    yield frame
-                continue
-            await asyncio.sleep(self.config.poll_interval_seconds)
+        try:
+            deadline = (
+                time.monotonic() + self.config.duration_seconds
+                if self.config.duration_seconds > 0
+                else None
+            )
+            while not self._stop_requested and (deadline is None or time.monotonic() < deadline):
+                frames = await asyncio.to_thread(self._poll_frames)
+                if frames:
+                    for frame in frames:
+                        self.frame_count += 1
+                        self.last_frame_timestamp = frame.timestamp
+                        yield frame
+                    continue
+                await asyncio.sleep(self.config.poll_interval_seconds)
+        finally:
+            await self.stop()
 
     async def stop(self) -> None:
         self._stop_requested = True
@@ -184,16 +216,32 @@ class BrainFlowSource(BaseMuseSource):
             return
         try:
             if self._streaming:
-                await asyncio.to_thread(board.stop_stream)
+                try:
+                    await _run_blocking_with_timeout(
+                        board.stop_stream,
+                        self.config.stop_timeout_seconds,
+                        "BrainFlow stop_stream",
+                    )
+                except TimeoutError:
+                    self.disconnect_reason = "stop_timeout"
         finally:
             self._streaming = False
             try:
                 if self._prepared:
-                    await asyncio.to_thread(board.release_session)
+                    try:
+                        await _run_blocking_with_timeout(
+                            board.release_session,
+                            self.config.stop_timeout_seconds,
+                            "BrainFlow release_session",
+                        )
+                    except TimeoutError:
+                        self.disconnect_reason = "release_timeout"
             finally:
                 self._prepared = False
                 self._board = None
                 self._board_id = None
+                if self.config.session_cooldown_seconds > 0:
+                    await asyncio.sleep(self.config.session_cooldown_seconds)
 
     def diagnostics(self) -> Mapping[str, Any]:
         return {
@@ -204,6 +252,8 @@ class BrainFlowSource(BaseMuseSource):
             "frame_count": self.frame_count,
             "batch_count": self.batch_count,
             "last_frame_timestamp": self.last_frame_timestamp,
+            "connect_timeout_seconds": self.config.connect_timeout_seconds,
+            "session_cooldown_seconds": self.config.session_cooldown_seconds,
             "last_poll_age_seconds": (
                 time.monotonic() - self.last_poll_monotonic
                 if self.last_poll_monotonic is not None
@@ -330,6 +380,47 @@ def _load_brainflow_backend() -> _BrainFlowBackend:
             "Install with `pip install -e .[brainflow]` before using --source brainflow."
         ) from exc
     return _BrainFlowBackend(module)
+
+
+async def _run_blocking_with_timeout(
+    func: Callable[[], Any],
+    timeout_seconds: float,
+    operation_name: str,
+) -> Any:
+    call = _BlockingCall(func)
+    call.start()
+    deadline = time.monotonic() + timeout_seconds
+    while not call.done.is_set():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError(f"{operation_name} timed out after {timeout_seconds:.1f}s")
+        await asyncio.sleep(min(0.05, remaining))
+    return call.result()
+
+
+class _BlockingCall:
+    def __init__(self, func: Callable[[], Any]) -> None:
+        self.func = func
+        self.done = threading.Event()
+        self.value = None
+        self.error: Optional[BaseException] = None
+
+    def start(self) -> None:
+        thread = threading.Thread(target=self._run, daemon=True)
+        thread.start()
+
+    def result(self) -> Any:
+        if self.error is not None:
+            raise self.error
+        return self.value
+
+    def _run(self) -> None:
+        try:
+            self.value = self.func()
+        except BaseException as exc:
+            self.error = exc
+        finally:
+            self.done.set()
 
 
 def _safe_channel_tuple(func, board_id: int, preset: int) -> Tuple[int, ...]:

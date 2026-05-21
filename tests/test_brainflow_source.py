@@ -1,18 +1,22 @@
 import unittest
+import time
 from types import SimpleNamespace
 
 from muse_tmr.sources.brainflow_source import BrainFlowSource, BrainFlowSourceConfig
 
 
 class FakeBrainFlowBoard:
-    def __init__(self, data_by_preset):
+    def __init__(self, data_by_preset, *, prepare_delay_seconds=0.0):
         self.data_by_preset = {key: list(value) for key, value in data_by_preset.items()}
+        self.prepare_delay_seconds = prepare_delay_seconds
         self.prepared = False
         self.started = False
         self.stopped = False
         self.released = False
 
     def prepare_session(self):
+        if self.prepare_delay_seconds:
+            time.sleep(self.prepare_delay_seconds)
         self.prepared = True
 
     def start_stream(self, buffer_size=450000, streamer_params=""):
@@ -147,6 +151,7 @@ class TestBrainFlowSource(unittest.IsolatedAsyncioTestCase):
                 serial_number="Muse-Test",
                 duration_seconds=0.0,
                 max_chunk_samples=2,
+                session_cooldown_seconds=0.0,
             ),
             brainflow_backend=backend,
         )
@@ -163,6 +168,7 @@ class TestBrainFlowSource(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(metadata.metadata["preset"], "p1041")
         self.assertEqual(backend.params.mac_address, "AA:BB")
         self.assertEqual(backend.params.serial_number, "Muse-Test")
+        self.assertEqual(backend.params.timeout, 20)
         self.assertEqual(backend.params.other_info, "preset=p1041;low_latency=true")
 
         self.assertEqual(eeg_frame.timestamp, 1000.1)
@@ -182,6 +188,38 @@ class TestBrainFlowSource(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(board.started)
         self.assertTrue(board.stopped)
         self.assertTrue(board.released)
+
+    async def test_connect_timeout_fails_without_hanging_event_loop(self):
+        board = FakeBrainFlowBoard({}, prepare_delay_seconds=0.2)
+        backend = FakeBrainFlowBackend(board)
+        source = BrainFlowSource(
+            BrainFlowSourceConfig(
+                connect_timeout_seconds=0.01,
+                session_cooldown_seconds=0.0,
+            ),
+            brainflow_backend=backend,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "prepare_session timed out"):
+            await source.connect()
+
+        self.assertEqual(source.disconnect_reason, "connect_timeout")
+
+    async def test_stop_applies_configured_session_cooldown(self):
+        board = FakeBrainFlowBoard({})
+        backend = FakeBrainFlowBackend(board)
+        source = BrainFlowSource(
+            BrainFlowSourceConfig(
+                session_cooldown_seconds=0.01,
+            ),
+            brainflow_backend=backend,
+        )
+        await source.connect()
+
+        started = time.monotonic()
+        await source.stop()
+
+        self.assertGreaterEqual(time.monotonic() - started, 0.01)
 
 
 if __name__ == "__main__":

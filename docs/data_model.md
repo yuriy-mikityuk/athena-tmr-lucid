@@ -62,6 +62,10 @@ BrainFlow samples do not contain raw BLE packets, so `raw_packets` capability is
 false. BrainFlow does not currently supply a derived heart-rate sample through this
 adapter; HR features should come from optics-derived PPG processing downstream.
 
+BrainFlow session operations are guarded by configurable connect/start/stop timeouts
+and a post-release cooldown because repeated BLE sessions can otherwise stall during
+headset reconnect tests.
+
 ## Muse SDK Source Stub
 
 `muse_tmr.sources.muse_sdk_source_stub.MuseSdkSourceStub` reserves the official SDK

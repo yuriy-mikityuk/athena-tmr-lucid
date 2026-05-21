@@ -1585,6 +1585,14 @@ def _build_source(args: argparse.Namespace, duration_seconds: int):
                 duration_seconds=duration_seconds,
                 poll_interval_seconds=getattr(args, "brainflow_poll_interval", 0.05),
                 max_chunk_samples=getattr(args, "brainflow_chunk_samples", 256),
+                connect_timeout_seconds=getattr(args, "brainflow_connect_timeout", 20.0),
+                stream_start_timeout_seconds=getattr(
+                    args,
+                    "brainflow_stream_start_timeout",
+                    10.0,
+                ),
+                stop_timeout_seconds=getattr(args, "brainflow_stop_timeout", 10.0),
+                session_cooldown_seconds=getattr(args, "brainflow_session_cooldown", 2.0),
             )
         )
 
@@ -1610,6 +1618,10 @@ def _add_brainflow_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--brainflow-poll-interval", type=float, default=0.05)
     parser.add_argument("--brainflow-chunk-samples", type=int, default=256)
+    parser.add_argument("--brainflow-connect-timeout", type=float, default=20.0)
+    parser.add_argument("--brainflow-stream-start-timeout", type=float, default=10.0)
+    parser.add_argument("--brainflow-stop-timeout", type=float, default=10.0)
+    parser.add_argument("--brainflow-session-cooldown", type=float, default=2.0)
 
 
 def _add_openmuse_lsl_args(parser: argparse.ArgumentParser) -> None:
