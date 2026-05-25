@@ -23,6 +23,12 @@ from muse_tmr.reports.morning_retest import (
     build_morning_retest,
     load_morning_retest,
 )
+from muse_tmr.reports.source_diagnostics import (
+    SourceDiagnosticComparisonRow,
+    compare_source_diagnostic_reports,
+    format_source_diagnostic_markdown,
+    save_source_diagnostic_comparison,
+)
 
 __all__ = [
     "ANALYSIS_SCHEMA_VERSION",
@@ -36,10 +42,14 @@ __all__ = [
     "MorningRetest",
     "MorningRetestResult",
     "PuzzleAnalysisRow",
+    "SourceDiagnosticComparisonRow",
     "build_cued_uncued_analysis",
     "build_dream_report",
     "build_morning_retest",
+    "compare_source_diagnostic_reports",
+    "format_source_diagnostic_markdown",
     "load_cued_uncued_analysis",
     "load_dream_report",
     "load_morning_retest",
+    "save_source_diagnostic_comparison",
 ]

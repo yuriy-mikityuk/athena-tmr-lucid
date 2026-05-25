@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, Iterable, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
@@ -99,6 +99,9 @@ class BlinkArtifactDiagnosticReport:
     blink_summary: Mapping[str, object]
     closed_eyes_summary: Mapping[str, object]
     warnings: Tuple[str, ...] = ()
+    source_metadata: Mapping[str, object] = field(default_factory=dict)
+    source_diagnostics: Mapping[str, object] = field(default_factory=dict)
+    session_summary: Mapping[str, object] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, object]:
         return {
@@ -110,6 +113,9 @@ class BlinkArtifactDiagnosticReport:
             "blink_summary": _json_safe(self.blink_summary),
             "closed_eyes_summary": _json_safe(self.closed_eyes_summary),
             "warnings": list(self.warnings),
+            "source_metadata": _json_safe(self.source_metadata),
+            "source_diagnostics": _json_safe(self.source_diagnostics),
+            "session_summary": _json_safe(self.session_summary),
         }
 
 
@@ -198,6 +204,9 @@ def analyze_blink_artifact_phases(
     source: str = "unknown",
     phases: Optional[Sequence[ArtifactPhase]] = None,
     config: Optional[ArtifactDiagnosticConfig] = None,
+    source_metadata: Optional[Mapping[str, object]] = None,
+    source_diagnostics: Optional[Mapping[str, object]] = None,
+    session_summary: Optional[Mapping[str, object]] = None,
 ) -> BlinkArtifactDiagnosticReport:
     config = config or ArtifactDiagnosticConfig()
     config.validate()
@@ -223,6 +232,9 @@ def analyze_blink_artifact_phases(
         blink_summary=blink_summary,
         closed_eyes_summary=closed_eyes_summary,
         warnings=tuple(warnings),
+        source_metadata=source_metadata or {},
+        source_diagnostics=source_diagnostics or {},
+        session_summary=session_summary or {},
     )
 
 

@@ -107,6 +107,28 @@ def build_parser() -> argparse.ArgumentParser:
     diagnostic_parser.add_argument("--quiet", action="store_true")
     _add_brainflow_args(diagnostic_parser)
 
+    compare_diagnostics_parser = subparsers.add_parser(
+        "compare-source-diagnostics",
+        help="Compare blink/artifact diagnostic JSON reports as a source quality table.",
+    )
+    compare_diagnostics_parser.add_argument(
+        "reports",
+        nargs="+",
+        type=Path,
+        help="Diagnostic report JSON paths from diagnose-blink-artifacts.",
+    )
+    compare_diagnostics_parser.add_argument(
+        "--output",
+        type=Path,
+        help="Optional comparison output path (.md, .csv, or .json).",
+    )
+    compare_diagnostics_parser.add_argument(
+        "--format",
+        choices=("markdown", "csv", "json"),
+        default="markdown",
+        help="Output format when --output is set. The console output is markdown.",
+    )
+
     replay_parser = subparsers.add_parser("replay", help="Replay a recorded Muse session.")
     replay_parser.add_argument("input", type=Path, help="Recording directory or raw_amused.bin path.")
     replay_parser.add_argument(
@@ -604,6 +626,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return asyncio.run(_stream(args))
     if args.command == "diagnose-blink-artifacts":
         return asyncio.run(_diagnose_blink_artifacts(args))
+    if args.command == "compare-source-diagnostics":
+        return _compare_source_diagnostics(args)
     if args.command == "replay":
         return asyncio.run(_replay(args))
     if args.command == "annotate-template":
@@ -795,6 +819,9 @@ async def _diagnose_blink_artifacts(args: argparse.Namespace) -> int:
         source=metadata.source_name if metadata is not None else args.source,
         phases=phases,
         config=config,
+        source_metadata=_source_metadata_to_dict(metadata),
+        source_diagnostics=_source_diagnostics(source),
+        session_summary=_diagnostic_session_summary(output_path.stem, phase_frames),
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
@@ -808,6 +835,26 @@ async def _diagnose_blink_artifacts(args: argparse.Namespace) -> int:
         f"closed_eyes_present={report.closed_eyes_summary.get('present')} "
         f"output={output_path}"
     )
+    return 0
+
+
+def _compare_source_diagnostics(args: argparse.Namespace) -> int:
+    from muse_tmr.reports import (
+        compare_source_diagnostic_reports,
+        format_source_diagnostic_markdown,
+        save_source_diagnostic_comparison,
+    )
+
+    report_paths = tuple(_resolve_output_path(path) for path in args.reports)
+    rows = compare_source_diagnostic_reports(report_paths)
+    print(format_source_diagnostic_markdown(rows))
+    if args.output is not None:
+        output_path = save_source_diagnostic_comparison(
+            rows,
+            _resolve_output_path(args.output),
+            output_format=args.format,
+        )
+        print(f"source diagnostic comparison saved output={output_path}")
     return 0
 
 
@@ -848,6 +895,60 @@ def _drain_diagnostic_queue(queue: asyncio.Queue) -> None:
 
 def _eeg_frame_count(frames: Sequence[object]) -> int:
     return sum(1 for frame in frames if getattr(frame, "eeg", None) is not None)
+
+
+def _source_metadata_to_dict(metadata) -> Mapping[str, object]:
+    if metadata is None:
+        return {}
+    return {
+        "source_name": metadata.source_name,
+        "device_name": metadata.device_name,
+        "device_id": metadata.device_id,
+        "capabilities": dict(metadata.capabilities),
+        "metadata": dict(metadata.metadata or {}),
+    }
+
+
+def _source_diagnostics(source) -> Mapping[str, object]:
+    diagnostics = source.diagnostics() if hasattr(source, "diagnostics") else {}
+    return diagnostics if isinstance(diagnostics, Mapping) else {}
+
+
+def _diagnostic_session_summary(
+    session_id: str,
+    phase_frames: Mapping[str, Sequence[object]],
+) -> Mapping[str, object]:
+    phase_summaries = {}
+    total_modality_counts = {}
+    total_eeg_sample_counts = {}
+    total_frame_count = 0
+    for phase_name, frames in phase_frames.items():
+        modality_counts = {}
+        eeg_sample_counts = {}
+        for frame in frames:
+            total_frame_count += 1
+            for modality in frame.modalities():
+                modality_counts[modality] = modality_counts.get(modality, 0) + 1
+                total_modality_counts[modality] = total_modality_counts.get(modality, 0) + 1
+            if frame.eeg is not None:
+                for channel, values in frame.eeg.channels_uv.items():
+                    count = len(values)
+                    eeg_sample_counts[channel] = eeg_sample_counts.get(channel, 0) + count
+                    total_eeg_sample_counts[channel] = (
+                        total_eeg_sample_counts.get(channel, 0) + count
+                    )
+        phase_summaries[phase_name] = {
+            "frame_count": len(frames),
+            "modality_counts": modality_counts,
+            "eeg_sample_counts": eeg_sample_counts,
+        }
+    return {
+        "session_id": session_id,
+        "total_frame_count": total_frame_count,
+        "total_modality_counts": total_modality_counts,
+        "total_eeg_sample_counts": total_eeg_sample_counts,
+        "phases": phase_summaries,
+    }
 
 
 async def _replay(args: argparse.Namespace) -> int:

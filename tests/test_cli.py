@@ -178,6 +178,25 @@ class TestCli(unittest.TestCase):
         self.assertEqual(args.eyes_closed_baseline_seconds, 45.0)
         self.assertTrue(args.non_interactive)
 
+    def test_compare_source_diagnostics_command_parses_report_table_options(self):
+        args = build_parser().parse_args([
+            "compare-source-diagnostics",
+            "data/reports/brainflow_blink.json",
+            "data/reports/amused_blink.json",
+            "--output",
+            "data/reports/source_comparison.md",
+            "--format",
+            "markdown",
+        ])
+
+        self.assertEqual(args.command, "compare-source-diagnostics")
+        self.assertEqual(args.reports, [
+            Path("data/reports/brainflow_blink.json"),
+            Path("data/reports/amused_blink.json"),
+        ])
+        self.assertEqual(args.output, Path("data/reports/source_comparison.md"))
+        self.assertEqual(args.format, "markdown")
+
     def test_stream_command_parses_sdk_stub_source(self):
         args = build_parser().parse_args([
             "stream",
