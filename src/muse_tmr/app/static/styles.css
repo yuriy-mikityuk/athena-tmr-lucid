@@ -231,9 +231,12 @@ h1 {
   transition: stroke-dasharray 180ms ease, stroke 180ms ease;
 }
 
-.segment-fill.missing,
-.segment-fill.poor {
+.segment-fill.missing {
   stroke: #cbd7df;
+}
+
+.segment-fill.poor {
+  stroke: var(--warning);
 }
 
 .segment-fill.fair {
@@ -302,6 +305,34 @@ h1 {
   font-size: 0.72rem;
   line-height: 1.1;
   text-transform: none;
+}
+
+.contact-row.good .channel-status {
+  color: var(--good);
+}
+.contact-row.good .channel-status small {
+  color: var(--good);
+  opacity: 0.8;
+}
+
+.contact-row.fair .channel-status {
+  color: #0d9488;
+}
+.contact-row.fair .channel-status small {
+  color: #0d9488;
+  opacity: 0.8;
+}
+
+.contact-row.poor .channel-status {
+  color: var(--warning);
+}
+.contact-row.poor .channel-status small {
+  color: var(--warning);
+  opacity: 0.8;
+}
+
+.contact-row.missing .channel-status {
+  color: var(--muted);
 }
 
 .channel-fill {
