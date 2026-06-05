@@ -67,6 +67,49 @@ class TestBlinkArtifactDiagnostics(unittest.TestCase):
         self.assertTrue(report.closed_eyes_summary["present"])
         self.assertIn("eyes_closed_baseline", report.ratios_vs_open_baseline)
 
+    def test_temporal_only_artifact_is_not_detected_as_blink(self):
+        phases = default_blink_artifact_phases(
+            settle_seconds=1.0,
+            eyes_open_baseline_seconds=2.0,
+            blink_seconds=2.0,
+            recovery_open_seconds=1.0,
+            jaw_clench_seconds=1.0,
+            head_movement_seconds=1.0,
+            eyes_closed_baseline_seconds=2.0,
+        )
+        config = ArtifactDiagnosticConfig(
+            sample_rate_hz=20.0,
+            center_window_seconds=1.0,
+            highpass_cutoff_hz=0.5,
+            window_seconds=1.0,
+        )
+        phase_frames = {
+            "eyes_open_baseline": _eeg_frames(_signal(count=40, dc_offset=3300.0)),
+            "blink": _eeg_frames(
+                _signal(
+                    count=40,
+                    dc_offset=3300.0,
+                    frontal_spike_uv=8.0,
+                    temporal_spike_uv=160.0,
+                )
+            ),
+            "eyes_closed_baseline": _eeg_frames(_signal(count=40, dc_offset=3300.0)),
+        }
+
+        report = analyze_blink_artifact_phases(
+            phase_frames,
+            source="synthetic",
+            phases=phases,
+            config=config,
+        )
+
+        self.assertFalse(report.blink_summary["detected"])
+        self.assertIn("frontal_not_above_temporal", report.blink_summary["reason_codes"])
+        self.assertLess(
+            report.blink_summary["frontal_to_temporal_hp05_p99_abs_ratio"],
+            1.0,
+        )
+
 
 def _signal(
     *,

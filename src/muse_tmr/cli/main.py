@@ -129,6 +129,34 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output format when --output is set. The console output is markdown.",
     )
 
+    inspect_channels_parser = subparsers.add_parser(
+        "inspect-blink-channels",
+        help="Inspect per-channel blink/artifact metrics from diagnostic JSON reports.",
+    )
+    inspect_channels_parser.add_argument(
+        "reports",
+        nargs="+",
+        type=Path,
+        help="Diagnostic report JSON paths from diagnose-blink-artifacts.",
+    )
+    inspect_channels_parser.add_argument(
+        "--phase",
+        action="append",
+        dest="phases",
+        help="Phase to include. Repeat to include multiple phases. Defaults to all phases.",
+    )
+    inspect_channels_parser.add_argument(
+        "--output",
+        type=Path,
+        help="Optional inspection output path (.md, .csv, or .json).",
+    )
+    inspect_channels_parser.add_argument(
+        "--format",
+        choices=("markdown", "csv", "json"),
+        default="markdown",
+        help="Output format when --output is set. The console output is markdown.",
+    )
+
     replay_parser = subparsers.add_parser("replay", help="Replay a recorded Muse session.")
     replay_parser.add_argument("input", type=Path, help="Recording directory or raw_amused.bin path.")
     replay_parser.add_argument(
@@ -628,6 +656,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return asyncio.run(_diagnose_blink_artifacts(args))
     if args.command == "compare-source-diagnostics":
         return _compare_source_diagnostics(args)
+    if args.command == "inspect-blink-channels":
+        return _inspect_blink_channels(args)
     if args.command == "replay":
         return asyncio.run(_replay(args))
     if args.command == "annotate-template":
@@ -855,6 +885,26 @@ def _compare_source_diagnostics(args: argparse.Namespace) -> int:
             output_format=args.format,
         )
         print(f"source diagnostic comparison saved output={output_path}")
+    return 0
+
+
+def _inspect_blink_channels(args: argparse.Namespace) -> int:
+    from muse_tmr.reports import (
+        format_blink_channel_inspection_markdown,
+        inspect_blink_channel_reports,
+        save_blink_channel_inspection,
+    )
+
+    report_paths = tuple(_resolve_output_path(path) for path in args.reports)
+    rows = inspect_blink_channel_reports(report_paths, phases=args.phases)
+    print(format_blink_channel_inspection_markdown(rows))
+    if args.output is not None:
+        output_path = save_blink_channel_inspection(
+            rows,
+            _resolve_output_path(args.output),
+            output_format=args.format,
+        )
+        print(f"blink channel inspection saved output={output_path}")
     return 0
 
 

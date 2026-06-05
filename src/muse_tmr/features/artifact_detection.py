@@ -286,6 +286,7 @@ def _channel_metrics(
 
     return {
         "count": float(finite.size),
+        "raw_mean": float(np.mean(finite)),
         "raw_median": _median(finite),
         "raw_std": _std(finite),
         "raw_peak_to_peak": _peak_to_peak(finite),
@@ -306,6 +307,7 @@ def _channel_metrics(
 def _empty_channel_metrics() -> Mapping[str, float]:
     keys = (
         "count",
+        "raw_mean",
         "raw_median",
         "raw_std",
         "raw_peak_to_peak",

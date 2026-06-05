@@ -60,10 +60,82 @@ class SourceDiagnosticComparisonRow:
         }
 
 
+@dataclass(frozen=True)
+class BlinkChannelInspectionRow:
+    session_id: str
+    source: str
+    preset: str
+    phase: str
+    channel: str
+    channel_group: str
+    report_path: str
+    rank: Optional[int]
+    count: Optional[float]
+    raw_mean: Optional[float]
+    raw_median: Optional[float]
+    raw_std: Optional[float]
+    raw_peak_to_peak: Optional[float]
+    centered_p95_abs: Optional[float]
+    centered_p99_abs: Optional[float]
+    centered_peak_to_peak: Optional[float]
+    hp05_std: Optional[float]
+    hp05_p95_abs: Optional[float]
+    hp05_p99_abs: Optional[float]
+    hp05_peak_to_peak: Optional[float]
+    centered_p99_abs_ratio: Optional[float]
+    hp05_p99_abs_ratio: Optional[float]
+    hp05_peak_to_peak_ratio: Optional[float]
+    frontal_hp05_p99_abs_ratio_mean: Optional[float]
+    temporal_hp05_p99_abs_ratio_mean: Optional[float]
+    frontal_temporal_hp05_p99_abs_ratio: Optional[float]
+
+    def to_dict(self) -> dict:
+        return {
+            "session_id": self.session_id,
+            "source": self.source,
+            "preset": self.preset,
+            "phase": self.phase,
+            "channel": self.channel,
+            "channel_group": self.channel_group,
+            "report_path": self.report_path,
+            "rank": self.rank,
+            "count": self.count,
+            "raw_mean": self.raw_mean,
+            "raw_median": self.raw_median,
+            "raw_std": self.raw_std,
+            "raw_peak_to_peak": self.raw_peak_to_peak,
+            "centered_p95_abs": self.centered_p95_abs,
+            "centered_p99_abs": self.centered_p99_abs,
+            "centered_peak_to_peak": self.centered_peak_to_peak,
+            "hp05_std": self.hp05_std,
+            "hp05_p95_abs": self.hp05_p95_abs,
+            "hp05_p99_abs": self.hp05_p99_abs,
+            "hp05_peak_to_peak": self.hp05_peak_to_peak,
+            "centered_p99_abs_ratio": self.centered_p99_abs_ratio,
+            "hp05_p99_abs_ratio": self.hp05_p99_abs_ratio,
+            "hp05_peak_to_peak_ratio": self.hp05_peak_to_peak_ratio,
+            "frontal_hp05_p99_abs_ratio_mean": self.frontal_hp05_p99_abs_ratio_mean,
+            "temporal_hp05_p99_abs_ratio_mean": self.temporal_hp05_p99_abs_ratio_mean,
+            "frontal_temporal_hp05_p99_abs_ratio": self.frontal_temporal_hp05_p99_abs_ratio,
+        }
+
+
 def compare_source_diagnostic_reports(
     report_paths: Sequence[Path],
 ) -> Tuple[SourceDiagnosticComparisonRow, ...]:
     return tuple(_comparison_row(Path(path)) for path in report_paths)
+
+
+def inspect_blink_channel_reports(
+    report_paths: Sequence[Path],
+    *,
+    phases: Optional[Sequence[str]] = None,
+) -> Tuple[BlinkChannelInspectionRow, ...]:
+    phase_filter = tuple(phases) if phases else None
+    rows = []
+    for path in report_paths:
+        rows.extend(_channel_inspection_rows(Path(path), phase_filter))
+    return tuple(rows)
 
 
 def format_source_diagnostic_markdown(
@@ -118,6 +190,62 @@ def format_source_diagnostic_markdown(
     return "\n".join(lines)
 
 
+def format_blink_channel_inspection_markdown(
+    rows: Sequence[BlinkChannelInspectionRow],
+) -> str:
+    headers = (
+        "session",
+        "source",
+        "preset",
+        "phase",
+        "channel",
+        "group",
+        "rank",
+        "count",
+        "raw median",
+        "raw std",
+        "raw p2p",
+        "centered p99",
+        "hp05 p99",
+        "hp05 p2p",
+        "centered ratio",
+        "hp05 ratio",
+        "hp05 p2p ratio",
+        "frontal ratio",
+        "temporal ratio",
+        "F/T",
+    )
+    lines = [
+        "| " + " | ".join(headers) + " |",
+        "| " + " | ".join("---" for _ in headers) + " |",
+    ]
+    for row in rows:
+        values = (
+            row.session_id,
+            row.source,
+            row.preset,
+            row.phase,
+            row.channel,
+            row.channel_group,
+            _format_optional_int(row.rank),
+            _format_count(row.count),
+            _format_float(row.raw_median),
+            _format_float(row.raw_std),
+            _format_float(row.raw_peak_to_peak),
+            _format_float(row.centered_p99_abs),
+            _format_float(row.hp05_p99_abs),
+            _format_float(row.hp05_peak_to_peak),
+            _format_float(row.centered_p99_abs_ratio),
+            _format_float(row.hp05_p99_abs_ratio),
+            _format_float(row.hp05_peak_to_peak_ratio),
+            _format_float(row.frontal_hp05_p99_abs_ratio_mean),
+            _format_float(row.temporal_hp05_p99_abs_ratio_mean),
+            _format_float(row.frontal_temporal_hp05_p99_abs_ratio),
+        )
+        lines.append("| " + " | ".join(_escape_markdown(value) for value in values) + " |")
+    return "\n".join(lines)
+
+
 def save_source_diagnostic_comparison(
     rows: Sequence[SourceDiagnosticComparisonRow],
     output_path: Path,
@@ -145,6 +273,33 @@ def save_source_diagnostic_comparison(
         output_path.write_text(format_source_diagnostic_markdown(rows) + "\n", encoding="utf-8")
     else:
         raise ValueError("comparison output format must be json, csv, or markdown")
+    return output_path
+
+
+def save_blink_channel_inspection(
+    rows: Sequence[BlinkChannelInspectionRow],
+    output_path: Path,
+    *,
+    output_format: Optional[str] = None,
+) -> Path:
+    output_path = output_path.expanduser()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fmt = output_format or _format_from_suffix(output_path)
+    if fmt == "json":
+        output_path.write_text(
+            json.dumps([row.to_dict() for row in rows], indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    elif fmt == "csv":
+        with output_path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(rows[0].to_dict()) if rows else [])
+            writer.writeheader()
+            for row in rows:
+                writer.writerow(row.to_dict())
+    elif fmt == "markdown":
+        output_path.write_text(format_blink_channel_inspection_markdown(rows) + "\n", encoding="utf-8")
+    else:
+        raise ValueError("inspection output format must be json, csv, or markdown")
     return output_path
 
 
@@ -200,6 +355,91 @@ def _comparison_row(report_path: Path) -> SourceDiagnosticComparisonRow:
         disconnect_reason=str(source_diagnostics.get("disconnect_reason") or ""),
         source_frame_count=_optional_int(source_diagnostics.get("frame_count")),
     )
+
+
+def _channel_inspection_rows(
+    report_path: Path,
+    phase_filter: Optional[Sequence[str]],
+) -> Tuple[BlinkChannelInspectionRow, ...]:
+    report_path = report_path.expanduser().resolve()
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    source = str(report.get("source") or _nested(report, "source_metadata", "source_name") or "unknown")
+    source_metadata = report.get("source_metadata") if isinstance(report.get("source_metadata"), Mapping) else {}
+    session_summary = (
+        report.get("session_summary")
+        if isinstance(report.get("session_summary"), Mapping)
+        else {}
+    )
+    config = report.get("config") if isinstance(report.get("config"), Mapping) else {}
+    phase_metrics = report.get("phase_metrics") if isinstance(report.get("phase_metrics"), Mapping) else {}
+    ratios = (
+        report.get("ratios_vs_open_baseline")
+        if isinstance(report.get("ratios_vs_open_baseline"), Mapping)
+        else {}
+    )
+    channels = tuple(str(channel) for channel in config.get("channels", ("TP9", "AF7", "AF8", "TP10")))
+    frontal_channels = tuple(str(channel) for channel in config.get("frontal_channels", ("AF7", "AF8")))
+    temporal_channels = tuple(str(channel) for channel in config.get("temporal_channels", ("TP9", "TP10")))
+    baseline_phase = str(config.get("open_baseline_phase") or "eyes_open_baseline")
+    selected_phases = tuple(phase_filter) if phase_filter else tuple(str(phase) for phase in phase_metrics)
+    rows = []
+    for phase_name in selected_phases:
+        metrics_by_channel = phase_metrics.get(phase_name)
+        if not isinstance(metrics_by_channel, Mapping):
+            continue
+        phase_ratios = ratios.get(phase_name) if isinstance(ratios.get(phase_name), Mapping) else {}
+        rank = _rank_lookup(phase_ratios)
+        group_summary = _phase_group_ratio_summary(
+            phase_name,
+            baseline_phase,
+            phase_ratios,
+            frontal_channels,
+            temporal_channels,
+        )
+        for channel in channels:
+            metrics = metrics_by_channel.get(channel)
+            if not isinstance(metrics, Mapping):
+                continue
+            channel_ratios = (
+                phase_ratios.get(channel) if isinstance(phase_ratios.get(channel), Mapping) else {}
+            )
+            if phase_name == baseline_phase and not channel_ratios:
+                channel_ratios = _baseline_channel_ratios()
+            rows.append(
+                BlinkChannelInspectionRow(
+                    session_id=str(session_summary.get("session_id") or report_path.stem),
+                    source=source,
+                    preset=_report_preset(source, source_metadata),
+                    phase=phase_name,
+                    channel=channel,
+                    channel_group=_channel_group(channel, frontal_channels, temporal_channels),
+                    report_path=str(report_path),
+                    rank=rank.get(channel),
+                    count=_finite_or_none(metrics.get("count")),
+                    raw_mean=_finite_or_none(metrics.get("raw_mean")),
+                    raw_median=_finite_or_none(metrics.get("raw_median")),
+                    raw_std=_finite_or_none(metrics.get("raw_std")),
+                    raw_peak_to_peak=_finite_or_none(metrics.get("raw_peak_to_peak")),
+                    centered_p95_abs=_finite_or_none(metrics.get("centered_p95_abs")),
+                    centered_p99_abs=_finite_or_none(metrics.get("centered_p99_abs")),
+                    centered_peak_to_peak=_finite_or_none(metrics.get("centered_peak_to_peak")),
+                    hp05_std=_finite_or_none(metrics.get("hp05_std")),
+                    hp05_p95_abs=_finite_or_none(metrics.get("hp05_p95_abs")),
+                    hp05_p99_abs=_finite_or_none(metrics.get("hp05_p99_abs")),
+                    hp05_peak_to_peak=_finite_or_none(metrics.get("hp05_peak_to_peak")),
+                    centered_p99_abs_ratio=_finite_or_none(
+                        channel_ratios.get("centered_p99_abs_ratio")
+                    ),
+                    hp05_p99_abs_ratio=_finite_or_none(channel_ratios.get("hp05_p99_abs_ratio")),
+                    hp05_peak_to_peak_ratio=_finite_or_none(
+                        channel_ratios.get("hp05_peak_to_peak_ratio")
+                    ),
+                    frontal_hp05_p99_abs_ratio_mean=group_summary["frontal"],
+                    temporal_hp05_p99_abs_ratio_mean=group_summary["temporal"],
+                    frontal_temporal_hp05_p99_abs_ratio=group_summary["frontal_temporal"],
+                )
+            )
+    return tuple(rows)
 
 
 def _phase_eeg_rate(report: Mapping[str, object], phase_name: str) -> Optional[float]:
@@ -276,6 +516,75 @@ def _report_preset(source: str, source_metadata: Mapping[str, object]) -> str:
     return defaults.get(source, "unknown")
 
 
+def _phase_group_ratio_summary(
+    phase_name: str,
+    baseline_phase: str,
+    phase_ratios: Mapping[str, object],
+    frontal_channels: Sequence[str],
+    temporal_channels: Sequence[str],
+) -> Mapping[str, Optional[float]]:
+    if phase_name == baseline_phase and not phase_ratios:
+        frontal = 1.0
+        temporal = 1.0
+    else:
+        frontal = _mean_channel_ratio(phase_ratios, frontal_channels, "hp05_p99_abs_ratio")
+        temporal = _mean_channel_ratio(phase_ratios, temporal_channels, "hp05_p99_abs_ratio")
+    return {
+        "frontal": frontal,
+        "temporal": temporal,
+        "frontal_temporal": _optional_ratio(frontal, temporal),
+    }
+
+
+def _mean_channel_ratio(
+    phase_ratios: Mapping[str, object],
+    channels: Sequence[str],
+    metric_name: str,
+) -> Optional[float]:
+    values = []
+    for channel in channels:
+        channel_ratios = phase_ratios.get(channel)
+        if not isinstance(channel_ratios, Mapping):
+            continue
+        value = _finite_or_none(channel_ratios.get(metric_name))
+        if value is not None:
+            values.append(value)
+    return sum(values) / len(values) if values else None
+
+
+def _optional_ratio(numerator: Optional[float], denominator: Optional[float]) -> Optional[float]:
+    if numerator is None or denominator is None or denominator <= 0:
+        return None
+    return numerator / denominator
+
+
+def _rank_lookup(phase_ratios: Mapping[str, object]) -> Mapping[str, int]:
+    rank = phase_ratios.get("rank_by_hp05_p99_abs_ratio")
+    if not isinstance(rank, Iterable) or isinstance(rank, (str, bytes)):
+        return {}
+    return {str(channel): idx + 1 for idx, channel in enumerate(rank)}
+
+
+def _baseline_channel_ratios() -> Mapping[str, float]:
+    return {
+        "centered_p99_abs_ratio": 1.0,
+        "hp05_p99_abs_ratio": 1.0,
+        "hp05_peak_to_peak_ratio": 1.0,
+    }
+
+
+def _channel_group(
+    channel: str,
+    frontal_channels: Sequence[str],
+    temporal_channels: Sequence[str],
+) -> str:
+    if channel in frontal_channels:
+        return "frontal"
+    if channel in temporal_channels:
+        return "temporal"
+    return "other"
+
+
 def _nested(payload: Mapping[str, object], *keys: str):
     current = payload
     for key in keys:
@@ -302,6 +611,16 @@ def _optional_int(value) -> Optional[int]:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _format_optional_int(value: Optional[int]) -> str:
+    return "unknown" if value is None else str(value)
+
+
+def _format_count(value: Optional[float]) -> str:
+    if value is None:
+        return "unknown"
+    return str(int(value)) if value.is_integer() else f"{value:.3f}"
 
 
 def _format_float(value: Optional[float]) -> str:

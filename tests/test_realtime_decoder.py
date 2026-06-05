@@ -46,6 +46,31 @@ class TestRealtimeDecoder(unittest.TestCase):
         # Each channel should have 4 samples (4ch mode)
         self.assertEqual(len(decoded.eeg['TP9']), 4)
 
+    def test_eeg_packet_preserves_athena_channel_order(self):
+        """Synthetic 4ch EEG columns should map to TP9, AF7, AF8, TP10."""
+        rows = [
+            [proto.EEG_MID_COUNT + 10, proto.EEG_MID_COUNT + 20,
+             proto.EEG_MID_COUNT + 30, proto.EEG_MID_COUNT + 40],
+            [proto.EEG_MID_COUNT + 11, proto.EEG_MID_COUNT + 21,
+             proto.EEG_MID_COUNT + 31, proto.EEG_MID_COUNT + 41],
+            [proto.EEG_MID_COUNT + 12, proto.EEG_MID_COUNT + 22,
+             proto.EEG_MID_COUNT + 32, proto.EEG_MID_COUNT + 42],
+            [proto.EEG_MID_COUNT + 13, proto.EEG_MID_COUNT + 23,
+             proto.EEG_MID_COUNT + 33, proto.EEG_MID_COUNT + 43],
+        ]
+        eeg_packet = build_tag_packet(
+            proto.TAG_EEG_4CH,
+            _pack_14bit_lsb([value for row in rows for value in row]),
+        )
+
+        decoded = self.decoder.decode(eeg_packet)
+
+        self.assertAlmostEqual(decoded.eeg['TP9'][0], _uv(proto.EEG_MID_COUNT + 10), places=5)
+        self.assertAlmostEqual(decoded.eeg['AF7'][0], _uv(proto.EEG_MID_COUNT + 20), places=5)
+        self.assertAlmostEqual(decoded.eeg['AF8'][0], _uv(proto.EEG_MID_COUNT + 30), places=5)
+        self.assertAlmostEqual(decoded.eeg['TP10'][0], _uv(proto.EEG_MID_COUNT + 40), places=5)
+        self.assertAlmostEqual(decoded.eeg['AF7'][3], _uv(proto.EEG_MID_COUNT + 23), places=5)
+
     def test_imu_packet_decoding(self):
         """Test IMU packet decoding with TAG-based format"""
         imu_packet = build_tag_packet(proto.TAG_ACCGYRO, bytes(36))
@@ -290,6 +315,21 @@ class TestDecodedData(unittest.TestCase):
         self.assertEqual(len(data.eeg['TP9']), 3)
         self.assertEqual(data.heart_rate, 72.5)
         self.assertEqual(data.battery, 85)
+
+
+def _pack_14bit_lsb(values):
+    data = bytearray(28)
+    for value_idx, value in enumerate(values):
+        for bit_idx in range(14):
+            if int(value) & (1 << bit_idx):
+                output_bit = value_idx * 14 + bit_idx
+                data[output_bit // 8] |= 1 << (output_bit % 8)
+    return bytes(data)
+
+
+def _uv(raw_count):
+    return (float(raw_count) - proto.EEG_MID_COUNT) * proto.EEG_SCALE_UV_PER_COUNT
+
 
 if __name__ == '__main__':
     unittest.main()

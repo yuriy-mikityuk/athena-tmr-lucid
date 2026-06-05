@@ -5,7 +5,10 @@ from pathlib import Path
 
 from muse_tmr.reports.source_diagnostics import (
     compare_source_diagnostic_reports,
+    format_blink_channel_inspection_markdown,
     format_source_diagnostic_markdown,
+    inspect_blink_channel_reports,
+    save_blink_channel_inspection,
     save_source_diagnostic_comparison,
 )
 
@@ -52,6 +55,32 @@ class TestSourceDiagnosticComparison(unittest.TestCase):
             self.assertEqual(saved, output_path)
             self.assertIn("amused_session", output_path.read_text(encoding="utf-8"))
 
+    def test_inspects_per_channel_blink_behavior(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            report_path = tmp_path / "brainflow_session.json"
+            output_path = tmp_path / "channels.csv"
+            report_path.write_text(
+                json.dumps(_diagnostic_report("brainflow", preset="p1041")),
+                encoding="utf-8",
+            )
+
+            rows = inspect_blink_channel_reports((report_path,), phases=("blink",))
+            table = format_blink_channel_inspection_markdown(rows)
+            saved = save_blink_channel_inspection(rows, output_path, output_format="csv")
+
+            self.assertEqual(len(rows), 4)
+            af7 = next(row for row in rows if row.channel == "AF7")
+            self.assertEqual(af7.channel_group, "frontal")
+            self.assertEqual(af7.rank, 1)
+            self.assertAlmostEqual(af7.hp05_p99_abs_ratio, 4.0)
+            self.assertAlmostEqual(af7.frontal_hp05_p99_abs_ratio_mean, 3.5)
+            self.assertAlmostEqual(af7.temporal_hp05_p99_abs_ratio_mean, 1.1)
+            self.assertGreater(af7.frontal_temporal_hp05_p99_abs_ratio, 3.0)
+            self.assertIn("| brainflow_session | brainflow | p1041 | blink | AF7 | frontal |", table)
+            self.assertEqual(saved, output_path)
+            self.assertIn("frontal_hp05_p99_abs_ratio_mean", output_path.read_text(encoding="utf-8"))
+
 
 def _diagnostic_report(source, *, preset, blink_detected=True):
     return {
@@ -67,16 +96,25 @@ def _diagnostic_report(source, *, preset, blink_detected=True):
         ],
         "phase_metrics": {
             "eyes_open_baseline": {
-                "AF7": {"count": 11520.0},
-                "AF8": {"count": 11520.0},
-                "TP9": {"count": 11520.0},
-                "TP10": {"count": 11520.0},
+                "AF7": _channel_metrics(11520.0, hp05_p99_abs=10.0),
+                "AF8": _channel_metrics(11520.0, hp05_p99_abs=10.0),
+                "TP9": _channel_metrics(11520.0, hp05_p99_abs=10.0),
+                "TP10": _channel_metrics(11520.0, hp05_p99_abs=10.0),
             },
             "blink": {
-                "AF7": {"count": 5120.0},
-                "AF8": {"count": 5120.0},
-                "TP9": {"count": 5120.0},
-                "TP10": {"count": 5120.0},
+                "AF7": _channel_metrics(5120.0, hp05_p99_abs=40.0),
+                "AF8": _channel_metrics(5120.0, hp05_p99_abs=30.0),
+                "TP9": _channel_metrics(5120.0, hp05_p99_abs=12.0),
+                "TP10": _channel_metrics(5120.0, hp05_p99_abs=10.0),
+            },
+        },
+        "ratios_vs_open_baseline": {
+            "blink": {
+                "AF7": _channel_ratios(4.0),
+                "AF8": _channel_ratios(3.0),
+                "TP9": _channel_ratios(1.2),
+                "TP10": _channel_ratios(1.0),
+                "rank_by_hp05_p99_abs_ratio": ["AF7", "AF8", "TP9", "TP10"],
             },
         },
         "blink_summary": {
@@ -108,6 +146,31 @@ def _diagnostic_report(source, *, preset, blink_detected=True):
                 "heart_rate": 2 if source == "amused" else 0,
             },
         },
+    }
+
+
+def _channel_metrics(count, *, hp05_p99_abs):
+    return {
+        "count": count,
+        "raw_mean": 3300.0,
+        "raw_median": 3300.0,
+        "raw_std": 5.0,
+        "raw_peak_to_peak": 20.0,
+        "centered_p95_abs": hp05_p99_abs * 0.8,
+        "centered_p99_abs": hp05_p99_abs,
+        "centered_peak_to_peak": hp05_p99_abs * 2.0,
+        "hp05_std": hp05_p99_abs * 0.4,
+        "hp05_p95_abs": hp05_p99_abs * 0.8,
+        "hp05_p99_abs": hp05_p99_abs,
+        "hp05_peak_to_peak": hp05_p99_abs * 2.0,
+    }
+
+
+def _channel_ratios(hp05_p99_abs_ratio):
+    return {
+        "centered_p99_abs_ratio": hp05_p99_abs_ratio,
+        "hp05_p99_abs_ratio": hp05_p99_abs_ratio,
+        "hp05_peak_to_peak_ratio": hp05_p99_abs_ratio,
     }
 
 

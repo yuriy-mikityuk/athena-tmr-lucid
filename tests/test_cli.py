@@ -197,6 +197,30 @@ class TestCli(unittest.TestCase):
         self.assertEqual(args.output, Path("data/reports/source_comparison.md"))
         self.assertEqual(args.format, "markdown")
 
+    def test_inspect_blink_channels_command_parses_report_table_options(self):
+        args = build_parser().parse_args([
+            "inspect-blink-channels",
+            "data/reports/brainflow_blink.json",
+            "data/reports/amused_blink.json",
+            "--phase",
+            "blink",
+            "--phase",
+            "eyes_closed_baseline",
+            "--output",
+            "data/reports/blink_channels.md",
+            "--format",
+            "markdown",
+        ])
+
+        self.assertEqual(args.command, "inspect-blink-channels")
+        self.assertEqual(args.reports, [
+            Path("data/reports/brainflow_blink.json"),
+            Path("data/reports/amused_blink.json"),
+        ])
+        self.assertEqual(args.phases, ["blink", "eyes_closed_baseline"])
+        self.assertEqual(args.output, Path("data/reports/blink_channels.md"))
+        self.assertEqual(args.format, "markdown")
+
     def test_stream_command_parses_sdk_stub_source(self):
         args = build_parser().parse_args([
             "stream",

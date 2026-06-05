@@ -24,9 +24,13 @@ from muse_tmr.reports.morning_retest import (
     load_morning_retest,
 )
 from muse_tmr.reports.source_diagnostics import (
+    BlinkChannelInspectionRow,
     SourceDiagnosticComparisonRow,
     compare_source_diagnostic_reports,
+    format_blink_channel_inspection_markdown,
     format_source_diagnostic_markdown,
+    inspect_blink_channel_reports,
+    save_blink_channel_inspection,
     save_source_diagnostic_comparison,
 )
 
@@ -42,14 +46,18 @@ __all__ = [
     "MorningRetest",
     "MorningRetestResult",
     "PuzzleAnalysisRow",
+    "BlinkChannelInspectionRow",
     "SourceDiagnosticComparisonRow",
     "build_cued_uncued_analysis",
     "build_dream_report",
     "build_morning_retest",
     "compare_source_diagnostic_reports",
+    "format_blink_channel_inspection_markdown",
     "format_source_diagnostic_markdown",
+    "inspect_blink_channel_reports",
     "load_cued_uncued_analysis",
     "load_dream_report",
     "load_morning_retest",
+    "save_blink_channel_inspection",
     "save_source_diagnostic_comparison",
 ]
