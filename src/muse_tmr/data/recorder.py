@@ -38,6 +38,7 @@ class RecordingConfig:
 class RecordingSummary:
     output_dir: str
     raw_path: str
+    decoded_frames_path: str
     metadata_path: str
     events_path: str
     summary_path: str
@@ -46,6 +47,7 @@ class RecordingSummary:
     duration_seconds: float
     frame_count: int
     raw_packet_count: int
+    decoded_frame_count: int
     modality_counts: Dict[str, int]
     reconnect_attempts: int
     downtime_seconds: float
@@ -55,6 +57,7 @@ class RecordingSummary:
         return {
             "output_dir": self.output_dir,
             "raw_path": self.raw_path,
+            "decoded_frames_path": self.decoded_frames_path,
             "metadata_path": self.metadata_path,
             "events_path": self.events_path,
             "summary_path": self.summary_path,
@@ -63,6 +66,7 @@ class RecordingSummary:
             "duration_seconds": self.duration_seconds,
             "frame_count": self.frame_count,
             "raw_packet_count": self.raw_packet_count,
+            "decoded_frame_count": self.decoded_frame_count,
             "modality_counts": self.modality_counts,
             "reconnect_attempts": self.reconnect_attempts,
             "downtime_seconds": self.downtime_seconds,
@@ -89,6 +93,7 @@ class OvernightRecorder:
         self.config.output_dir.mkdir(parents=True, exist_ok=True)
 
         raw_path = self.config.output_dir / "raw_amused.bin"
+        decoded_frames_path = self.config.output_dir / "decoded_frames.jsonl"
         metadata_path = self.config.output_dir / "metadata.json"
         events_path = self.config.output_dir / "events.jsonl"
         summary_path = self.config.output_dir / "summary.json"
@@ -102,6 +107,7 @@ class OvernightRecorder:
 
         frame_count = 0
         raw_packet_count = 0
+        decoded_frame_count = 0
         reconnect_attempts = 0
         downtime_seconds = 0.0
         modality_counts: Dict[str, int] = {}
@@ -110,7 +116,9 @@ class OvernightRecorder:
         raw_stream = MuseRawStream(str(raw_path))
         raw_stream.open_write()
 
-        with events_path.open("w", encoding="utf-8") as events_file:
+        with events_path.open("w", encoding="utf-8") as events_file, decoded_frames_path.open(
+            "w", encoding="utf-8"
+        ) as decoded_frames_file:
             self._write_event(
                 events_file,
                 WatchdogEvent(
@@ -208,6 +216,10 @@ class OvernightRecorder:
                         )
                         raw_packet_count += 1
 
+                    decoded_frames_file.write(frame.to_json(include_raw=False) + "\n")
+                    decoded_frames_file.flush()
+                    decoded_frame_count += 1
+
                     for event in self.watchdog.observe_frame(frame, time.monotonic()):
                         self._write_event(events_file, event)
             finally:
@@ -227,6 +239,7 @@ class OvernightRecorder:
         summary = RecordingSummary(
             output_dir=str(self.config.output_dir),
             raw_path=str(raw_path),
+            decoded_frames_path=str(decoded_frames_path),
             metadata_path=str(metadata_path),
             events_path=str(events_path),
             summary_path=str(summary_path),
@@ -235,6 +248,7 @@ class OvernightRecorder:
             duration_seconds=(ended_at_dt - started_at_dt).total_seconds(),
             frame_count=frame_count,
             raw_packet_count=raw_packet_count,
+            decoded_frame_count=decoded_frame_count,
             modality_counts=modality_counts,
             reconnect_attempts=reconnect_attempts,
             downtime_seconds=downtime_seconds,
