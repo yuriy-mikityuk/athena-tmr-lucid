@@ -64,6 +64,35 @@ class ErrorThenRecoverySource(RecordingFakeSource):
         )
 
 
+class ReconnectAttemptFailsThenRecoversSource(RecordingFakeSource):
+    """Simulates a device that is genuinely gone: the *reconnect attempt's*
+    own connect() call fails (not just the stream), matching the crash seen
+    in production where an unhandled exception from a reconnect's connect()
+    took down the whole recording."""
+
+    async def connect(self, device=None):
+        self.connect_count += 1
+        if self.connect_count == 2:
+            raise RuntimeError("simulated reconnect failure")
+        return MuseSourceMetadata(
+            source_name="fake",
+            device_name="Muse Fake",
+            device_id="fake",
+            capabilities={"eeg": True, "raw_packets": True},
+        )
+
+    async def stream(self):
+        if self.connect_count < 3:
+            await asyncio.sleep(0.05)
+            return
+        yield MuseFrame(
+            timestamp=4.0,
+            eeg=EEGSample(timestamp=4.0, channels_uv={"TP9": [0.4]}),
+            source="fake",
+            raw_packet=b"\x07\x08",
+        )
+
+
 class TestOvernightRecorder(unittest.IsolatedAsyncioTestCase):
     async def test_record_writes_expected_outputs(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -141,6 +170,36 @@ class TestOvernightRecorder(unittest.IsolatedAsyncioTestCase):
             events = Path(summary.events_path).read_text()
             self.assertIn("stream_error", events)
             self.assertIn("simulated disconnect", events)
+
+    async def test_reconnect_attempt_failure_does_not_crash_and_keeps_retrying(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = ReconnectAttemptFailsThenRecoversSource()
+            watchdog = RecordingWatchdog(
+                no_data_timeout_seconds=0.01,
+                modality_timeout_seconds=1.0,
+                backoff_base_seconds=0.0,
+            )
+            recorder = OvernightRecorder(
+                RecordingConfig(
+                    output_dir=Path(tmp),
+                    duration_seconds=0.1,
+                    no_data_timeout_seconds=0.01,
+                    max_reconnect_attempts=3,
+                    allow_short=True,
+                ),
+                watchdog=watchdog,
+            )
+
+            # Before the fix, source.connect() raising during a reconnect
+            # attempt propagated uncaught and this await would raise instead
+            # of returning a summary.
+            summary = await recorder.record(source)
+
+            self.assertEqual(summary.frame_count, 1)
+            self.assertGreaterEqual(summary.reconnect_attempts, 2)
+            events = Path(summary.events_path).read_text()
+            self.assertIn("reconnect_failed", events)
+            self.assertIn("simulated reconnect failure", events)
 
     def test_duration_requires_overnight_window_unless_allowed(self):
         with tempfile.TemporaryDirectory() as tmp:

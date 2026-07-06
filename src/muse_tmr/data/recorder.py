@@ -8,7 +8,7 @@ import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from muse_raw_stream import MuseRawStream
 
@@ -145,26 +145,17 @@ class OvernightRecorder:
                         if event:
                             self._write_event(events_file, event)
 
-                        if reconnect_attempts >= self.config.max_reconnect_attempts:
-                            stop_reason = "max_reconnect_attempts"
-                            break
-
-                        reconnect_attempts += 1
-                        backoff = self.watchdog.reconnect_backoff(reconnect_attempts)
-                        downtime_start = time.monotonic()
-                        await source.stop()
-                        self._write_event(
-                            events_file,
-                            WatchdogEvent(
-                                event="reconnect_scheduled",
-                                timestamp=downtime_start,
-                                details={"attempt": reconnect_attempts, "backoff_seconds": backoff},
-                            ),
+                        new_stream, reconnect_attempts, exhausted, added_downtime = (
+                            await self._reconnect_until_ready(
+                                source, events_file, reconnect_attempts, deadline
+                            )
                         )
-                        await asyncio.sleep(backoff)
-                        await source.connect()
-                        downtime_seconds += time.monotonic() - downtime_start
-                        stream = source.stream().__aiter__()
+                        downtime_seconds += added_downtime
+                        if new_stream is None:
+                            if exhausted:
+                                stop_reason = "max_reconnect_attempts"
+                            break
+                        stream = new_stream
                         continue
                     except StopAsyncIteration:
                         stop_reason = "source_ended"
@@ -180,26 +171,17 @@ class OvernightRecorder:
                             ),
                         )
 
-                        if reconnect_attempts >= self.config.max_reconnect_attempts:
-                            stop_reason = "max_reconnect_attempts"
-                            break
-
-                        reconnect_attempts += 1
-                        backoff = self.watchdog.reconnect_backoff(reconnect_attempts)
-                        downtime_start = time.monotonic()
-                        await source.stop()
-                        self._write_event(
-                            events_file,
-                            WatchdogEvent(
-                                event="reconnect_scheduled",
-                                timestamp=downtime_start,
-                                details={"attempt": reconnect_attempts, "backoff_seconds": backoff},
-                            ),
+                        new_stream, reconnect_attempts, exhausted, added_downtime = (
+                            await self._reconnect_until_ready(
+                                source, events_file, reconnect_attempts, deadline
+                            )
                         )
-                        await asyncio.sleep(backoff)
-                        await source.connect()
-                        downtime_seconds += time.monotonic() - downtime_start
-                        stream = source.stream().__aiter__()
+                        downtime_seconds += added_downtime
+                        if new_stream is None:
+                            if exhausted:
+                                stop_reason = "max_reconnect_attempts"
+                            break
+                        stream = new_stream
                         continue
 
                     frame_count += 1
@@ -259,6 +241,62 @@ class OvernightRecorder:
             encoding="utf-8",
         )
         return summary
+
+    async def _reconnect_until_ready(
+        self,
+        source: BaseMuseSource,
+        events_file,
+        reconnect_attempts: int,
+        deadline: float,
+    ) -> Tuple[Optional[Any], int, bool, float]:
+        """Retry connecting to `source` until it succeeds, the reconnect
+        budget is exhausted, or the recording deadline passes.
+
+        A failure raised by `source.stop()`/`source.connect()` during a
+        reconnect attempt (e.g. the device is genuinely gone) is treated as
+        just another failed attempt instead of being allowed to propagate
+        and crash the whole recording.
+
+        Returns (new_stream_or_None, updated_reconnect_attempts,
+        budget_exhausted, downtime_seconds_added).
+        """
+        downtime_added = 0.0
+        while True:
+            if reconnect_attempts >= self.config.max_reconnect_attempts:
+                return None, reconnect_attempts, True, downtime_added
+            if time.monotonic() >= deadline:
+                return None, reconnect_attempts, False, downtime_added
+
+            reconnect_attempts += 1
+            backoff = self.watchdog.reconnect_backoff(reconnect_attempts)
+            downtime_start = time.monotonic()
+            self._write_event(
+                events_file,
+                WatchdogEvent(
+                    event="reconnect_scheduled",
+                    timestamp=downtime_start,
+                    details={"attempt": reconnect_attempts, "backoff_seconds": backoff},
+                ),
+            )
+            try:
+                await source.stop()
+                await asyncio.sleep(backoff)
+                await source.connect()
+                stream = source.stream().__aiter__()
+            except Exception as exc:
+                downtime_added += time.monotonic() - downtime_start
+                self._write_event(
+                    events_file,
+                    WatchdogEvent(
+                        event="reconnect_failed",
+                        timestamp=time.monotonic(),
+                        details={"attempt": reconnect_attempts, "error": str(exc)},
+                    ),
+                )
+                continue
+
+            downtime_added += time.monotonic() - downtime_start
+            return stream, reconnect_attempts, False, downtime_added
 
     def _write_metadata(
         self,
