@@ -8,7 +8,7 @@ import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from muse_raw_stream import MuseRawStream
 
@@ -38,6 +38,7 @@ class RecordingConfig:
 class RecordingSummary:
     output_dir: str
     raw_path: str
+    decoded_frames_path: str
     metadata_path: str
     events_path: str
     summary_path: str
@@ -46,6 +47,7 @@ class RecordingSummary:
     duration_seconds: float
     frame_count: int
     raw_packet_count: int
+    decoded_frame_count: int
     modality_counts: Dict[str, int]
     reconnect_attempts: int
     downtime_seconds: float
@@ -55,6 +57,7 @@ class RecordingSummary:
         return {
             "output_dir": self.output_dir,
             "raw_path": self.raw_path,
+            "decoded_frames_path": self.decoded_frames_path,
             "metadata_path": self.metadata_path,
             "events_path": self.events_path,
             "summary_path": self.summary_path,
@@ -63,6 +66,7 @@ class RecordingSummary:
             "duration_seconds": self.duration_seconds,
             "frame_count": self.frame_count,
             "raw_packet_count": self.raw_packet_count,
+            "decoded_frame_count": self.decoded_frame_count,
             "modality_counts": self.modality_counts,
             "reconnect_attempts": self.reconnect_attempts,
             "downtime_seconds": self.downtime_seconds,
@@ -89,6 +93,7 @@ class OvernightRecorder:
         self.config.output_dir.mkdir(parents=True, exist_ok=True)
 
         raw_path = self.config.output_dir / "raw_amused.bin"
+        decoded_frames_path = self.config.output_dir / "decoded_frames.jsonl"
         metadata_path = self.config.output_dir / "metadata.json"
         events_path = self.config.output_dir / "events.jsonl"
         summary_path = self.config.output_dir / "summary.json"
@@ -102,6 +107,7 @@ class OvernightRecorder:
 
         frame_count = 0
         raw_packet_count = 0
+        decoded_frame_count = 0
         reconnect_attempts = 0
         downtime_seconds = 0.0
         modality_counts: Dict[str, int] = {}
@@ -110,7 +116,9 @@ class OvernightRecorder:
         raw_stream = MuseRawStream(str(raw_path))
         raw_stream.open_write()
 
-        with events_path.open("w", encoding="utf-8") as events_file:
+        with events_path.open("w", encoding="utf-8") as events_file, decoded_frames_path.open(
+            "w", encoding="utf-8"
+        ) as decoded_frames_file:
             self._write_event(
                 events_file,
                 WatchdogEvent(
@@ -137,26 +145,17 @@ class OvernightRecorder:
                         if event:
                             self._write_event(events_file, event)
 
-                        if reconnect_attempts >= self.config.max_reconnect_attempts:
-                            stop_reason = "max_reconnect_attempts"
-                            break
-
-                        reconnect_attempts += 1
-                        backoff = self.watchdog.reconnect_backoff(reconnect_attempts)
-                        downtime_start = time.monotonic()
-                        await source.stop()
-                        self._write_event(
-                            events_file,
-                            WatchdogEvent(
-                                event="reconnect_scheduled",
-                                timestamp=downtime_start,
-                                details={"attempt": reconnect_attempts, "backoff_seconds": backoff},
-                            ),
+                        new_stream, reconnect_attempts, exhausted, added_downtime = (
+                            await self._reconnect_until_ready(
+                                source, events_file, reconnect_attempts, deadline
+                            )
                         )
-                        await asyncio.sleep(backoff)
-                        await source.connect()
-                        downtime_seconds += time.monotonic() - downtime_start
-                        stream = source.stream().__aiter__()
+                        downtime_seconds += added_downtime
+                        if new_stream is None:
+                            if exhausted:
+                                stop_reason = "max_reconnect_attempts"
+                            break
+                        stream = new_stream
                         continue
                     except StopAsyncIteration:
                         stop_reason = "source_ended"
@@ -172,26 +171,17 @@ class OvernightRecorder:
                             ),
                         )
 
-                        if reconnect_attempts >= self.config.max_reconnect_attempts:
-                            stop_reason = "max_reconnect_attempts"
-                            break
-
-                        reconnect_attempts += 1
-                        backoff = self.watchdog.reconnect_backoff(reconnect_attempts)
-                        downtime_start = time.monotonic()
-                        await source.stop()
-                        self._write_event(
-                            events_file,
-                            WatchdogEvent(
-                                event="reconnect_scheduled",
-                                timestamp=downtime_start,
-                                details={"attempt": reconnect_attempts, "backoff_seconds": backoff},
-                            ),
+                        new_stream, reconnect_attempts, exhausted, added_downtime = (
+                            await self._reconnect_until_ready(
+                                source, events_file, reconnect_attempts, deadline
+                            )
                         )
-                        await asyncio.sleep(backoff)
-                        await source.connect()
-                        downtime_seconds += time.monotonic() - downtime_start
-                        stream = source.stream().__aiter__()
+                        downtime_seconds += added_downtime
+                        if new_stream is None:
+                            if exhausted:
+                                stop_reason = "max_reconnect_attempts"
+                            break
+                        stream = new_stream
                         continue
 
                     frame_count += 1
@@ -207,6 +197,10 @@ class OvernightRecorder:
                             packet_timestamp,
                         )
                         raw_packet_count += 1
+
+                    decoded_frames_file.write(frame.to_json(include_raw=False) + "\n")
+                    decoded_frames_file.flush()
+                    decoded_frame_count += 1
 
                     for event in self.watchdog.observe_frame(frame, time.monotonic()):
                         self._write_event(events_file, event)
@@ -227,6 +221,7 @@ class OvernightRecorder:
         summary = RecordingSummary(
             output_dir=str(self.config.output_dir),
             raw_path=str(raw_path),
+            decoded_frames_path=str(decoded_frames_path),
             metadata_path=str(metadata_path),
             events_path=str(events_path),
             summary_path=str(summary_path),
@@ -235,6 +230,7 @@ class OvernightRecorder:
             duration_seconds=(ended_at_dt - started_at_dt).total_seconds(),
             frame_count=frame_count,
             raw_packet_count=raw_packet_count,
+            decoded_frame_count=decoded_frame_count,
             modality_counts=modality_counts,
             reconnect_attempts=reconnect_attempts,
             downtime_seconds=downtime_seconds,
@@ -245,6 +241,62 @@ class OvernightRecorder:
             encoding="utf-8",
         )
         return summary
+
+    async def _reconnect_until_ready(
+        self,
+        source: BaseMuseSource,
+        events_file,
+        reconnect_attempts: int,
+        deadline: float,
+    ) -> Tuple[Optional[Any], int, bool, float]:
+        """Retry connecting to `source` until it succeeds, the reconnect
+        budget is exhausted, or the recording deadline passes.
+
+        A failure raised by `source.stop()`/`source.connect()` during a
+        reconnect attempt (e.g. the device is genuinely gone) is treated as
+        just another failed attempt instead of being allowed to propagate
+        and crash the whole recording.
+
+        Returns (new_stream_or_None, updated_reconnect_attempts,
+        budget_exhausted, downtime_seconds_added).
+        """
+        downtime_added = 0.0
+        while True:
+            if reconnect_attempts >= self.config.max_reconnect_attempts:
+                return None, reconnect_attempts, True, downtime_added
+            if time.monotonic() >= deadline:
+                return None, reconnect_attempts, False, downtime_added
+
+            reconnect_attempts += 1
+            backoff = self.watchdog.reconnect_backoff(reconnect_attempts)
+            downtime_start = time.monotonic()
+            self._write_event(
+                events_file,
+                WatchdogEvent(
+                    event="reconnect_scheduled",
+                    timestamp=downtime_start,
+                    details={"attempt": reconnect_attempts, "backoff_seconds": backoff},
+                ),
+            )
+            try:
+                await source.stop()
+                await asyncio.sleep(backoff)
+                await source.connect()
+                stream = source.stream().__aiter__()
+            except Exception as exc:
+                downtime_added += time.monotonic() - downtime_start
+                self._write_event(
+                    events_file,
+                    WatchdogEvent(
+                        event="reconnect_failed",
+                        timestamp=time.monotonic(),
+                        details={"attempt": reconnect_attempts, "error": str(exc)},
+                    ),
+                )
+                continue
+
+            downtime_added += time.monotonic() - downtime_start
+            return stream, reconnect_attempts, False, downtime_added
 
     def _write_metadata(
         self,

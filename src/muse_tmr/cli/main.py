@@ -632,6 +632,18 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     record_parser.add_argument("--allow-short", action="store_true", help="Allow short smoke-test recordings.")
+    record_parser.add_argument(
+        "--no-data-timeout-seconds",
+        type=float,
+        default=30.0,
+        help="Seconds without a frame before a reconnect attempt is triggered.",
+    )
+    record_parser.add_argument(
+        "--max-reconnect-attempts",
+        type=int,
+        default=5,
+        help="Cumulative reconnect attempts allowed for the whole recording before giving up.",
+    )
     record_parser.add_argument("--quiet", action="store_true")
     _add_brainflow_args(record_parser)
     _add_openmuse_lsl_args(record_parser)
@@ -1046,6 +1058,8 @@ async def _record(args: argparse.Namespace) -> int:
             duration_seconds=duration_seconds,
             source_name=args.source,
             allow_short=args.allow_short,
+            no_data_timeout_seconds=args.no_data_timeout_seconds,
+            max_reconnect_attempts=args.max_reconnect_attempts,
         )
     )
     summary = await recorder.record(source)
