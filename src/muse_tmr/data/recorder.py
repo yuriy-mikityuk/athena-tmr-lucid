@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import json
+import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -88,6 +89,7 @@ class OvernightRecorder:
             no_data_timeout_seconds=config.no_data_timeout_seconds,
             modality_timeout_seconds=config.modality_timeout_seconds,
         )
+        self._last_event_name: Optional[str] = None
 
     async def record(self, source: BaseMuseSource) -> RecordingSummary:
         self.config.output_dir.mkdir(parents=True, exist_ok=True)
@@ -97,6 +99,7 @@ class OvernightRecorder:
         metadata_path = self.config.output_dir / "metadata.json"
         events_path = self.config.output_dir / "events.jsonl"
         summary_path = self.config.output_dir / "summary.json"
+        progress_path = self.config.output_dir / "progress.json"
 
         started_at_dt = dt.datetime.now(dt.timezone.utc)
         started_monotonic = time.monotonic()
@@ -112,6 +115,17 @@ class OvernightRecorder:
         downtime_seconds = 0.0
         modality_counts: Dict[str, int] = {}
         stop_reason = "duration_complete"
+        last_battery_percent: Optional[float] = None
+        last_progress_write = 0.0
+
+        self._write_progress(
+            progress_path,
+            elapsed_seconds=0.0,
+            frame_count=0,
+            decoded_frame_count=0,
+            battery_percent=None,
+            reconnect_attempts=0,
+        )
 
         raw_stream = MuseRawStream(str(raw_path))
         raw_stream.open_write()
@@ -201,6 +215,21 @@ class OvernightRecorder:
                     decoded_frames_file.write(frame.to_json(include_raw=False) + "\n")
                     decoded_frames_file.flush()
                     decoded_frame_count += 1
+
+                    if frame.battery is not None:
+                        last_battery_percent = frame.battery.percent
+
+                    now_monotonic = time.monotonic()
+                    if now_monotonic - last_progress_write >= 5.0:
+                        self._write_progress(
+                            progress_path,
+                            elapsed_seconds=now_monotonic - started_monotonic,
+                            frame_count=frame_count,
+                            decoded_frame_count=decoded_frame_count,
+                            battery_percent=last_battery_percent,
+                            reconnect_attempts=reconnect_attempts,
+                        )
+                        last_progress_write = now_monotonic
 
                     for event in self.watchdog.observe_frame(frame, time.monotonic()):
                         self._write_event(events_file, event)
@@ -326,3 +355,34 @@ class OvernightRecorder:
     def _write_event(self, events_file, event: WatchdogEvent) -> None:
         events_file.write(json.dumps(event.to_dict(), sort_keys=True) + "\n")
         events_file.flush()
+        self._last_event_name = event.event
+
+    def _write_progress(
+        self,
+        path: Path,
+        *,
+        elapsed_seconds: float,
+        frame_count: int,
+        decoded_frame_count: int,
+        battery_percent: Optional[float],
+        reconnect_attempts: int,
+    ) -> None:
+        """Write a small fixed-size heartbeat the app can poll cheaply.
+
+        decoded_frames.jsonl cannot be tailed for battery (it is the first,
+        usually-null key on every EEG frame), so the recorder publishes its own
+        progress. Written atomically via a temp file + os.replace so a reader
+        never observes a torn JSON object.
+        """
+        payload = {
+            "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "elapsed_seconds": elapsed_seconds,
+            "frame_count": frame_count,
+            "decoded_frame_count": decoded_frame_count,
+            "battery_percent": battery_percent,
+            "reconnect_attempts": reconnect_attempts,
+            "last_event": self._last_event_name,
+        }
+        tmp_path = path.with_suffix(".json.tmp")
+        tmp_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+        os.replace(tmp_path, path)

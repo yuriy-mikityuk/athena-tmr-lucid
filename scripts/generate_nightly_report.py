@@ -5,13 +5,16 @@ Replays a recording directory through the same epoch/feature/REM-detector chain
 as `muse-tmr annotate-template`, then renders a single-file HTML chart (line +
 area, hover tooltip, accessible table fallback) instead of raw JSON/CSV.
 
-Output defaults to data/reports/nightly/<recording-name>.html, which is
-gitignored (see docs/sdk_policy.md: personal sleep reports must not be
-committed) -- this script is checked in, its output is not.
+Output mirrors the recording's kind folder: a recording under
+data/recordings/<kind>/<name> produces data/reports/<kind>/<name>.html for
+kind in {night, session}; anything else falls back to
+data/reports/nightly/<name>.html. All of data/reports/ is gitignored (see
+docs/sdk_policy.md: personal sleep reports must not be committed) -- this
+script is checked in, its output is not.
 
 Usage:
-    python scripts/generate_nightly_report.py data/recordings/overnight_20260707
-    python scripts/generate_nightly_report.py data/recordings/overnight_20260707 --output /tmp/report.html
+    python scripts/generate_nightly_report.py data/recordings/night/20260707_010000
+    python scripts/generate_nightly_report.py data/recordings/session/20260707_140000 --output /tmp/report.html
 """
 
 from __future__ import annotations
@@ -52,6 +55,19 @@ def _load_json(path: Path) -> dict:
     if not path.exists():
         return {}
     return json.loads(path.read_text())
+
+
+def _default_report_path(recording_dir: Path) -> Path:
+    """Mirror the recording's kind folder into data/reports/<kind>/<name>.html.
+
+    A recording stored under data/recordings/<kind>/<name> keeps its report
+    alongside siblings of the same kind; older flat recordings fall back to the
+    legacy data/reports/nightly/ folder.
+    """
+    kind = recording_dir.parent.name
+    if kind in ("night", "session"):
+        return Path("data/reports") / kind / f"{recording_dir.name}.html"
+    return Path("data/reports/nightly") / f"{recording_dir.name}.html"
 
 
 def _build_callout(mean_p: float, ppg_present: bool, reconnects: int, stop_reason: str) -> str:
@@ -387,7 +403,11 @@ def build_report(recording_dir: Path, output_path: Path, epoch_seconds: float = 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("recording_dir", type=Path, help="Recording directory (contains raw_amused.bin etc.)")
-    parser.add_argument("--output", type=Path, help="Output HTML path. Defaults to data/reports/nightly/<name>.html")
+    parser.add_argument(
+        "--output",
+        type=Path,
+        help="Output HTML path. Defaults to data/reports/<kind>/<name>.html (kind inferred from the recording folder).",
+    )
     parser.add_argument("--epoch-seconds", type=float, default=30.0)
     args = parser.parse_args()
 
@@ -395,9 +415,9 @@ def main() -> int:
     if not recording_dir.exists():
         raise SystemExit(f"recording directory not found: {recording_dir}")
 
-    output = args.output or Path("data/reports/nightly") / f"{recording_dir.name}.html"
+    output = args.output or _default_report_path(recording_dir)
     build_report(recording_dir, output, args.epoch_seconds)
-    print(f"nightly report written: {output}")
+    print(f"report written: {output}")
     return 0
 
 

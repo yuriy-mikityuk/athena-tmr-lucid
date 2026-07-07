@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import json
 import mimetypes
+import os
 import posixpath
+import signal
+import subprocess
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -13,7 +18,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from muse_tmr.contact import (
@@ -28,6 +33,79 @@ from muse_tmr.contact import (
 )
 
 CONNECTION_STATES = ("disconnected", "scanning", "connecting", "connected", "error")
+
+CAFFEINATE = "/usr/bin/caffeinate"
+
+# kind -> (preset, duration_hours, allow_short)
+RECORDING_KINDS: Dict[str, Tuple[str, float, bool]] = {
+    "night": ("p21", 8.0, False),
+    "session": ("p1034", 1.0, True),
+}
+
+
+@dataclass
+class RecordingHandle:
+    kind: str
+    output_dir: Path
+    log_path: Path
+    command: List[str]
+    preset: str
+    duration_seconds: float
+    started_at_seconds: float
+    pid: Optional[int] = None
+    process: Optional[Any] = None  # Popen, or a fake in tests; None after app restart
+    state: str = "launching"  # launching | running | stopping | completed | failed
+    stop_signalled_at_seconds: Optional[float] = None
+
+
+def _real_launcher(command: List[str], log_path: Path):
+    """Spawn a detached recording process that outlives this app.
+
+    start_new_session=True makes the child a session/process-group leader
+    detached from the app's controlling terminal, so closing the terminal that
+    launched the app does not signal the recorder. Its stdout/stderr go to a log
+    file the app can tail.
+    """
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_fh = open(log_path, "ab", buffering=0)
+    try:
+        return subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=log_fh,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            close_fds=True,
+        )
+    finally:
+        # The child keeps its own dup'd copy of the fd; the parent does not need it.
+        log_fh.close()
+
+
+def _real_terminator(pid: int, sig: int) -> None:
+    """Signal the whole process group led by ``pid`` (caffeinate + python)."""
+    try:
+        os.killpg(pid, sig)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+def _read_json_tolerant(path: Path) -> Mapping[str, Any]:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, ValueError, OSError):
+        return {}
+
+
+def _expected_report_path(output_dir: Path) -> str:
+    kind = output_dir.parent.name
+    if kind in ("night", "session"):
+        return str(Path("data/reports") / kind / f"{output_dir.name}.html")
+    return str(Path("data/reports/nightly") / f"{output_dir.name}.html")
+
+
+def _format_hours(hours: float) -> str:
+    return str(int(hours)) if float(hours).is_integer() else str(hours)
 
 
 @dataclass(frozen=True)
@@ -56,9 +134,22 @@ class AppConfig:
 
 
 class LocalMuseAppState:
-    def __init__(self, config: AppConfig) -> None:
+    def __init__(
+        self,
+        config: AppConfig,
+        *,
+        launcher: Optional[Callable[[List[str], Path], Any]] = None,
+        terminator: Optional[Callable[[int, int], None]] = None,
+        recordings_base: Optional[Path] = None,
+        now_fn: Optional[Callable[[], dt.datetime]] = None,
+    ) -> None:
         config.validate()
         self.config = config
+        self._launcher = launcher if launcher is not None else _real_launcher
+        self._terminator = terminator if terminator is not None else _real_terminator
+        self._recordings_base = Path(recordings_base) if recordings_base is not None else None
+        self._now = now_fn if now_fn is not None else (lambda: dt.datetime.now())
+        self._recording: Optional[RecordingHandle] = None
         self._lock = threading.Lock()
         self._connection_state = "disconnected"
         self._device_name: Optional[str] = None
@@ -126,6 +217,7 @@ class LocalMuseAppState:
             "contact": contact,
             "gate": gate_payload,
             "source_diagnostics": self._source_diagnostics(source),
+            "recording": self._recording_payload(),
         }
 
     def contact(self) -> Mapping[str, Any]:
@@ -256,7 +348,213 @@ class LocalMuseAppState:
         return self.state()
 
     def shutdown(self) -> None:
+        # Intentionally does NOT stop a running recording: the recorder is a
+        # detached process meant to outlive the app.
         self.disconnect()
+
+    def start_recording(self, kind: Optional[str]) -> Tuple[Mapping[str, Any], HTTPStatus]:
+        if kind not in RECORDING_KINDS:
+            return {"error": "kind must be night or session"}, HTTPStatus.BAD_REQUEST
+        if self.config.source != "amused":
+            return {"error": "recording requires the live amused source"}, HTTPStatus.CONFLICT
+
+        preset, duration_hours, _ = RECORDING_KINDS[kind]
+        with self._lock:
+            if self._recording is not None and self._recording_alive_unlocked():
+                return {"error": "a recording is already running"}, HTTPStatus.CONFLICT
+            output_dir = (
+                self._recordings_base_resolved() / kind / self._now().strftime("%Y%m%d_%H%M%S")
+            )
+            command = self._build_record_command(kind, output_dir)
+            handle = RecordingHandle(
+                kind=kind,
+                output_dir=output_dir,
+                log_path=output_dir / "record.log",
+                command=command,
+                preset=preset,
+                duration_seconds=duration_hours * 3600.0,
+                started_at_seconds=time.time(),
+                state="launching",
+            )
+            self._recording = handle
+
+        # Release our own BLE grip on the headband BEFORE spawning the recorder;
+        # the Muse allows only one connection at a time.
+        self.disconnect()
+        try:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            self._write_launch_json(handle)
+            proc = self._launcher(command, handle.log_path)
+        except Exception as exc:
+            with self._lock:
+                if self._recording is handle:
+                    handle.state = "failed"
+            return {"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR
+
+        with self._lock:
+            if self._recording is handle:
+                handle.process = proc
+                handle.pid = getattr(proc, "pid", None)
+                handle.state = "running"
+        self._write_launch_json(handle)
+        return self._recording_payload(), HTTPStatus.OK
+
+    def stop_recording(self) -> Tuple[Mapping[str, Any], HTTPStatus]:
+        with self._lock:
+            handle = self._recording
+            if handle is None or not self._recording_alive_unlocked():
+                return {"error": "no recording is running"}, HTTPStatus.CONFLICT
+            pid = handle.pid
+            handle.state = "stopping"
+            handle.stop_signalled_at_seconds = time.time()
+
+        if pid is not None:
+            # SIGINT (not SIGTERM) so the recorder's finally-block runs: it closes
+            # files cleanly and releases BLE. killpg reaches caffeinate + python.
+            self._terminator(pid, signal.SIGINT)
+        return self._recording_payload(), HTTPStatus.OK
+
+    def _recording_alive_unlocked(self) -> bool:
+        handle = self._recording
+        if handle is None or handle.state in ("completed", "failed"):
+            return False
+        proc = handle.process
+        if proc is not None:
+            # poll() reaps a finished child, avoiding a zombie reporting as alive.
+            return proc.poll() is None
+        if handle.pid is not None:
+            try:
+                os.kill(handle.pid, 0)
+                return True
+            except (ProcessLookupError, PermissionError):
+                return False
+        # Slot reserved but not spawned yet.
+        return handle.state == "launching"
+
+    def _recording_payload(self) -> Mapping[str, Any]:
+        escalate_pid: Optional[int] = None
+        with self._lock:
+            handle = self._recording
+            if handle is None:
+                return {"active": False, "state": "idle"}
+            alive = self._recording_alive_unlocked()
+            if (
+                handle.state == "stopping"
+                and alive
+                and handle.pid is not None
+                and handle.stop_signalled_at_seconds is not None
+                and time.time() - handle.stop_signalled_at_seconds > 5.0
+            ):
+                escalate_pid = handle.pid
+            snapshot = (
+                handle.kind,
+                handle.output_dir,
+                handle.log_path,
+                handle.pid,
+                handle.preset,
+                handle.duration_seconds,
+                handle.started_at_seconds,
+                handle.state,
+            )
+
+        if escalate_pid is not None:
+            self._terminator(escalate_pid, signal.SIGKILL)
+
+        kind, output_dir, log_path, pid, preset, duration, started, state = snapshot
+        progress = _read_json_tolerant(output_dir / "progress.json")
+        summary = _read_json_tolerant(output_dir / "summary.json")
+        summary_available = bool(summary)
+
+        if summary_available:
+            state = "completed"
+        elif not alive and state in ("running", "stopping"):
+            state = "failed"
+
+        if state in ("completed", "failed"):
+            with self._lock:
+                if self._recording is handle:
+                    handle.state = state
+
+        elapsed = progress.get("elapsed_seconds")
+        if elapsed is None:
+            elapsed = max(0.0, time.time() - started)
+
+        reconnects = progress.get("reconnect_attempts")
+        if reconnects is None:
+            reconnects = summary.get("reconnect_attempts")
+
+        return {
+            "active": state in ("launching", "running", "stopping"),
+            "kind": kind,
+            "state": state,
+            "pid": pid,
+            "preset": preset,
+            "output_dir": str(output_dir),
+            "log_path": str(log_path),
+            "report_path": _expected_report_path(output_dir),
+            "started_at_seconds": started,
+            "duration_seconds": duration,
+            "elapsed_seconds": elapsed,
+            "progress_fraction": min(1.0, elapsed / duration) if duration else None,
+            "frame_count": progress.get("frame_count"),
+            "battery_percent": progress.get("battery_percent"),
+            "reconnect_attempts": reconnects,
+            "last_event": progress.get("last_event") or summary.get("stop_reason"),
+            "summary_available": summary_available,
+        }
+
+    def _build_record_command(self, kind: str, output_dir: Path) -> List[str]:
+        preset, duration_hours, allow_short = RECORDING_KINDS[kind]
+        command = [
+            CAFFEINATE,
+            "-s",
+            sys.executable,
+            "-m",
+            "muse_tmr.cli.main",
+            "record",
+            "--source",
+            "amused",
+            "--preset",
+            preset,
+            "--duration-hours",
+            _format_hours(duration_hours),
+            "--no-data-timeout-seconds",
+            "45",
+            "--max-reconnect-attempts",
+            "1000",
+            "--output-dir",
+            str(output_dir.resolve()),
+            "--quiet",
+        ]
+        if allow_short:
+            command.append("--allow-short")
+        return command
+
+    def _recordings_base_resolved(self) -> Path:
+        if self._recordings_base is not None:
+            return self._recordings_base
+        from muse_tmr.cli.main import _default_path_base
+
+        return _default_path_base() / "data" / "recordings"
+
+    def _write_launch_json(self, handle: RecordingHandle) -> None:
+        payload = {
+            "kind": handle.kind,
+            "preset": handle.preset,
+            "pid": handle.pid,
+            "duration_seconds": handle.duration_seconds,
+            "started_at_seconds": handle.started_at_seconds,
+            "command": list(handle.command),
+            "log_path": str(handle.log_path),
+            "output_dir": str(handle.output_dir),
+        }
+        try:
+            handle.output_dir.mkdir(parents=True, exist_ok=True)
+            (handle.output_dir / "launch.json").write_text(
+                json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
+        except OSError:
+            pass
 
     def _state_unlocked(
         self,
@@ -546,7 +844,28 @@ class LocalMuseAppHandler(BaseHTTPRequestHandler):
             status = HTTPStatus.OK if state.get("ready") else HTTPStatus.CONFLICT
             self._write_json(state, status=status)
             return
+        if self.path == "/api/session/record":
+            body = self._read_json_body()
+            payload, status = self.server.app_state.start_recording(body.get("kind"))
+            self._write_json(payload, status=status)
+            return
+        if self.path == "/api/session/record/stop":
+            payload, status = self.server.app_state.stop_recording()
+            self._write_json(payload, status=status)
+            return
         self.send_error(HTTPStatus.NOT_FOUND, "unknown app endpoint")
+
+    def _read_json_body(self) -> Dict[str, Any]:
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except (TypeError, ValueError):
+            return {}
+        if length <= 0:
+            return {}
+        try:
+            return json.loads(self.rfile.read(length).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return {}
 
     def log_message(self, format: str, *args) -> None:
         return
@@ -604,13 +923,26 @@ class LocalMuseAppHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
-def create_local_app_server(config: AppConfig) -> LocalMuseAppServer:
+def create_local_app_server(
+    config: AppConfig,
+    *,
+    launcher: Optional[Callable[[List[str], Path], Any]] = None,
+    terminator: Optional[Callable[[int, int], None]] = None,
+    recordings_base: Optional[Path] = None,
+    now_fn: Optional[Callable[[], dt.datetime]] = None,
+) -> LocalMuseAppServer:
     config.validate()
     static_dir = resources.files("muse_tmr.app").joinpath("static")
     return LocalMuseAppServer(
         (config.host, config.port),
         LocalMuseAppHandler,
-        app_state=LocalMuseAppState(config),
+        app_state=LocalMuseAppState(
+            config,
+            launcher=launcher,
+            terminator=terminator,
+            recordings_base=recordings_base,
+            now_fn=now_fn,
+        ),
         static_dir=Path(str(static_dir)),
     )
 

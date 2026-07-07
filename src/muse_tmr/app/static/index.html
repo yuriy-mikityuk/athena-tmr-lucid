@@ -21,6 +21,13 @@
           <span id="session-warnings">contact warnings: 0</span>
           <span id="session-stream-rate">stream: -- Hz</span>
         </div>
+        <div class="session-strip recording-strip" id="recording-strip" hidden>
+          <strong id="recording-status">Recording</strong>
+          <span id="recording-kind"></span>
+          <span id="recording-elapsed">00:00</span>
+          <span id="recording-battery"></span>
+          <span id="recording-last-event"></span>
+        </div>
         <div class="status-meter" aria-hidden="true">
           <span data-state="disconnected"></span>
           <span data-state="scanning"></span>
@@ -78,15 +85,15 @@
         <div class="actions">
           <button type="button" id="scan-button">Scan</button>
           <button type="button" id="connect-button">Connect Muse</button>
-          <button type="button" id="start-button" hidden>Start when ready</button>
+          <button type="button" id="start-session-button" class="primary" hidden>Start session</button>
+          <button type="button" id="start-night-button" class="primary" hidden>Start night session</button>
+          <button type="button" id="stop-recording-button" hidden>Stop recording</button>
           <button type="button" id="disconnect-button" hidden>Disconnect</button>
         </div>
-        <div class="gate-summary" id="gate-summary" role="status">Contact gate idle</div>
-        <div class="gate-progress" id="gate-progress" hidden>
-          <div class="gate-progress-track" aria-hidden="true">
-            <span id="gate-progress-fill"></span>
-          </div>
-          <div class="gate-progress-label" id="gate-progress-label">0.0s / 5.0s</div>
+        <div class="record-hint" id="record-hint" role="status" hidden></div>
+        <div class="record-report" id="record-report" hidden>
+          <span id="record-report-text"></span>
+          <code id="record-report-path"></code>
         </div>
         <section class="warning-log" id="warning-log-section" hidden>
           <h2>Contact Warnings</h2>

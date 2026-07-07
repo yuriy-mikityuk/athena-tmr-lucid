@@ -9,15 +9,23 @@ const deviceLastPacket = document.querySelector("#device-last-packet");
 const errorBox = document.querySelector("#error-box");
 const scanButton = document.querySelector("#scan-button");
 const connectButton = document.querySelector("#connect-button");
-const startButton = document.querySelector("#start-button");
+const startSessionButton = document.querySelector("#start-session-button");
+const startNightButton = document.querySelector("#start-night-button");
+const stopRecordingButton = document.querySelector("#stop-recording-button");
 const disconnectButton = document.querySelector("#disconnect-button");
+const recordHint = document.querySelector("#record-hint");
+const recordReport = document.querySelector("#record-report");
+const recordReportText = document.querySelector("#record-report-text");
+const recordReportPath = document.querySelector("#record-report-path");
+const recordingStrip = document.querySelector("#recording-strip");
+const recordingStatus = document.querySelector("#recording-status");
+const recordingKind = document.querySelector("#recording-kind");
+const recordingElapsed = document.querySelector("#recording-elapsed");
+const recordingBattery = document.querySelector("#recording-battery");
+const recordingLastEvent = document.querySelector("#recording-last-event");
 const contactSummary = document.querySelector("#contact-summary");
 const contactList = document.querySelector("#contact-list");
 const allGoodCheck = document.querySelector("#all-good-check");
-const gateSummary = document.querySelector("#gate-summary");
-const gateProgress = document.querySelector("#gate-progress");
-const gateProgressFill = document.querySelector("#gate-progress-fill");
-const gateProgressLabel = document.querySelector("#gate-progress-label");
 const sessionStrip = document.querySelector("#session-strip");
 const sessionStatus = document.querySelector("#session-status");
 const sessionElapsed = document.querySelector("#session-elapsed");
@@ -40,8 +48,7 @@ let latestState = {};
 let latestContact = {};
 let latestGate = {};
 let latestDiagnostics = {};
-let lastCountdownStableFor = 0;
-let lastGateReset = null;
+let latestRecording = {};
 
 const stateText = {
   disconnected: "Disconnected",
@@ -86,9 +93,6 @@ function renderState(state) {
   errorBox.hidden = !latestState.error_message;
   errorBox.textContent = latestState.error_message || "";
   renderActions();
-  if (connection === "disconnected") {
-    startButton.textContent = "Start when ready";
-  }
 
   renderAppTitle();
   renderDeviceCard();
@@ -102,22 +106,22 @@ async function refreshUiState() {
 
 function renderUiState(payload) {
   latestDiagnostics = { source_diagnostics: payload.source_diagnostics || null };
+  latestRecording = payload.recording || {};
   renderState(payload.state || {});
   renderContact(payload.contact || {});
   renderGate(payload.gate || {});
   renderDiagnostics(latestDiagnostics);
+  renderRecording(latestRecording);
   renderAppTitle();
 }
 
 function renderAppTitle() {
   const connection = latestState.connection_state || "disconnected";
-  const gateState = latestGate.state || "";
-  const session = latestState.session || {};
-  if (session.running || gateState === "starting" || gateState === "running") {
-    appTitle.textContent = "Muse Session";
-  } else if (latestGate.armed && !latestGate.ready) {
-    appTitle.textContent = "Hold Contact";
-  } else if (connection === "connected") {
+  if (latestRecording && latestRecording.active) {
+    appTitle.textContent = latestRecording.kind === "night" ? "Night Recording" : "Recording";
+    return;
+  }
+  if (connection === "connected") {
     appTitle.textContent = "Check Contact";
   } else {
     appTitle.textContent = "Connect Muse";
@@ -126,20 +130,29 @@ function renderAppTitle() {
 
 function renderActions() {
   const connection = latestState.connection_state || "disconnected";
-  const running = isRunningMode();
-  scanButton.hidden = connection === "connected";
-  connectButton.hidden = connection === "connected";
-  startButton.hidden = connection !== "connected" || running;
-  disconnectButton.hidden = connection !== "connected";
+  const recordingActive = Boolean(latestRecording.active);
+  const isAmused = latestState.source === "amused";
+  const contactReady = Boolean(latestContact.all_good);
+
+  // While a detached recording runs, the app has released BLE; collapse setup controls.
+  scanButton.hidden = connection === "connected" || recordingActive;
+  connectButton.hidden = connection === "connected" || recordingActive;
+  disconnectButton.hidden = connection !== "connected" || recordingActive;
+
+  const canRecord = connection === "connected" && !recordingActive;
+  startSessionButton.hidden = !canRecord;
+  startNightButton.hidden = !canRecord;
+  stopRecordingButton.hidden = !(recordingActive && latestRecording.state !== "stopping");
+
+  // Recording needs the live headband and good contact.
+  const recordEnabled = canRecord && isAmused && contactReady;
+  startSessionButton.disabled = !recordEnabled;
+  startNightButton.disabled = !recordEnabled;
+
   connectButton.classList.toggle("primary", connection !== "connected");
   connectButton.disabled = connection === "connecting";
   scanButton.disabled = connection === "scanning" || connection === "connecting";
   disconnectButton.disabled = connection === "disconnected";
-}
-
-function isRunningMode() {
-  const session = latestState.session || {};
-  return Boolean(session.running || latestGate.state === "running");
 }
 
 function renderSourceBadge(source) {
@@ -260,55 +273,67 @@ function contactSparkline(channel) {
 
 function renderGate(gate) {
   latestGate = gate;
-  const stableFor = Number(gate.stable_for_seconds || 0);
-  const required = Number(gate.required_stability_seconds || 0);
-  const waiting = gate.armed && !gate.ready && gate.state !== "starting" && gate.state !== "running";
-
-  if (waiting && !gate.all_good && lastCountdownStableFor > 0.2 && stableFor <= 0.05) {
-    lastGateReset = {
-      message: `Reset by ${gateResetSource(gate.reason_codes || [])} at ${lastCountdownStableFor.toFixed(1)}s`,
-      timestampMs: Date.now()
-    };
-  }
-
-  if (gate.state === "starting") {
-    gateSummary.textContent = "Starting session";
-  } else if (gate.state === "ready") {
-    gateSummary.textContent = "Contact gate ready; starting session";
-  } else if (gate.state === "running") {
-    gateSummary.textContent = "Session running; contact drops are warnings only";
-  } else if (waiting) {
-    gateSummary.textContent =
-      lastGateReset && Date.now() - lastGateReset.timestampMs < 8000
-        ? lastGateReset.message
-        : "Waiting for stable contact";
-  } else {
-    gateSummary.textContent = "Contact gate idle";
-  }
-
-  gateProgress.hidden = !waiting;
-  if (waiting) {
-    const progress = required > 0 ? clamp(stableFor / required, 0, 1) : gate.all_good ? 1 : 0;
-    gateProgressFill.style.width = `${Math.round(progress * 100)}%`;
-    gateProgressLabel.textContent = `${stableFor.toFixed(1)}s / ${required.toFixed(1)}s`;
-  }
-
-  lastCountdownStableFor = waiting ? stableFor : 0;
-  startButton.disabled = gate.state === "starting" || gate.state === "running";
-  if (gate.state === "starting") {
-    startButton.textContent = "Starting";
-  } else if (gate.state === "running") {
-    startButton.textContent = "Running";
-  } else if (gate.armed && !gate.ready) {
-    startButton.textContent = "Waiting for contact";
-  } else {
-    startButton.textContent = "Start when ready";
-  }
   renderActions();
-
   renderAppTitle();
   renderSessionStrip();
   renderWarningLog();
+}
+
+function renderRecording(recording) {
+  latestRecording = recording || {};
+  const active = Boolean(latestRecording.active);
+  const state = latestRecording.state;
+  const connection = latestState.connection_state || "disconnected";
+  const isAmused = latestState.source === "amused";
+  const contactReady = Boolean(latestContact.all_good);
+
+  recordingStrip.hidden = !active;
+  if (active) {
+    const kindLabel = latestRecording.kind === "night" ? "Night session" : "Session";
+    recordingStatus.textContent =
+      state === "launching"
+        ? "Starting recording"
+        : state === "stopping"
+        ? "Stopping recording"
+        : "Recording";
+    recordingKind.textContent = [kindLabel, latestRecording.preset].filter(Boolean).join(" · ");
+    recordingElapsed.textContent = formatDuration(latestRecording.elapsed_seconds);
+    const battery = numberOrNull(latestRecording.battery_percent);
+    recordingBattery.textContent = battery == null ? "battery --" : `battery ${Math.round(battery)}%`;
+    recordingLastEvent.textContent = latestRecording.last_event
+      ? String(latestRecording.last_event).replaceAll("_", " ")
+      : "";
+  }
+
+  stopRecordingButton.textContent = state === "stopping" ? "Stopping" : "Stop recording";
+  stopRecordingButton.disabled = state === "stopping";
+
+  const finished = state === "completed" || state === "failed";
+  const reportPath = latestRecording.report_path;
+  const outputDir = latestRecording.output_dir;
+  recordReport.hidden = !(finished && outputDir);
+  if (finished && outputDir) {
+    recordReportText.textContent =
+      state === "completed"
+        ? `Recording finished (${reportPath || "report ready"}). Generate the REM report with:`
+        : "Recording ended early. You can still try a report with:";
+    recordReportPath.textContent = `python scripts/generate_nightly_report.py ${outputDir}`;
+  }
+
+  const showHint = connection === "connected" && !active && !finished;
+  recordHint.hidden = !showHint;
+  if (showHint) {
+    if (!isAmused) {
+      recordHint.textContent = "Recording needs the live Muse source (run the app with --source amused).";
+    } else if (!contactReady) {
+      recordHint.textContent = "Adjust the headband until all four channels are good to enable recording.";
+    } else {
+      recordHint.textContent =
+        "Contact looks good — ready to record. Keep the Mac plugged in and the lid open for a night session.";
+    }
+  }
+
+  renderActions();
 }
 
 function renderDiagnostics(diagnostics) {
@@ -410,11 +435,31 @@ connectButton.addEventListener("click", async () => {
   await refreshUiState();
 });
 
-startButton.addEventListener("click", async () => {
-  startButton.disabled = true;
-  startButton.textContent = "Waiting for contact";
-  await requestJson("/api/muse/start-when-ready", { method: "POST" });
-  await refreshUiState();
+async function startRecording(kind) {
+  startSessionButton.disabled = true;
+  startNightButton.disabled = true;
+  try {
+    await requestJson("/api/session/record", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind })
+    });
+  } finally {
+    await refreshUiState();
+  }
+}
+
+startSessionButton.addEventListener("click", () => startRecording("session"));
+startNightButton.addEventListener("click", () => startRecording("night"));
+
+stopRecordingButton.addEventListener("click", async () => {
+  stopRecordingButton.disabled = true;
+  stopRecordingButton.textContent = "Stopping";
+  try {
+    await requestJson("/api/session/record/stop", { method: "POST" });
+  } finally {
+    await refreshUiState();
+  }
 });
 
 disconnectButton.addEventListener("click", async () => {
@@ -462,22 +507,6 @@ function primaryReason(reasonCodes) {
     return "";
   }
   return reasonText[reasonCodes[0]] || reasonCodes[0].replaceAll("_", " ");
-}
-
-function gateResetSource(reasonCodes) {
-  for (const code of reasonCodes) {
-    const match = String(code).match(/^(tp9|af7|af8|tp10)_(poor|fair|missing)$/i);
-    if (match) {
-      return match[1].toUpperCase();
-    }
-  }
-  if (reasonCodes.includes("stale_contact")) {
-    return "stale contact";
-  }
-  if (reasonCodes.includes("disconnected")) {
-    return "disconnect";
-  }
-  return "contact drop";
 }
 
 function warningEventText(event) {
