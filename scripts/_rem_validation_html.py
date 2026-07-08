@@ -22,22 +22,23 @@ def build_html(result: Dict[str, object]) -> str:
             "t": round(int(m["epoch"]) * epoch_seconds / 3600.0, 4),
             "p": round(float(m["p_rem"]), 4),
             "g": 1 if m["gate_open"] else 0,
-            "s": str(m["yasa_stage"]),
-            "r": int(m["yasa_rem"]),
+            "s": str(m["ref_stage"]),
+            "r": int(m["ref_rem"]),
         }
         for m in matched
     ]
-    gate = result["gate_vs_yasa"]
+    gate = result["gate_vs_ref"]
     tm = result["threshold_metrics"]
     enter_key = next((k for k in tm if k.startswith("enter_")), "at_0.5")
     auc = result["roc_auc"]
+    tool = str(result.get("reference", {}).get("tool", "reference")).upper()
 
     def stat(x: object) -> str:
         return "n/a" if (isinstance(x, float) and not math.isfinite(x)) else (f"{x:.2f}" if isinstance(x, float) else str(x))
 
     stats = [
         ("Matched epochs", str(result["epochs_matched"])),
-        ("YASA REM", f"{result['yasa_rem_epochs']} ({result['yasa_rem_fraction']*100:.0f}%)"),
+        (f"{tool} REM", f"{result['ref_rem_epochs']} ({result['ref_rem_fraction']*100:.0f}%)"),
         ("ROC-AUC", stat(auc)),
         ("Gate precision", stat(gate["precision"])),
         ("Gate recall", stat(gate["recall"])),
@@ -57,10 +58,30 @@ def build_html(result: Dict[str, object]) -> str:
         recording=result["recording"],
         eeg=result["reference"]["eeg"],
         eog=result["reference"].get("eog"),
+        tool=tool,
+        caveat=_CAVEATS.get(tool.lower(), _CAVEATS["yasa"]),
         stat_tiles=stat_tiles,
         data_json=json.dumps(points, separators=(",", ":")),
         enter_thr=enter_thr,
     )
+
+
+# Reference-specific caveat (HTML). YASA mis-fits the Muse montage; GSSC fits it
+# far better but is still an automated proxy.
+_CAVEATS = {
+    "yasa": (
+        "<strong>Read as directional, not a grade.</strong> YASA is an automated proxy trained on "
+        "central (C3/C4) PSG montages; the Muse provides only frontal/temporal channels referenced near "
+        "Fpz and no EMG, so the reference itself mis-scores many W/N1/REM epochs. This measures agreement "
+        "between two imperfect estimators on one night, not accuracy against sleep-lab truth."
+    ),
+    "gssc": (
+        "<strong>Read as directional, not truth.</strong> GSSC is a neural stager whose training set "
+        "includes frontal derivations and which stages from a single channel, so it fits the Muse montage "
+        "far better than YASA &mdash; but it is still an automated proxy, not PSG. Validate against a few "
+        "manually-scored nights before treating its REM calls as ground truth."
+    ),
+}
 
 
 _TEMPLATE = """<title>REM validation - {recording}</title>
@@ -100,25 +121,22 @@ svg{{display:block; width:100%; height:auto; overflow:visible}}
   border-radius:10px; padding:12px 14px; line-height:1.5}}
 </style>
 <div class="vr"><div class="wrap">
-<h1>REM detection vs YASA reference &mdash; {recording}</h1>
-<p class="sub">Heuristic p_rem &amp; live gate vs YASA auto-staging (eeg {eeg}, eog {eog}) &middot; proxy reference, not PSG</p>
+<h1>REM detection vs {tool} reference &mdash; {recording}</h1>
+<p class="sub">Heuristic p_rem &amp; live gate vs {tool} auto-staging (eeg {eeg}, eog {eog}) &middot; proxy reference, not PSG</p>
 <div class="tiles">{stat_tiles}</div>
 <div class="legend">
   <span><i class="sw" style="background:var(--p)"></i>heuristic p_rem</span>
   <span><i class="sw" style="background:var(--hit)"></i>gate open</span>
-  <span><i class="sw" style="background:var(--rem)"></i>YASA REM</span>
+  <span><i class="sw" style="background:var(--rem)"></i>{tool} REM</span>
   <span><i class="sw" style="background:var(--hit)"></i>hit</span>
   <span><i class="sw" style="background:var(--fa)"></i>false alarm</span>
   <span><i class="sw" style="background:var(--miss)"></i>miss</span>
 </div>
 <div class="card"><h2>p_rem over the night (dashed = gate enter {enter_thr:g}; green = gate open)</h2>
   <svg id="prem" viewBox="0 0 900 170" preserveAspectRatio="none"></svg></div>
-<div class="card"><h2>YASA hypnogram &amp; agreement strip</h2>
+<div class="card"><h2>{tool} hypnogram &amp; agreement strip</h2>
   <svg id="hyp" viewBox="0 0 900 170" preserveAspectRatio="none"></svg></div>
-<div class="caveat"><strong>Read as directional, not a grade.</strong> YASA is an automated proxy trained on
-central (C3/C4) PSG montages; the Muse provides only frontal/temporal channels referenced near Fpz and no EMG,
-so the reference itself mis-scores some W/N1/REM epochs. This measures agreement between two imperfect estimators
-on one night, not accuracy against sleep-lab truth.</div>
+<div class="caveat">{caveat}</div>
 </div></div>
 <script>
 const DATA={data_json}, ENTER={enter_thr};

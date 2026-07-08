@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the wired REM detector against an offline reference stager (YASA).
+"""Validate the wired REM detector against an offline reference stager (YASA or GSSC).
 
 The project ships one wired REM detector -- the fixed-threshold, non-ML
 ``HeuristicRemDetector`` -- but nothing in the repo measures whether it fires REM
@@ -196,11 +196,17 @@ def simulate_gate(
 # --------------------------------------------------------------------------- #
 # Reference stager (subprocess into the isolated YASA venv)
 # --------------------------------------------------------------------------- #
-def run_yasa(npz_path: Path, eeg: str, eog: str, yasa_python: Path) -> Dict[str, object]:
-    stager = Path(__file__).resolve().parent / "_yasa_stage.py"
+# Reference stagers, each shelled into its own isolated venv (schemas identical).
+REFERENCE_SCRIPTS = {"yasa": "_yasa_stage.py", "gssc": "_gssc_stage.py"}
+
+
+def run_reference(
+    reference: str, npz_path: Path, eeg: str, eog: str, python_path: Path
+) -> Dict[str, object]:
+    stager = Path(__file__).resolve().parent / REFERENCE_SCRIPTS[reference]
     out_path = npz_path.with_suffix(".hypno.json")
     cmd = [
-        str(yasa_python), str(stager),
+        str(python_path), str(stager),
         "--npz", str(npz_path),
         "--eeg", eeg,
         "--eog", eog,
@@ -209,7 +215,7 @@ def run_yasa(npz_path: Path, eeg: str, eog: str, yasa_python: Path) -> Dict[str,
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise SystemExit(
-            f"YASA staging failed (exit {result.returncode}).\n"
+            f"{reference} staging failed (exit {result.returncode}).\n"
             f"cmd: {' '.join(cmd)}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
         )
     return json.loads(out_path.read_text())
@@ -290,9 +296,10 @@ def run(
     recording_dir: Path,
     eeg: str,
     eog: str,
-    yasa_python: Path,
+    reference_python: Path,
     epoch_seconds: float,
     preset: Optional[str] = None,
+    reference: str = "yasa",
 ) -> Dict[str, object]:
     print(f"[1/4] replaying {recording_dir.name}: heuristic p_rem + EEG reconstruction ...", flush=True)
     collected = collect(recording_dir, epoch_seconds)
@@ -324,7 +331,7 @@ def run(
             flush=True,
         )
 
-    print(f"[3/4] YASA reference staging (eeg={eeg}, eog={eog}) ...", flush=True)
+    print(f"[3/4] {reference} reference staging (eeg={eeg}, eog={eog}) ...", flush=True)
     channels, stage_sfreq = resample_for_stager(channels, sfreq)
     print(f"      resampled to {stage_sfreq:.2f} Hz for the stager", flush=True)
     with tempfile.TemporaryDirectory() as tmp:
@@ -335,7 +342,7 @@ def run(
             ch_names=np.array(list(EEG_CHANNELS)),
             **{name: channels[name] for name in EEG_CHANNELS},
         )
-        hypno = run_yasa(npz_path, eeg, eog, yasa_python)
+        hypno = run_reference(reference, npz_path, eeg, eog, reference_python)
     hypno_by_index = {int(e["epoch"]): e for e in hypno["epochs"]}
     print(f"      staged {len(hypno_by_index)} epochs; {hypno.get('stage_counts')}", flush=True)
 
@@ -351,16 +358,16 @@ def run(
                 "epoch": k,
                 "p_rem": float(pred.probability),
                 "gate_open": bool(opened),
-                "yasa_stage": ref["stage"],
-                "yasa_rem": 1 if ref["stage"] in REM_STAGES else 0,
-                "yasa_proba_rem": ref.get("proba_rem"),
+                "ref_stage": ref["stage"],
+                "ref_rem": 1 if ref["stage"] in REM_STAGES else 0,
+                "ref_proba_rem": ref.get("proba_rem"),
             }
         )
 
     if not matched:
         raise SystemExit("no epochs aligned between heuristic and YASA -- check timestamps")
 
-    y = np.array([m["yasa_rem"] for m in matched], dtype=int)
+    y = np.array([m["ref_rem"] for m in matched], dtype=int)
     p = np.array([m["p_rem"] for m in matched], dtype=float)
     g = np.array([1 if m["gate_open"] else 0 for m in matched], dtype=int)
 
@@ -369,11 +376,11 @@ def run(
     best_thr, best = best_f1_threshold(y, p)
     result = {
         "recording": recording_dir.name,
-        "reference": {"tool": "yasa", "eeg": eeg, "eog": hypno.get("eog"), "note": "proxy, not PSG"},
+        "reference": {"tool": reference, "eeg": eeg, "eog": hypno.get("eog"), "note": "proxy, not PSG"},
         "epochs_matched": len(matched),
         "epoch_seconds": epoch_seconds,
-        "yasa_rem_epochs": int(y.sum()),
-        "yasa_rem_fraction": float(y.mean()),
+        "ref_rem_epochs": int(y.sum()),
+        "ref_rem_fraction": float(y.mean()),
         "reference_flags": reference_flags,
         "mean_p_rem": float(p.mean()),
         "roc_auc": roc_auc(y, p),
@@ -383,7 +390,7 @@ def run(
             "at_0.5": binary_metrics(y, (p >= 0.5).astype(int)),
             f"best_f1_{best_thr:g}": best,
         },
-        "gate_vs_yasa": {
+        "gate_vs_ref": {
             **binary_metrics(y, g),
             "gate_open_epochs": int(g.sum()),
             "gate_open_minutes": round(int(g.sum()) * epoch_seconds / 60, 1),
@@ -427,16 +434,31 @@ def _fmt(m: Dict[str, float]) -> str:
     )
 
 
+REFERENCE_CAVEATS = {
+    "yasa": (
+        "  CAVEAT: YASA is a proxy, not PSG. Its model expects central electrodes\n"
+        "  (C3/C4); the Muse gives only frontal/temporal channels and no EMG, so YASA\n"
+        "  mis-scores this montage badly -- treat it as a weak proxy, not a grade."
+    ),
+    "gssc": (
+        "  CAVEAT: GSSC is frontal-trained (a much better montage fit than YASA), but\n"
+        "  still an automated proxy, not PSG. Validate against a few manually-scored\n"
+        "  nights before treating its REM calls as ground truth."
+    ),
+}
+
+
 def print_summary(result: Dict[str, object]) -> None:
     tm = result["threshold_metrics"]
-    gate = result["gate_vs_yasa"]
+    gate = result["gate_vs_ref"]
+    tool = str(result.get("reference", {}).get("tool", "reference")).upper()
     print("\n" + "=" * 78)
-    print(f"REM detection vs YASA reference -- {result['recording']}")
+    print(f"REM detection vs {tool} reference -- {result['recording']}")
     print("=" * 78)
     print(
         f"matched epochs: {result['epochs_matched']}  |  "
-        f"YASA REM: {result['yasa_rem_epochs']} epochs "
-        f"({result['yasa_rem_fraction']*100:.1f}% of night)  |  "
+        f"{tool} REM: {result['ref_rem_epochs']} epochs "
+        f"({result['ref_rem_fraction']*100:.1f}% of night)  |  "
         f"mean p_rem: {result['mean_p_rem']:.2f}"
     )
     flags = result.get("reference_flags") or []
@@ -445,11 +467,11 @@ def print_summary(result: Dict[str, object]) -> None:
         print("  DEGENERATE REFERENCE -- the metrics below CANNOT be trusted:")
         for f in flags:
             print(f"    - {f}")
-        print("  YASA mis-staged this night (see caveat); the numbers are not a verdict on")
-        print("  the detector. A trustworthy reference (manual scoring / PSG) is required.")
+        print(f"  {tool} mis-staged this night (see caveat); the numbers are not a verdict")
+        print("  on the detector. A trustworthy reference (manual scoring / PSG) is required.")
         print("!" * 78)
     auc = result["roc_auc"]
-    print(f"ROC-AUC (p_rem ranks YASA-REM): {auc:.3f}" if math.isfinite(auc) else "ROC-AUC: n/a")
+    print(f"ROC-AUC (p_rem ranks {tool}-REM): {auc:.3f}" if math.isfinite(auc) else "ROC-AUC: n/a")
     print("-" * 78)
     for label, m in tm.items():
         print(f"  p_rem >= {label:<14} {_fmt(m)}")
@@ -457,12 +479,10 @@ def print_summary(result: Dict[str, object]) -> None:
     print("  SYSTEM VIEW - real StableRemGate (enter 0.70 / exit 0.45 / 60s stable / 120s cooldown):")
     print(
         f"    gate opened on {gate['gate_open_epochs']} epochs "
-        f"({gate['gate_open_minutes']} min).  vs YASA-REM: {_fmt(gate)}"
+        f"({gate['gate_open_minutes']} min).  vs {tool}-REM: {_fmt(gate)}"
     )
     print("-" * 78)
-    print("  CAVEAT: YASA is a proxy, not PSG. Its model expects central electrodes;")
-    print("  the Muse gives frontal/temporal (near-Fpz) channels and no EMG, so its own")
-    print("  REM calls are imperfect. Read agreement as directional, not a grade.")
+    print(REFERENCE_CAVEATS.get(tool.lower(), REFERENCE_CAVEATS["yasa"]))
     print("=" * 78 + "\n")
 
 
@@ -479,10 +499,23 @@ def main() -> int:
         "gate no optics were streamed, so absent PPG does not cap confidence.",
     )
     parser.add_argument(
+        "--reference",
+        choices=("yasa", "gssc"),
+        default="yasa",
+        help="Offline reference stager. gssc is a frontal-trained model (better fit "
+        "for the Muse montage than YASA's central-electrode model).",
+    )
+    parser.add_argument(
         "--yasa-python",
         type=Path,
         default=Path(__file__).resolve().parent.parent / ".venv-yasa" / "bin" / "python",
         help="Python of the isolated venv that has YASA installed",
+    )
+    parser.add_argument(
+        "--gssc-python",
+        type=Path,
+        default=Path(__file__).resolve().parent.parent / ".venv-gssc" / "bin" / "python",
+        help="Python of the isolated venv that has GSSC installed",
     )
     parser.add_argument("--output", type=Path, help="Write full metrics JSON here")
     parser.add_argument("--html", type=Path, help="Write an HTML overlay report here")
@@ -494,16 +527,22 @@ def main() -> int:
     recording_dir = args.recording_dir.resolve()
     if not recording_dir.exists():
         raise SystemExit(f"recording directory not found: {recording_dir}")
-    if not args.yasa_python.exists():
+
+    reference_python = args.gssc_python if args.reference == "gssc" else args.yasa_python
+    if not reference_python.exists():
+        venv = ".venv-gssc" if args.reference == "gssc" else ".venv-yasa"
         raise SystemExit(
-            f"YASA venv python not found: {args.yasa_python}\n"
-            "Create it with:  python -m venv .venv-yasa && .venv-yasa/bin/pip install yasa"
+            f"{args.reference} venv python not found: {reference_python}\n"
+            f"Create it with:  python -m venv {venv} && {venv}/bin/pip install {args.reference}"
         )
 
     # NB: do NOT resolve() the venv python -- it is a symlink to the base
     # interpreter, and resolving it would drop the venv's site-packages (numpy,
-    # yasa). Invoke the venv path directly so venv detection kicks in.
-    result = run(recording_dir, args.eeg, args.eog, args.yasa_python, args.epoch_seconds, args.preset)
+    # yasa/gssc). Invoke the venv path directly so venv detection kicks in.
+    result = run(
+        recording_dir, args.eeg, args.eog, reference_python, args.epoch_seconds,
+        args.preset, args.reference,
+    )
     print_summary(result)
 
     if args.output:
