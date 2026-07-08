@@ -61,6 +61,7 @@ from muse_tmr.features.epochs import EpochBuilder, EpochConfig  # noqa: E402
 from muse_tmr.models import HeuristicRemDetector  # noqa: E402
 from muse_tmr.models.rem_detector import RemPrediction  # noqa: E402
 from muse_tmr.models.rem_gate import RemGateConfig, StableRemGate  # noqa: E402
+from muse_tmr.presets import preset_provides_optics  # noqa: E402
 
 EEG_CHANNELS = ("AF7", "AF8", "TP9", "TP10")
 REM_STAGES = ("R", "REM")
@@ -176,9 +177,19 @@ def resample_for_stager(channels: Dict[str, np.ndarray], sfreq: float, target: f
     return resampled, float(target)
 
 
-def simulate_gate(predictions: Sequence[RemPrediction], epoch_seconds: float) -> List[bool]:
-    """Run the real StableRemGate over the p_rem series, in time order."""
-    gate = StableRemGate(RemGateConfig(epoch_seconds=epoch_seconds))
+def simulate_gate(
+    predictions: Sequence[RemPrediction],
+    epoch_seconds: float,
+    *,
+    optics_capable: bool = True,
+) -> List[bool]:
+    """Run the real StableRemGate over the p_rem series, in time order.
+
+    ``optics_capable`` mirrors the session preset: on an EEG-only preset (p21)
+    the missing-cardiac reason codes must not cap confidence, or the gate never
+    opens (see issue #112).
+    """
+    gate = StableRemGate(RemGateConfig(epoch_seconds=epoch_seconds, optics_capable=optics_capable))
     return [gate.update(pred, duration_seconds=epoch_seconds).gate_open for pred in predictions]
 
 
@@ -275,7 +286,14 @@ def best_f1_threshold(y_true: np.ndarray, scores: np.ndarray) -> Tuple[float, Di
 # --------------------------------------------------------------------------- #
 # Orchestration
 # --------------------------------------------------------------------------- #
-def run(recording_dir: Path, eeg: str, eog: str, yasa_python: Path, epoch_seconds: float) -> Dict[str, object]:
+def run(
+    recording_dir: Path,
+    eeg: str,
+    eog: str,
+    yasa_python: Path,
+    epoch_seconds: float,
+    preset: Optional[str] = None,
+) -> Dict[str, object]:
     print(f"[1/4] replaying {recording_dir.name}: heuristic p_rem + EEG reconstruction ...", flush=True)
     collected = collect(recording_dir, epoch_seconds)
     t0 = float(collected["t0"])
@@ -285,8 +303,26 @@ def run(recording_dir: Path, eeg: str, eog: str, yasa_python: Path, epoch_second
     print(f"      {collected['n_samples']} samples/ch  eff_sfreq={sfreq:.2f} Hz  epochs={len(predictions)}", flush=True)
 
     print("[2/4] live-gate simulation over p_rem ...", flush=True)
-    gate_open = simulate_gate([p for _, p in predictions], epoch_seconds)
-    print(f"      gate opened on {sum(gate_open)} epochs", flush=True)
+    optics_capable = preset_provides_optics(preset)
+    preds_only = [p for _, p in predictions]
+    gate_open = simulate_gate(preds_only, epoch_seconds, optics_capable=optics_capable)
+    n_open = sum(gate_open)
+    n_min = round(n_open * epoch_seconds / 60, 1)
+    print(
+        f"      preset={preset or 'unknown'} optics_capable={optics_capable}  "
+        f"gate opened on {n_open} epochs ({n_min} min)",
+        flush=True,
+    )
+    if not optics_capable:
+        # One replay, two policies: show the pre-fix counterfactual so the
+        # EEG-only cueing gain is visible in a single run (issue #112).
+        cf_open = sum(simulate_gate(preds_only, epoch_seconds, optics_capable=True))
+        cf_min = round(cf_open * epoch_seconds / 60, 1)
+        print(
+            f"      counterfactual optics-capable cap (pre-#112-fix): "
+            f"{cf_open} epochs ({cf_min} min)",
+            flush=True,
+        )
 
     print(f"[3/4] YASA reference staging (eeg={eeg}, eog={eog}) ...", flush=True)
     channels, stage_sfreq = resample_for_stager(channels, sfreq)
@@ -437,6 +473,12 @@ def main() -> int:
     parser.add_argument("--eog", default="AF8", help="EOG channel for YASA, or 'none' (default AF8)")
     parser.add_argument("--epoch-seconds", type=float, default=30.0)
     parser.add_argument(
+        "--preset",
+        default=None,
+        help="Session preset (e.g. p21, p1034). EEG-only presets (p21) tell the "
+        "gate no optics were streamed, so absent PPG does not cap confidence.",
+    )
+    parser.add_argument(
         "--yasa-python",
         type=Path,
         default=Path(__file__).resolve().parent.parent / ".venv-yasa" / "bin" / "python",
@@ -461,7 +503,7 @@ def main() -> int:
     # NB: do NOT resolve() the venv python -- it is a symlink to the base
     # interpreter, and resolving it would drop the venv's site-packages (numpy,
     # yasa). Invoke the venv path directly so venv detection kicks in.
-    result = run(recording_dir, args.eeg, args.eog, args.yasa_python, args.epoch_seconds)
+    result = run(recording_dir, args.eeg, args.eog, args.yasa_python, args.epoch_seconds, args.preset)
     print_summary(result)
 
     if args.output:
