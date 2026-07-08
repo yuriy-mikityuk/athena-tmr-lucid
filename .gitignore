@@ -116,3 +116,9 @@ sdk/
 # Keep public templates and placeholders tracked
 !.env.example
 !data/.gitkeep
+
+# Isolated venv for offline reference sleep stager (YASA); not committed
+.venv-yasa/
+
+# Isolated venv for the GSSC frontal reference stager; not committed
+.venv-gssc/
