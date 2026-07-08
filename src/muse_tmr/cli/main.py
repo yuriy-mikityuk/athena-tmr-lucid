@@ -1397,6 +1397,7 @@ async def _run_live_cueing_pilot(
         load_tlr_block_plan,
     )
     from muse_tmr.protocol.arousal_guard import ArousalGuardConfig
+    from muse_tmr.presets import preset_provides_optics
     from muse_tmr.validation import Pilot4CueingConfig, run_pilot4_cueing_night
 
     duration_seconds = (
@@ -1436,6 +1437,7 @@ async def _run_live_cueing_pilot(
             min_stable_seconds=args.min_stable_seconds,
             epoch_seconds=args.epoch_seconds,
             cooldown_seconds=args.gate_cooldown_seconds,
+            optics_capable=preset_provides_optics(getattr(args, "preset", None)),
         ),
         scheduler_config=TmrSchedulerConfig(
             puzzle_cue_interval_seconds=args.puzzle_cue_interval_seconds,

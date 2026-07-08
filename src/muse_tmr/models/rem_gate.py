@@ -26,6 +26,15 @@ DEFAULT_LOW_CONFIDENCE_REASON_CODES = (
     "ppg_features_missing",
 )
 
+# Low-confidence reason codes that stem from a missing cardiac (PPG/HR) signal.
+# When the session preset has no optics *by design* (see RemGateConfig.optics_capable)
+# these are ignored, so an EEG-only night is not permanently capped below the enter
+# threshold. On a preset that does stream optics, a genuine dropout still trips them.
+DEFAULT_OPTICS_DEPENDENT_REASON_CODES = (
+    "low_ppg_hr_coverage",
+    "ppg_features_missing",
+)
+
 
 @dataclass(frozen=True)
 class RemGateConfig:
@@ -36,11 +45,19 @@ class RemGateConfig:
     cooldown_seconds: float = 120.0
     low_confidence_cap: float = 0.55
     arousal_confidence_cap: float = 0.20
+    # Whether the session preset streams optics/PPG at all. When False (an
+    # EEG-only preset such as p21), missing-cardiac reason codes do not lower
+    # confidence -- otherwise the gate would never open on a deliberately
+    # optics-free night. Defaults True to preserve behavior for optics presets.
+    optics_capable: bool = True
     arousal_block_reason_codes: Tuple[str, ...] = field(
         default_factory=lambda: DEFAULT_AROUSAL_BLOCK_REASON_CODES
     )
     low_confidence_reason_codes: Tuple[str, ...] = field(
         default_factory=lambda: DEFAULT_LOW_CONFIDENCE_REASON_CODES
+    )
+    optics_dependent_reason_codes: Tuple[str, ...] = field(
+        default_factory=lambda: DEFAULT_OPTICS_DEPENDENT_REASON_CODES
     )
 
     def validate(self) -> None:
@@ -283,7 +300,14 @@ def build_rem_confidence(
     reason_codes = []
     prediction_reasons = tuple(prediction.reason_codes)
 
-    if _has_any_reason(prediction_reasons, config.low_confidence_reason_codes):
+    low_confidence_codes = config.low_confidence_reason_codes
+    if not config.optics_capable:
+        optics_codes = set(config.optics_dependent_reason_codes)
+        low_confidence_codes = tuple(
+            code for code in low_confidence_codes if code not in optics_codes
+        )
+
+    if _has_any_reason(prediction_reasons, low_confidence_codes):
         confidence = min(confidence, config.low_confidence_cap)
         reason_codes.append("low_feature_confidence")
 
