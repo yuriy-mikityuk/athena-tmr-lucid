@@ -3,7 +3,7 @@ import contextlib
 import io
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from muse_tmr.cli import main as cli_main
 from muse_tmr.cli.main import _default_recording_dir, _resolve_output_dir, build_parser
@@ -758,6 +758,116 @@ class TestCliStreamRuntime(unittest.IsolatedAsyncioTestCase):
         self.assertIn("stream diagnostics=", stdout.getvalue())
         self.assertIn("\"packet_count\": 0", stdout.getvalue())
         self.assertIn("stream failed error=boom", stderr.getvalue())
+
+
+class TestResolveGateThresholds(unittest.TestCase):
+    """MUST-FIX #1: preset-aware threshold resolution must never crash the gate.
+
+    A partially-overridden pair (only one of --enter/--exit given) must not leave
+    exit > enter, which would make RemGateConfig.validate() raise mid-pilot.
+    """
+
+    def _resolve(self, preset=None, enter=None, exit_=None):
+        import argparse
+
+        args = argparse.Namespace(
+            preset=preset, enter_threshold=enter, exit_threshold=exit_
+        )
+        with contextlib.redirect_stderr(io.StringIO()):
+            return cli_main._resolve_gate_thresholds(args)
+
+    def _assert_valid_pair(self, enter, exit_):
+        from muse_tmr.models import RemGateConfig
+
+        self.assertLessEqual(exit_, enter)
+        # Must build a config that validates -- the whole point of the clamp.
+        RemGateConfig(enter_threshold=enter, exit_threshold=exit_).validate()
+
+    def test_both_omitted_uses_preset_pair(self):
+        self.assertEqual(self._resolve(preset="p21"), (0.90, 0.85))
+        self.assertEqual(self._resolve(preset="p1034"), (0.80, 0.70))
+        self.assertEqual(self._resolve(preset=None), (0.80, 0.70))
+
+    def test_both_supplied_are_used_verbatim(self):
+        self.assertEqual(self._resolve(preset="p21", enter=0.75, exit_=0.60), (0.75, 0.60))
+
+    def test_partial_enter_override_below_preset_exit_does_not_crash(self):
+        # enter=0.60 alone on p21 leaves preset exit=0.85 > 0.60 -> must clamp.
+        enter, exit_ = self._resolve(preset="p21", enter=0.60)
+        self.assertEqual(enter, 0.60)
+        self._assert_valid_pair(enter, exit_)
+
+    def test_partial_exit_override_keeps_preset_enter(self):
+        enter, exit_ = self._resolve(preset="p21", exit_=0.50)
+        self.assertEqual((enter, exit_), (0.90, 0.50))
+        self._assert_valid_pair(enter, exit_)
+
+    def test_both_supplied_but_inverted_is_clamped(self):
+        enter, exit_ = self._resolve(preset="p21", enter=0.60, exit_=0.80)
+        self.assertEqual(enter, 0.60)
+        self._assert_valid_pair(enter, exit_)
+
+    def test_partial_override_emits_warning_on_clamp(self):
+        import argparse
+
+        args = argparse.Namespace(preset="p21", enter_threshold=0.60, exit_threshold=None)
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            cli_main._resolve_gate_thresholds(args)
+        self.assertIn("clamping exit", stderr.getvalue())
+
+
+class TestPilot3OpticsWiring(unittest.IsolatedAsyncioTestCase):
+    """MUST-FIX #2: pilot3 must pass optics_capable through to the gate config.
+
+    Without it, a p21 (EEG-only) replay reproduces as a silent zero-cue night
+    because the missing-PPG reason code pins confidence at the 0.55 cap.
+    """
+
+    async def _capture_gate_config(self, preset):
+        captured = {}
+
+        async def fake_simulate(*args, gate_config, **kwargs):
+            captured["gate_config"] = gate_config
+            report = MagicMock()
+            report.passed = True
+            report.metrics = {}
+            report.audio_playback_executed = False
+            report.save.return_value = Path("report.json")
+            return report
+
+        args = build_parser().parse_args([
+            "simulate-replay-cues", "rec_dir",
+            "--catalog", "catalog.json",
+            "--session", "session.json",
+            "--assignment", "assignment.json",
+            "--cue-library", "cues.json",
+            "--output", "out.json",
+            "--preset", preset,
+        ])
+        with patch("muse_tmr.validation.simulate_replay_cue_plan", new=fake_simulate), \
+                patch("muse_tmr.audio.load_cue_library", return_value=MagicMock()), \
+                patch("muse_tmr.protocol.load_puzzle_catalog", return_value=MagicMock()), \
+                patch("muse_tmr.protocol.load_night_puzzle_session", return_value=MagicMock()), \
+                patch("muse_tmr.protocol.load_puzzle_cue_assignment", return_value=MagicMock()), \
+                contextlib.redirect_stdout(io.StringIO()):
+            rc = await cli_main._simulate_replay_cues(args)
+        self.assertEqual(rc, 0)
+        return captured["gate_config"]
+
+    async def test_eeg_only_preset_is_wired_optics_incapable(self):
+        gate_config = await self._capture_gate_config("p21")
+        self.assertFalse(gate_config.optics_capable)
+        self.assertEqual(
+            (gate_config.enter_threshold, gate_config.exit_threshold), (0.90, 0.85)
+        )
+
+    async def test_optics_preset_is_wired_optics_capable(self):
+        gate_config = await self._capture_gate_config("p1034")
+        self.assertTrue(gate_config.optics_capable)
+        self.assertEqual(
+            (gate_config.enter_threshold, gate_config.exit_threshold), (0.80, 0.70)
+        )
 
 
 if __name__ == "__main__":

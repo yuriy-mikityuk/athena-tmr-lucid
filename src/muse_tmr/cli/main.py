@@ -10,7 +10,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Mapping, Optional, Sequence
+from typing import Mapping, Optional, Sequence, Tuple
 
 from muse_tmr import __version__
 
@@ -310,10 +310,18 @@ def build_parser() -> argparse.ArgumentParser:
     pilot3_parser.add_argument("--scheduler-events-output", type=Path, help="Optional scheduler events .jsonl path.")
     pilot3_parser.add_argument("--start-seconds", type=float, help="Relative replay start offset.")
     pilot3_parser.add_argument("--end-seconds", type=float, help="Relative replay end offset.")
+    pilot3_parser.add_argument(
+        "--preset",
+        default=None,
+        help="Recording preset (e.g. p21, p1034). Sets preset-aware gate thresholds "
+        "and whether absent PPG caps confidence. Unknown/None assumes optics.",
+    )
     pilot3_parser.add_argument("--epoch-seconds", type=float, default=30.0)
     pilot3_parser.add_argument("--stride-seconds", type=float, default=30.0)
-    pilot3_parser.add_argument("--enter-threshold", type=float, default=0.70)
-    pilot3_parser.add_argument("--exit-threshold", type=float, default=0.45)
+    pilot3_parser.add_argument("--enter-threshold", type=float, default=None,
+                               help="Override gate enter threshold (default: preset-aware).")
+    pilot3_parser.add_argument("--exit-threshold", type=float, default=None,
+                               help="Override gate exit threshold (default: preset-aware).")
     pilot3_parser.add_argument("--min-stable-seconds", type=float, default=60.0)
     pilot3_parser.add_argument("--gate-cooldown-seconds", type=float, default=120.0)
     pilot3_parser.add_argument("--puzzle-cue-interval-seconds", type=float, default=30.0)
@@ -355,8 +363,10 @@ def build_parser() -> argparse.ArgumentParser:
     pilot4_parser.add_argument("--emergency-stop-file", type=Path)
     pilot4_parser.add_argument("--epoch-seconds", type=float, default=30.0)
     pilot4_parser.add_argument("--stride-seconds", type=float, default=30.0)
-    pilot4_parser.add_argument("--enter-threshold", type=float, default=0.70)
-    pilot4_parser.add_argument("--exit-threshold", type=float, default=0.45)
+    pilot4_parser.add_argument("--enter-threshold", type=float, default=None,
+                               help="Override gate enter threshold (default: preset-aware).")
+    pilot4_parser.add_argument("--exit-threshold", type=float, default=None,
+                               help="Override gate exit threshold (default: preset-aware).")
     pilot4_parser.add_argument("--min-stable-seconds", type=float, default=60.0)
     pilot4_parser.add_argument("--gate-cooldown-seconds", type=float, default=120.0)
     pilot4_parser.add_argument("--puzzle-cue-interval-seconds", type=float, default=30.0)
@@ -403,8 +413,10 @@ def build_parser() -> argparse.ArgumentParser:
     pilot5_parser.add_argument("--emergency-stop-file", type=Path)
     pilot5_parser.add_argument("--epoch-seconds", type=float, default=30.0)
     pilot5_parser.add_argument("--stride-seconds", type=float, default=30.0)
-    pilot5_parser.add_argument("--enter-threshold", type=float, default=0.70)
-    pilot5_parser.add_argument("--exit-threshold", type=float, default=0.45)
+    pilot5_parser.add_argument("--enter-threshold", type=float, default=None,
+                               help="Override gate enter threshold (default: preset-aware).")
+    pilot5_parser.add_argument("--exit-threshold", type=float, default=None,
+                               help="Override gate exit threshold (default: preset-aware).")
     pilot5_parser.add_argument("--min-stable-seconds", type=float, default=60.0)
     pilot5_parser.add_argument("--gate-cooldown-seconds", type=float, default=120.0)
     pilot5_parser.add_argument("--puzzle-cue-interval-seconds", type=float, default=30.0)
@@ -1294,10 +1306,35 @@ def _validate_pilot2_calibration(args: argparse.Namespace) -> int:
     return 0 if report.passed else 1
 
 
+def _resolve_gate_thresholds(args: argparse.Namespace) -> Tuple[float, float]:
+    """Resolve ``(enter, exit)`` gate thresholds, preset-aware, honoring overrides.
+
+    Both flags omitted -> the preset's default pair (muse_tmr.presets). A flag that
+    is given is used verbatim; the other falls back to the preset default. If a
+    partial override would break the invariant, exit is clamped to enter so the
+    gate config always validates.
+    """
+    from muse_tmr.presets import preset_gate_thresholds
+
+    preset_enter, preset_exit = preset_gate_thresholds(getattr(args, "preset", None))
+    enter = preset_enter if args.enter_threshold is None else args.enter_threshold
+    exit_ = preset_exit if args.exit_threshold is None else args.exit_threshold
+    if exit_ > enter:
+        print(
+            f"warning: exit threshold {exit_} > enter {enter} after preset resolution; "
+            f"clamping exit to {enter}. Pass both --enter-threshold and --exit-threshold "
+            "to set them explicitly.",
+            file=sys.stderr,
+        )
+        exit_ = enter
+    return enter, exit_
+
+
 async def _simulate_replay_cues(args: argparse.Namespace) -> int:
     from muse_tmr.audio import load_cue_library
     from muse_tmr.features import EpochConfig
     from muse_tmr.models import RemGateConfig
+    from muse_tmr.presets import preset_provides_optics
     from muse_tmr.protocol import (
         TmrSchedulerConfig,
         load_night_puzzle_session,
@@ -1307,6 +1344,7 @@ async def _simulate_replay_cues(args: argparse.Namespace) -> int:
     from muse_tmr.protocol.arousal_guard import ArousalGuardConfig
     from muse_tmr.validation import simulate_replay_cue_plan
 
+    enter_threshold, exit_threshold = _resolve_gate_thresholds(args)
     report = await simulate_replay_cue_plan(
         _resolve_output_path(args.input),
         catalog=load_puzzle_catalog(_resolve_output_path(args.catalog)),
@@ -1320,11 +1358,12 @@ async def _simulate_replay_cues(args: argparse.Namespace) -> int:
             stride_seconds=args.stride_seconds,
         ),
         gate_config=RemGateConfig(
-            enter_threshold=args.enter_threshold,
-            exit_threshold=args.exit_threshold,
+            enter_threshold=enter_threshold,
+            exit_threshold=exit_threshold,
             min_stable_seconds=args.min_stable_seconds,
             epoch_seconds=args.epoch_seconds,
             cooldown_seconds=args.gate_cooldown_seconds,
+            optics_capable=preset_provides_optics(getattr(args, "preset", None)),
         ),
         scheduler_config=TmrSchedulerConfig(
             puzzle_cue_interval_seconds=args.puzzle_cue_interval_seconds,
@@ -1412,6 +1451,7 @@ async def _run_live_cueing_pilot(
         else store.latest()
     )
     output_dir = _resolve_output_dir(args.output_dir)
+    enter_threshold, exit_threshold = _resolve_gate_thresholds(args)
     config = Pilot4CueingConfig(
         output_dir=output_dir,
         duration_seconds=duration_seconds,
@@ -1432,8 +1472,8 @@ async def _run_live_cueing_pilot(
             stride_seconds=args.stride_seconds,
         ),
         gate_config=RemGateConfig(
-            enter_threshold=args.enter_threshold,
-            exit_threshold=args.exit_threshold,
+            enter_threshold=enter_threshold,
+            exit_threshold=exit_threshold,
             min_stable_seconds=args.min_stable_seconds,
             epoch_seconds=args.epoch_seconds,
             cooldown_seconds=args.gate_cooldown_seconds,

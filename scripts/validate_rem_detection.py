@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import csv
 import json
 import math
 import subprocess
@@ -61,7 +62,7 @@ from muse_tmr.features.epochs import EpochBuilder, EpochConfig  # noqa: E402
 from muse_tmr.models import HeuristicRemDetector  # noqa: E402
 from muse_tmr.models.rem_detector import RemPrediction  # noqa: E402
 from muse_tmr.models.rem_gate import RemGateConfig, StableRemGate  # noqa: E402
-from muse_tmr.presets import preset_provides_optics  # noqa: E402
+from muse_tmr.presets import preset_gate_thresholds, preset_provides_optics  # noqa: E402
 
 EEG_CHANNELS = ("AF7", "AF8", "TP9", "TP10")
 REM_STAGES = ("R", "REM")
@@ -182,14 +183,24 @@ def simulate_gate(
     epoch_seconds: float,
     *,
     optics_capable: bool = True,
+    enter_threshold: Optional[float] = None,
+    exit_threshold: Optional[float] = None,
 ) -> List[bool]:
     """Run the real StableRemGate over the p_rem series, in time order.
 
     ``optics_capable`` mirrors the session preset: on an EEG-only preset (p21)
     the missing-cardiac reason codes must not cap confidence, or the gate never
-    opens (see issue #112).
+    opens (see issue #112). ``enter_threshold``/``exit_threshold`` default to the
+    recalibrated RemGateConfig defaults when omitted.
     """
-    gate = StableRemGate(RemGateConfig(epoch_seconds=epoch_seconds, optics_capable=optics_capable))
+    base = RemGateConfig()
+    cfg = RemGateConfig(
+        epoch_seconds=epoch_seconds,
+        optics_capable=optics_capable,
+        enter_threshold=base.enter_threshold if enter_threshold is None else enter_threshold,
+        exit_threshold=base.exit_threshold if exit_threshold is None else exit_threshold,
+    )
+    gate = StableRemGate(cfg)
     return [gate.update(pred, duration_seconds=epoch_seconds).gate_open for pred in predictions]
 
 
@@ -292,6 +303,18 @@ def best_f1_threshold(y_true: np.ndarray, scores: np.ndarray) -> Tuple[float, Di
 # --------------------------------------------------------------------------- #
 # Orchestration
 # --------------------------------------------------------------------------- #
+def _write_epoch_dump(path: Path, rows: List[Dict[str, object]]) -> None:
+    """Write per-epoch rows to CSV (union of columns; blanks where a key is absent)."""
+    fixed = ["epoch", "start_time", "p_rem", "reason_codes", "gate_open", "ref_stage", "ref_rem"]
+    extra = sorted({k for r in rows for k in r if k not in fixed})
+    header = fixed + extra
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=header)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def run(
     recording_dir: Path,
     eeg: str,
@@ -300,6 +323,7 @@ def run(
     epoch_seconds: float,
     preset: Optional[str] = None,
     reference: str = "yasa",
+    dump_epochs: Optional[Path] = None,
 ) -> Dict[str, object]:
     print(f"[1/4] replaying {recording_dir.name}: heuristic p_rem + EEG reconstruction ...", flush=True)
     collected = collect(recording_dir, epoch_seconds)
@@ -311,19 +335,27 @@ def run(
 
     print("[2/4] live-gate simulation over p_rem ...", flush=True)
     optics_capable = preset_provides_optics(preset)
+    enter_thr, exit_thr = preset_gate_thresholds(preset)
     preds_only = [p for _, p in predictions]
-    gate_open = simulate_gate(preds_only, epoch_seconds, optics_capable=optics_capable)
+    gate_open = simulate_gate(
+        preds_only, epoch_seconds, optics_capable=optics_capable,
+        enter_threshold=enter_thr, exit_threshold=exit_thr,
+    )
     n_open = sum(gate_open)
     n_min = round(n_open * epoch_seconds / 60, 1)
     print(
-        f"      preset={preset or 'unknown'} optics_capable={optics_capable}  "
+        f"      preset={preset or 'unknown'} optics_capable={optics_capable} "
+        f"enter={enter_thr:g} exit={exit_thr:g}  "
         f"gate opened on {n_open} epochs ({n_min} min)",
         flush=True,
     )
     if not optics_capable:
         # One replay, two policies: show the pre-fix counterfactual so the
         # EEG-only cueing gain is visible in a single run (issue #112).
-        cf_open = sum(simulate_gate(preds_only, epoch_seconds, optics_capable=True))
+        cf_open = sum(simulate_gate(
+            preds_only, epoch_seconds, optics_capable=True,
+            enter_threshold=enter_thr, exit_threshold=exit_thr,
+        ))
         cf_min = round(cf_open * epoch_seconds / 60, 1)
         print(
             f"      counterfactual optics-capable cap (pre-#112-fix): "
@@ -348,24 +380,43 @@ def run(
 
     print("[4/4] aligning epochs and computing metrics ...", flush=True)
     matched = []
+    epoch_rows = []
     for (start, pred), opened in zip(predictions, gate_open):
         k = round((start - t0) / epoch_seconds)
         ref = hypno_by_index.get(k)
         if ref is None:
             continue
+        ref_rem = 1 if ref["stage"] in REM_STAGES else 0
         matched.append(
             {
                 "epoch": k,
                 "p_rem": float(pred.probability),
                 "gate_open": bool(opened),
                 "ref_stage": ref["stage"],
-                "ref_rem": 1 if ref["stage"] in REM_STAGES else 0,
+                "ref_rem": ref_rem,
                 "ref_proba_rem": ref.get("proba_rem"),
             }
         )
+        if dump_epochs is not None:
+            row = {
+                "epoch": k,
+                "start_time": float(start),
+                "p_rem": float(pred.probability),
+                "reason_codes": "|".join(pred.reason_codes),
+                "gate_open": int(bool(opened)),
+                "ref_stage": ref["stage"],
+                "ref_rem": ref_rem,
+            }
+            row.update({f"score_{name}": v for name, v in pred.feature_scores.items()})
+            row.update({f"value_{name}": v for name, v in pred.feature_values.items()})
+            epoch_rows.append(row)
 
     if not matched:
-        raise SystemExit("no epochs aligned between heuristic and YASA -- check timestamps")
+        raise SystemExit("no epochs aligned between heuristic and reference -- check timestamps")
+
+    if dump_epochs is not None:
+        _write_epoch_dump(dump_epochs, epoch_rows)
+        print(f"      per-epoch dump written: {dump_epochs} ({len(epoch_rows)} rows)", flush=True)
 
     y = np.array([m["ref_rem"] for m in matched], dtype=int)
     p = np.array([m["p_rem"] for m in matched], dtype=float)
@@ -394,6 +445,10 @@ def run(
             **binary_metrics(y, g),
             "gate_open_epochs": int(g.sum()),
             "gate_open_minutes": round(int(g.sum()) * epoch_seconds / 60, 1),
+            "enter_threshold": enter_thr,
+            "exit_threshold": exit_thr,
+            "optics_capable": optics_capable,
+            "preset": preset,
         },
         "threshold_sweep": threshold_sweep(y, p),
         "matched": matched,
@@ -476,7 +531,14 @@ def print_summary(result: Dict[str, object]) -> None:
     for label, m in tm.items():
         print(f"  p_rem >= {label:<14} {_fmt(m)}")
     print("-" * 78)
-    print("  SYSTEM VIEW - real StableRemGate (enter 0.70 / exit 0.45 / 60s stable / 120s cooldown):")
+    g_enter = gate.get("enter_threshold", 0.80)
+    g_exit = gate.get("exit_threshold", 0.70)
+    g_preset = gate.get("preset") or "unknown"
+    g_optics = gate.get("optics_capable", True)
+    print(
+        f"  SYSTEM VIEW - real StableRemGate (preset={g_preset} optics_capable={g_optics} "
+        f"enter {g_enter:g} / exit {g_exit:g} / 60s stable / 120s cooldown):"
+    )
     print(
         f"    gate opened on {gate['gate_open_epochs']} epochs "
         f"({gate['gate_open_minutes']} min).  vs {tool}-REM: {_fmt(gate)}"
@@ -519,6 +581,12 @@ def main() -> int:
     )
     parser.add_argument("--output", type=Path, help="Write full metrics JSON here")
     parser.add_argument("--html", type=Path, help="Write an HTML overlay report here")
+    parser.add_argument(
+        "--dump-epochs",
+        type=Path,
+        help="Write a per-epoch CSV (p_rem, feature sub-scores/values, reason codes, "
+        "reference stage) for calibration analysis.",
+    )
     args = parser.parse_args()
 
     if args.epoch_seconds != 30.0:
@@ -541,7 +609,7 @@ def main() -> int:
     # yasa/gssc). Invoke the venv path directly so venv detection kicks in.
     result = run(
         recording_dir, args.eeg, args.eog, reference_python, args.epoch_seconds,
-        args.preset, args.reference,
+        args.preset, args.reference, args.dump_epochs,
     )
     print_summary(result)
 
