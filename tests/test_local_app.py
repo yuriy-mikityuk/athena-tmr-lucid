@@ -1,13 +1,19 @@
 import asyncio
+import datetime as dt
 import json
+import signal
+import sys
+import tempfile
 import threading
 import time
 import unittest
 import urllib.request
 import urllib.error
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from muse_tmr.app import AppConfig, create_local_app_server
+from muse_tmr.app.server import CAFFEINATE
 from muse_tmr.sources.base_source import MuseSourceMetadata
 
 
@@ -148,25 +154,25 @@ class TestLocalMuseApp(unittest.TestCase):
         self.assertIn("data-channel=\"AF7\"", body)
         self.assertIn("data-channel=\"AF8\"", body)
         self.assertIn("data-channel=\"TP10\"", body)
+        self.assertIn('id="start-session-button"', body)
+        self.assertIn('id="start-night-button"', body)
+        self.assertIn("Start night session", body)
+        self.assertIn('id="stop-recording-button"', body)
+        self.assertIn('id="recording-strip"', body)
         self.assertIn("/api/muse/ui-state", script)
         self.assertNotIn('requestJson("/api/muse/state"', script)
         self.assertNotIn('requestJson("/api/muse/contact"', script)
         self.assertNotIn('requestJson("/api/muse/gate"', script)
         self.assertNotIn('requestJson("/api/muse/diagnostics"', script)
-        self.assertIn("/api/muse/start-when-ready", script)
-        self.assertIn("Waiting for contact", script)
+        self.assertIn("/api/session/record", script)
+        self.assertIn("/api/session/record/stop", script)
         self.assertIn("Starting session", script)
         self.assertIn("Session running", script)
         self.assertIn("contact warnings", script)
         self.assertIn("contact-sparkline", script)
         self.assertIn("active-warning-status", script)
-        self.assertIn("Muse Session", script)
         self.assertIn('scanButton.hidden = connection === "connected"', script)
-        self.assertIn("startButton.hidden = connection !== \"connected\" || running", script)
-        self.assertLess(
-            script.index('gate.state === "running"'),
-            script.index('"Waiting for stable contact"'),
-        )
+        self.assertIn("startSessionButton.hidden = !canRecord", script)
 
     def test_diagnostics_endpoint_reports_state_and_last_contact(self):
         self.post_json("/api/muse/connect")
@@ -348,6 +354,245 @@ class TestLocalMuseAppAmusedConnect(unittest.TestCase):
             finally:
                 server.app_state.shutdown()
                 server.server_close()
+
+
+class _FakeProc:
+    def __init__(self, pid=4242):
+        self.pid = pid
+        self.returncode = None
+
+    def poll(self):
+        return self.returncode
+
+
+class LauncherSpy:
+    def __init__(self, proc=None):
+        self.calls = []
+        self._proc = proc if proc is not None else _FakeProc()
+
+    def __call__(self, command, log_path):
+        self.calls.append((list(command), Path(log_path)))
+        return self._proc
+
+
+class TerminatorSpy:
+    def __init__(self):
+        self.signals = []
+
+    def __call__(self, pid, sig):
+        self.signals.append((pid, sig))
+
+
+_FIXED_NOW = dt.datetime(2026, 7, 7, 1, 0, 0)
+
+
+class TestLocalMuseAppRecording(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.recordings_base = Path(self._tmp.name)
+        self.launcher = LauncherSpy()
+        self.terminator = TerminatorSpy()
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _make_state(self, source="amused", proc=None):
+        server = create_local_app_server(
+            AppConfig(port=0, source=source),
+            launcher=LauncherSpy(proc) if proc is not None else self.launcher,
+            terminator=self.terminator,
+            recordings_base=self.recordings_base,
+            now_fn=lambda: _FIXED_NOW,
+        )
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.app_state.shutdown)
+        return server.app_state
+
+    def test_record_requires_amused_source(self):
+        state = self._make_state(source="mock")
+        payload, status = state.start_recording("night")
+        self.assertEqual(int(status), 409)
+        self.assertIn("amused", payload["error"])
+        self.assertEqual(self.launcher.calls, [])
+
+    def test_record_rejects_unknown_kind(self):
+        state = self._make_state()
+        payload, status = state.start_recording("bogus")
+        self.assertEqual(int(status), 400)
+        self.assertEqual(self.launcher.calls, [])
+
+    def test_record_night_builds_expected_command_and_folder(self):
+        state = self._make_state()
+        payload, status = state.start_recording("night")
+
+        self.assertEqual(int(status), 200)
+        self.assertEqual(len(self.launcher.calls), 1)
+        command, _log = self.launcher.calls[0]
+        expected_dir = (self.recordings_base / "night" / "20260707_010000").resolve()
+        self.assertEqual(
+            command,
+            [
+                CAFFEINATE,
+                "-s",
+                sys.executable,
+                "-m",
+                "muse_tmr.cli.main",
+                "record",
+                "--source",
+                "amused",
+                "--preset",
+                "p21",
+                "--duration-hours",
+                "8",
+                "--no-data-timeout-seconds",
+                "45",
+                "--max-reconnect-attempts",
+                "1000",
+                "--output-dir",
+                str(expected_dir),
+                "--quiet",
+            ],
+        )
+        self.assertNotIn("--allow-short", command)
+        self.assertEqual(payload["kind"], "night")
+        self.assertEqual(payload["preset"], "p21")
+        self.assertTrue(payload["active"])
+        self.assertTrue((expected_dir / "launch.json").exists())
+
+    def test_record_session_uses_p1034_and_allow_short(self):
+        state = self._make_state()
+        payload, status = state.start_recording("session")
+
+        self.assertEqual(int(status), 200)
+        command, _log = self.launcher.calls[0]
+        expected_dir = (self.recordings_base / "session" / "20260707_010000").resolve()
+        self.assertIn("--preset", command)
+        self.assertEqual(command[command.index("--preset") + 1], "p1034")
+        self.assertEqual(command[command.index("--duration-hours") + 1], "1")
+        self.assertEqual(command[-1], "--allow-short")
+        self.assertEqual(command[command.index("--output-dir") + 1], str(expected_dir))
+        self.assertEqual(payload["preset"], "p1034")
+
+    def test_double_start_returns_conflict(self):
+        state = self._make_state()
+        first, first_status = state.start_recording("night")
+        self.assertEqual(int(first_status), 200)
+        payload, status = state.start_recording("session")
+        self.assertEqual(int(status), 409)
+        self.assertIn("already running", payload["error"])
+        self.assertEqual(len(self.launcher.calls), 1)
+
+    def test_stop_signals_sigint_to_group(self):
+        state = self._make_state()
+        state.start_recording("night")
+        payload, status = state.stop_recording()
+
+        self.assertEqual(int(status), 200)
+        self.assertEqual(self.terminator.signals, [(4242, signal.SIGINT)])
+        self.assertEqual(payload["state"], "stopping")
+
+    def test_stop_without_recording_returns_conflict(self):
+        state = self._make_state()
+        payload, status = state.stop_recording()
+        self.assertEqual(int(status), 409)
+        self.assertEqual(self.terminator.signals, [])
+
+    def test_ui_state_reports_progress_from_progress_json(self):
+        state = self._make_state()
+        state.start_recording("night")
+        output_dir = (self.recordings_base / "night" / "20260707_010000").resolve()
+        (output_dir / "progress.json").write_text(
+            json.dumps(
+                {
+                    "elapsed_seconds": 120.0,
+                    "frame_count": 999,
+                    "battery_percent": 87.0,
+                    "reconnect_attempts": 2,
+                    "last_event": "reconnect_scheduled",
+                }
+            ),
+            encoding="utf-8",
+        )
+        recording = state.ui_state()["recording"]
+        self.assertTrue(recording["active"])
+        self.assertEqual(recording["frame_count"], 999)
+        self.assertEqual(recording["battery_percent"], 87.0)
+        self.assertEqual(recording["reconnect_attempts"], 2)
+        self.assertEqual(recording["elapsed_seconds"], 120.0)
+        self.assertEqual(recording["last_event"], "reconnect_scheduled")
+
+    def test_ui_state_marks_completed_when_summary_present(self):
+        proc = _FakeProc()
+        state = self._make_state(proc=proc)
+        state.start_recording("night")
+        output_dir = (self.recordings_base / "night" / "20260707_010000").resolve()
+        (output_dir / "summary.json").write_text(
+            json.dumps({"stop_reason": "duration_complete", "reconnect_attempts": 3}),
+            encoding="utf-8",
+        )
+        proc.returncode = 0
+
+        recording = state.ui_state()["recording"]
+        self.assertEqual(recording["state"], "completed")
+        self.assertFalse(recording["active"])
+        self.assertTrue(recording["summary_available"])
+
+        # A finished recording must not block a new one.
+        _payload, status = state.start_recording("session")
+        self.assertEqual(int(status), 200)
+
+    def test_start_recording_releases_ble_before_spawn(self):
+        LoopSafeFakeAmusedSource.instances = []
+        with patch("muse_tmr.sources.amused_source.AmusedSource", LoopSafeFakeAmusedSource):
+            state = self._make_state()
+            connected = state.connect()
+            self.assertEqual(connected["connection_state"], "connected")
+
+            payload, status = state.start_recording("night")
+            self.assertEqual(int(status), 200)
+
+            source = LoopSafeFakeAmusedSource.instances[0]
+            self.assertTrue(source.stop_requested)
+            self.assertEqual(state.state()["connection_state"], "disconnected")
+            self.assertEqual(len(self.launcher.calls), 1)
+
+
+class TestLocalMuseAppRecordingEndpoint(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.launcher = LauncherSpy()
+        self.server = create_local_app_server(
+            AppConfig(port=0, source="mock"),
+            launcher=self.launcher,
+            recordings_base=Path(self._tmp.name),
+            now_fn=lambda: _FIXED_NOW,
+        )
+        self.thread = threading.Thread(target=self.server.serve_forever)
+        self.thread.start()
+        host, port = self.server.server_address
+        self.base_url = f"http://{host}:{port}"
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.thread.join(timeout=2)
+        self.server.app_state.shutdown()
+        self.server.server_close()
+        self._tmp.cleanup()
+
+    def _post(self, path, body):
+        request = urllib.request.Request(
+            f"{self.base_url}{path}",
+            data=json.dumps(body).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        return urllib.request.urlopen(request, timeout=2)
+
+    def test_record_endpoint_conflicts_in_mock_mode(self):
+        with self.assertRaises(urllib.error.HTTPError) as raised:
+            self._post("/api/session/record", {"kind": "night"})
+        self.assertEqual(raised.exception.code, 409)
+        self.assertEqual(self.launcher.calls, [])
 
 
 if __name__ == "__main__":

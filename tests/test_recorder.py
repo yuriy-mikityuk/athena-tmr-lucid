@@ -117,6 +117,13 @@ class TestOvernightRecorder(unittest.IsolatedAsyncioTestCase):
             payload = json.loads(Path(summary.summary_path).read_text())
             self.assertEqual(payload["modality_counts"]["eeg"], 1)
 
+            progress_path = Path(tmp) / "progress.json"
+            self.assertTrue(progress_path.exists())
+            progress = json.loads(progress_path.read_text())
+            self.assertIn("frame_count", progress)
+            self.assertIn("elapsed_seconds", progress)
+            self.assertIn("battery_percent", progress)
+
     async def test_no_data_timeout_reconnects_and_continues(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = DropoutFakeSource()
