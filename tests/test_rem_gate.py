@@ -194,6 +194,60 @@ class TestStableRemGate(unittest.TestCase):
         with self.assertRaises(ValueError):
             RemGateConfig(enter_threshold=0.40, exit_threshold=0.60).validate()
 
+    def test_recalibrated_bare_defaults(self):
+        # Recalibration moved the hot 0.70/0.45 defaults to the conservative
+        # optics point; the bare config must still validate.
+        config = RemGateConfig()
+        self.assertEqual(config.enter_threshold, 0.80)
+        self.assertEqual(config.exit_threshold, 0.70)
+        config.validate()
+
+    def test_raised_exit_is_the_lever_that_stops_over_firing(self):
+        # A short REM-like burst then a run of NREM-level p_rem (~0.80, the
+        # measured NREM median). Under the old 0.70/0.45 the gate hangs open
+        # through all the NREM epochs; under 0.90/0.85 exit closes it immediately.
+        seq = [prediction(0.95), prediction(0.95)] + [prediction(0.80) for _ in range(10)]
+
+        old_gate = StableRemGate(gate_config(enter_threshold=0.70, exit_threshold=0.45))
+        old_open = sum(d.gate_open for d in old_gate.update_many(seq))
+        new_gate = StableRemGate(gate_config(enter_threshold=0.90, exit_threshold=0.85))
+        new_open = sum(d.gate_open for d in new_gate.update_many(seq))
+
+        self.assertGreaterEqual(old_open, 10)   # old config over-fires through NREM
+        self.assertLessEqual(new_open, 2)        # recalibrated config closes on the NREM drop
+        self.assertLess(new_open, old_open)
+
+    def test_recalibrated_exit_closes_gate_on_nrem_drop(self):
+        gate = StableRemGate(gate_config(enter_threshold=0.90, exit_threshold=0.85))
+        gate.update(prediction(0.95))
+        opened = gate.update(prediction(0.95))
+        dropped = gate.update(prediction(0.83))  # 0.83 < 0.85 exit (would stay open at old 0.45)
+
+        self.assertTrue(opened.gate_open)
+        self.assertFalse(dropped.gate_open)
+        self.assertIn("below_exit_threshold", dropped.reason_codes)
+
+    def test_recalibrated_gate_still_opens_on_sustained_rem(self):
+        # REM p_rem sits ~0.94+; recall must survive the higher enter threshold.
+        gate = StableRemGate(gate_config(enter_threshold=0.90, exit_threshold=0.85))
+        first = gate.update(prediction(0.96))
+        second = gate.update(prediction(0.96))
+
+        self.assertFalse(first.gate_open)
+        self.assertTrue(second.gate_open)
+
+    def test_eeg_only_reaches_recalibrated_enter_but_optics_capable_does_not(self):
+        # The pilot3/pilot4 wiring must set optics_capable=False for p21: with the
+        # missing-PPG cap active (optics_capable=True), confidence is pinned at
+        # 0.55 and can never reach the 0.90 enter -> silent zero-cue night.
+        seq = [prediction(0.96, "low_ppg_hr_coverage"), prediction(0.96, "low_ppg_hr_coverage")]
+
+        eeg_only = StableRemGate(gate_config(enter_threshold=0.90, exit_threshold=0.85, optics_capable=False))
+        self.assertTrue(eeg_only.update_many(seq)[-1].gate_open)
+
+        capped = StableRemGate(gate_config(enter_threshold=0.90, exit_threshold=0.85, optics_capable=True))
+        self.assertFalse(any(d.gate_open for d in capped.update_many(seq)))
+
 
 if __name__ == "__main__":
     unittest.main()

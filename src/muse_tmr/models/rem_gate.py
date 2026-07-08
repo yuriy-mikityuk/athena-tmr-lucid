@@ -38,8 +38,12 @@ DEFAULT_OPTICS_DEPENDENT_REASON_CODES = (
 
 @dataclass(frozen=True)
 class RemGateConfig:
-    enter_threshold: float = 0.70
-    exit_threshold: float = 0.45
+    # Recalibrated against a GSSC reference: the detector runs hot, so the
+    # historical 0.70/0.45 over-fired (gate open ~75% of the night). These bare
+    # defaults are the conservative optics point; per-preset values (esp. p21)
+    # come from muse_tmr.presets.preset_gate_thresholds(). See presets.py.
+    enter_threshold: float = 0.80
+    exit_threshold: float = 0.70
     min_stable_seconds: float = 60.0
     epoch_seconds: float = 30.0
     cooldown_seconds: float = 120.0
