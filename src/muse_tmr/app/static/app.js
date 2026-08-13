@@ -205,7 +205,7 @@ function renderContact(snapshot) {
 
     const segment = document.querySelector(`.segment-fill[data-channel="${channel}"]`);
     if (segment) {
-      segment.style.strokeDasharray = `${fill} 1`;
+      segment.style.strokeDashoffset = 100 * (1 - fill);
       segment.classList.remove("missing", "poor", "fair", "good");
       segment.classList.add(status);
       segment.querySelector("title").textContent = `${channel}: ${status}, ${formatPercent(fill)}`;
