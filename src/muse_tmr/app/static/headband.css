@@ -1,0 +1,44 @@
+/* Muse-style headband contact visualization */
+.headband-container {
+  position: relative;
+  width: 100%;
+  max-width: 280px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.headband-svg {
+  width: 100%;
+  height: auto;
+  max-height: 150px;
+}
+.segment-fill {
+  fill: none;
+  stroke-width: 8;
+  stroke-linecap: round;
+  stroke-dasharray: 100;
+  transition: stroke 0.3s ease, stroke-dashoffset 0.3s ease;
+}
+.segment-fill.missing { stroke: #d3d3d3; }
+.segment-fill.poor { stroke: #c4c4c4; }
+.segment-fill.fair { stroke: #2a9d8f; }
+.segment-fill.good { stroke: #264653; }
+.contact-labels {
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 10px;
+  fill: #555;
+  font-weight: 500;
+}
+.all-good-check {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  color: #2a9d8f;
+}
+.all-good-check.visible {
+  opacity: 1;
+}
