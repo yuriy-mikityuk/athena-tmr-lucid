@@ -489,6 +489,50 @@ button:disabled {
   font: inherit;
 }
 
+.history-panel {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.history-panel summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.history-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.history-list li {
+  display: grid;
+  gap: 4px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.9rem;
+}
+
+.history-list .meta {
+  color: var(--muted);
+}
+
+.history-list .links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.history-list button {
+  padding: 4px 10px;
+  font-size: 0.85rem;
+}
+
 .record-hint {
   min-height: 20px;
   margin-top: 12px;

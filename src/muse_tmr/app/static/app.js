@@ -887,6 +887,100 @@ analyzeMeditationButton.addEventListener("click", async () => {
   }
 });
 
+// --- recent recordings ------------------------------------------------------------
+
+const historyPanel = document.querySelector("#history-panel");
+const historyList = document.querySelector("#history-list");
+
+async function loadHistory() {
+  if (!historyPanel.open) {
+    return;
+  }
+  try {
+    renderHistory((await requestJson("/api/recordings")).recordings || []);
+  } catch (error) {
+    historyList.textContent = `Could not list recordings: ${error.message}`;
+  }
+}
+
+function renderHistory(recordings) {
+  historyList.innerHTML = "";
+  if (recordings.length === 0) {
+    historyList.textContent = "No recordings yet.";
+    return;
+  }
+  recordings.forEach((recording) => {
+    const item = document.createElement("li");
+    const title = document.createElement("strong");
+    title.textContent = `${formatStart(recording.started_at, recording.name)} · ${recording.kind}`;
+    const meta = document.createElement("span");
+    meta.className = "meta";
+    const minutes = numberOrNull(recording.duration_seconds);
+    meta.textContent = [
+      minutes == null ? null : `${Math.round(minutes / 60)} min`,
+      recording.live ? "recording now" : recording.stop_reason ? String(recording.stop_reason).replaceAll("_", " ") : "no summary",
+      recording.with_polar ? "H10" : null,
+      recording.meditation ? "meditation" : null
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    const links = document.createElement("span");
+    links.className = "links";
+    if (!recording.live) {
+      links.append(jobControl(recording, recording.report, "REM report", "Build REM report", "/api/recordings/report"));
+      if (recording.meditation) {
+        links.append(
+          jobControl(recording, recording.meditation_report, "Meditation report", "Analyze meditation", "/api/recordings/analyze")
+        );
+      }
+    }
+    item.append(title, meta, links);
+    historyList.appendChild(item);
+  });
+}
+
+function jobControl(recording, status, openLabel, buildLabel, endpoint) {
+  const state = (status && status.state) || "none";
+  if (state === "ready" && status.url) {
+    const link = document.createElement("a");
+    link.href = status.url;
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.textContent = openLabel;
+    return link;
+  }
+  const button = document.createElement("button");
+  button.type = "button";
+  button.disabled = state === "running";
+  button.textContent = state === "running" ? "Working..." : state === "failed" ? `${buildLabel} (retry)` : buildLabel;
+  button.title = state === "failed" ? `Failed, see ${status.log_path}` : "";
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    button.textContent = "Working...";
+    try {
+      await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: recording.kind, name: recording.name })
+      });
+    } finally {
+      await loadHistory();
+    }
+  });
+  return button;
+}
+
+function formatStart(startedAt, fallback) {
+  if (!startedAt) {
+    return fallback;
+  }
+  const date = new Date(startedAt);
+  return date.toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+historyPanel.addEventListener("toggle", loadHistory);
+window.setInterval(loadHistory, 5000);
+
 refreshUiState();
 window.setInterval(refreshUiState, 1000);
 

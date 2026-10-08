@@ -81,6 +81,13 @@ you intentionally pass an explicit host such as `--host 0.0.0.0`.
 
 Stop the app with `Ctrl-C`.
 
+## Recent recordings
+
+"Recent recordings" lists the newest folders under `data/recordings/{session,night}/`
+with their length, stop reason, H10 data and meditation plan, and links each one's REM
+report and meditation report, or offers to build them. It is read from disk, so it survives
+app restarts (auto-update restarts the app after every merge).
+
 ## Guided meditation
 
 With good contact, "Meditation…" opens a small form: two practice labels, number of blocks,
