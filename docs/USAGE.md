@@ -26,6 +26,7 @@ Complete command and code reference for `muse-tmr`, organized by workflow stage.
 - [Morning dream report](#morning-dream-report)
 - [Morning puzzle retest](#morning-puzzle-retest)
 - [Cued-vs-uncued analysis](#cued-vs-uncued-analysis)
+- [Meditation complexity analysis](#meditation-complexity-analysis)
 - [Local Muse contact setup app](#local-muse-contact-setup-app)
 - [Validation plan and pilots](#validation-plan-and-pilots)
 
@@ -408,6 +409,19 @@ muse-tmr analyze-cued-uncued data/protocol/night-001_puzzles.json \
 ```
 
 The analysis report compares cued and uncued solve rates, dream incorporation rates, mean retest duration/confidence, and scheduler cue timing. It is intentionally descriptive and records limitations such as small sample size or missing cue logs.
+
+## Meditation complexity analysis
+
+```bash
+muse-tmr meditation-plan --conditions focus,open --blocks 4 --block-minutes 8 \
+  --settle-seconds 60 --seed 17 --output data/protocol/meditation/2026-10-09.json
+muse-tmr analyze-meditation data/recordings/session/<name> \
+  --blocks data/protocol/meditation/2026-10-09.json [--no-lyapunov] [--trim-block-start 30]
+muse-tmr aggregate-meditation data/reports/meditation/*/summary.json \
+  --output data/reports/meditation/aggregate.json
+```
+
+A/B meditation blocks with LZC, entropies, Hjorth, 1/f fits, Lyapunov, band-envelope DFA and an EMG check per session; p-values only across 8+ sessions. Protocol, metric definitions and limitations: `docs/meditation_metrics.md`.
 
 ## Local Muse contact setup app
 
