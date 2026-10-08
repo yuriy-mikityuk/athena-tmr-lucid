@@ -454,10 +454,34 @@ class TestLocalMuseAppRecording(unittest.TestCase):
             ],
         )
         self.assertNotIn("--allow-short", command)
+        self.assertTrue(payload["report_command"].startswith("cd "))
+        self.assertIn(
+            f"&& {sys.executable} scripts/generate_nightly_report.py {expected_dir}",
+            payload["report_command"],
+        )
         self.assertEqual(payload["kind"], "night")
         self.assertEqual(payload["preset"], "p21")
         self.assertTrue(payload["active"])
         self.assertTrue((expected_dir / "launch.json").exists())
+
+    def test_report_command_uses_project_venv_outside_a_venv(self):
+        project_root = self.recordings_base / "project"
+        venv_python = project_root / ".venv" / "bin" / "python"
+        venv_python.parent.mkdir(parents=True)
+        venv_python.write_text("", encoding="utf-8")
+        state = self._make_state()
+
+        # The macOS Python.app launch: base interpreter, venv only on PYTHONPATH.
+        with patch.object(sys, "prefix", sys.base_prefix), patch(
+            "muse_tmr.cli.main._find_project_root", return_value=project_root
+        ):
+            payload, _status = state.start_recording("night")
+
+        self.assertTrue(
+            payload["report_command"].startswith(
+                f"cd {project_root} && {venv_python} scripts/generate_nightly_report.py "
+            )
+        )
 
     def test_record_session_uses_p1034_and_allow_short(self):
         state = self._make_state()

@@ -343,7 +343,8 @@ function renderRecording(recording) {
       state === "completed"
         ? `Recording finished (${reportPath || "report ready"}). Generate the REM report with:`
         : "Recording ended early. You can still try a report with:";
-    recordReportPath.textContent = `python scripts/generate_nightly_report.py ${outputDir}`;
+    recordReportPath.textContent =
+      latestRecording.report_command || `python scripts/generate_nightly_report.py ${outputDir}`;
   }
 
   const showHint = connection === "connected" && !active && !finished;

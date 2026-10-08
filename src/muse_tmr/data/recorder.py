@@ -113,9 +113,6 @@ class OvernightRecorder:
         started_monotonic = time.monotonic()
         deadline = started_monotonic + self.config.duration_seconds
 
-        metadata = await source.connect()
-        self._write_metadata(metadata_path, metadata, started_at_dt)
-
         frame_count = 0
         raw_packet_count = 0
         decoded_frame_count = 0
@@ -125,6 +122,52 @@ class OvernightRecorder:
         stop_reason = "duration_complete"
         last_battery_percent: Optional[float] = None
         last_progress_write = 0.0
+
+        def write_summary() -> RecordingSummary:
+            ended_at_dt = dt.datetime.now(dt.timezone.utc)
+            summary = RecordingSummary(
+                output_dir=str(self.config.output_dir),
+                raw_path=str(raw_path),
+                decoded_frames_path=str(decoded_frames_path),
+                metadata_path=str(metadata_path),
+                events_path=str(events_path),
+                summary_path=str(summary_path),
+                started_at=started_at_dt.isoformat(),
+                ended_at=ended_at_dt.isoformat(),
+                duration_seconds=(ended_at_dt - started_at_dt).total_seconds(),
+                frame_count=frame_count,
+                raw_packet_count=raw_packet_count,
+                decoded_frame_count=decoded_frame_count,
+                modality_counts=modality_counts,
+                reconnect_attempts=reconnect_attempts,
+                downtime_seconds=downtime_seconds,
+                stop_reason=stop_reason,
+            )
+            summary_path.write_text(
+                json.dumps(summary.to_dict(), indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            return summary
+
+        try:
+            metadata = await source.connect()
+        except asyncio.CancelledError:
+            # Stop pressed while still connecting (amused discovery can take
+            # several seconds): nothing was recorded, but finish like any stop.
+            _uncancel_current_task()
+            stop_reason = "user_stopped"
+            await source.stop()
+            with events_path.open("w", encoding="utf-8") as events_file:
+                self._write_event(
+                    events_file,
+                    WatchdogEvent(
+                        event="recording_stopped",
+                        timestamp=time.monotonic(),
+                        details={"reason": stop_reason},
+                    ),
+                )
+            return write_summary()
+        self._write_metadata(metadata_path, metadata, started_at_dt)
 
         self._write_progress(
             progress_path,
@@ -246,11 +289,16 @@ class OvernightRecorder:
 
                     for event in self.watchdog.observe_frame(frame, time.monotonic()):
                         self._write_event(events_file, event)
+            except asyncio.CancelledError:
+                # The app's Stop button (or Ctrl-C) sends SIGINT, and asyncio.run
+                # cancels this task. Treat it as a normal stop so the summary
+                # still gets written.
+                _uncancel_current_task()
+                stop_reason = "user_stopped"
             finally:
                 raw_stream.close()
                 await source.stop()
 
-            ended_at_dt = dt.datetime.now(dt.timezone.utc)
             self._write_event(
                 events_file,
                 WatchdogEvent(
@@ -260,29 +308,7 @@ class OvernightRecorder:
                 ),
             )
 
-        summary = RecordingSummary(
-            output_dir=str(self.config.output_dir),
-            raw_path=str(raw_path),
-            decoded_frames_path=str(decoded_frames_path),
-            metadata_path=str(metadata_path),
-            events_path=str(events_path),
-            summary_path=str(summary_path),
-            started_at=started_at_dt.isoformat(),
-            ended_at=ended_at_dt.isoformat(),
-            duration_seconds=(ended_at_dt - started_at_dt).total_seconds(),
-            frame_count=frame_count,
-            raw_packet_count=raw_packet_count,
-            decoded_frame_count=decoded_frame_count,
-            modality_counts=modality_counts,
-            reconnect_attempts=reconnect_attempts,
-            downtime_seconds=downtime_seconds,
-            stop_reason=stop_reason,
-        )
-        summary_path.write_text(
-            json.dumps(summary.to_dict(), indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-        return summary
+        return write_summary()
 
     async def _reconnect_until_ready(
         self,
@@ -403,6 +429,13 @@ class OvernightRecorder:
         tmp_path = path.with_suffix(".json.tmp")
         tmp_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
         os.replace(tmp_path, path)
+
+
+def _uncancel_current_task() -> None:
+    """Undo the cancel we are absorbing so asyncio.run returns normally (3.11+)."""
+    uncancel = getattr(asyncio.current_task(), "uncancel", None)
+    if uncancel is not None:
+        uncancel()
 
 
 def _source_diagnostics(source: BaseMuseSource) -> Optional[Dict[str, Any]]:
