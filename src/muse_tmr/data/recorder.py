@@ -186,6 +186,7 @@ class OvernightRecorder:
         stop_reason = "duration_complete"
         last_battery_percent: Optional[float] = None
         last_progress_write = 0.0
+        first_frame_elapsed: Optional[float] = None
 
         def write_summary() -> RecordingSummary:
             ended_at_dt = dt.datetime.now(dt.timezone.utc)
@@ -317,6 +318,9 @@ class OvernightRecorder:
                         continue
 
                     frame_count += 1
+                    if first_frame_elapsed is None:
+                        # Plans (e.g. meditation blocks) count from the first frame.
+                        first_frame_elapsed = time.monotonic() - started_monotonic
                     for modality in frame.modalities():
                         modality_counts[modality] = modality_counts.get(modality, 0) + 1
 
@@ -347,6 +351,7 @@ class OvernightRecorder:
                             decoded_frame_count=decoded_frame_count,
                             battery_percent=last_battery_percent,
                             reconnect_attempts=reconnect_attempts,
+                            first_frame_elapsed_seconds=first_frame_elapsed,
                             contact=self._contact_monitor.snapshot(
                                 now_seconds=frame.timestamp
                             ).to_dict(),
@@ -533,6 +538,7 @@ class OvernightRecorder:
         decoded_frame_count: int,
         battery_percent: Optional[float],
         reconnect_attempts: int,
+        first_frame_elapsed_seconds: Optional[float] = None,
         contact: Optional[Dict[str, Any]] = None,
         source_diagnostics: Optional[Dict[str, Any]] = None,
     ) -> None:
@@ -551,6 +557,7 @@ class OvernightRecorder:
             "battery_percent": battery_percent,
             "reconnect_attempts": reconnect_attempts,
             "last_event": self._last_event_name,
+            "first_frame_elapsed_seconds": first_frame_elapsed_seconds,
             "contact": contact,
             "source_diagnostics": source_diagnostics,
         }

@@ -81,6 +81,19 @@ you intentionally pass an explicit host such as `--host 0.0.0.0`.
 
 Stop the app with `Ctrl-C`.
 
+## Guided meditation
+
+With good contact, "Meditation…" opens a small form: two practice labels, number of blocks,
+minutes per block and settle-in time. Starting it builds the same counterbalanced plan as
+`muse-tmr meditation-plan` (random seed), starts a session recording long enough for it
+(plus a minute of slack) and stores `blocks.json` in the recording folder. While it runs the
+panel shows the current block, practice and time left, counted from the first Muse frame
+like the analysis, and plays a soft tone at every block change (the browser needs one click
+on the page for sound; untick the option to stay silent). Finished blocks get depth and
+sensory-fading selectors that save straight into `blocks.json`. When the recording is done,
+"Analyze meditation" runs `analyze-meditation` in the background and links its
+`report.html`. The Polar H10 checkbox applies here too.
+
 ## Reports
 
 When a recording ends, the box under the buttons offers "Build report". It runs

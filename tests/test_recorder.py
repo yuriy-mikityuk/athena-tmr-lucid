@@ -167,6 +167,7 @@ class TestOvernightRecorder(unittest.IsolatedAsyncioTestCase):
             self.assertIn("frame_count", progress)
             self.assertIn("elapsed_seconds", progress)
             self.assertIn("battery_percent", progress)
+            self.assertIsNotNone(progress["first_frame_elapsed_seconds"])
 
     async def test_no_data_timeout_reconnects_and_continues(self):
         with tempfile.TemporaryDirectory() as tmp:
