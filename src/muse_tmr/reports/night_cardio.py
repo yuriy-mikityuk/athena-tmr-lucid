@@ -44,15 +44,23 @@ def night_cardio_section(recording_dir: Path, start_time: float, end_time: float
         return _section(f"<p class='chart-sub'>Polar H10 data is present but could not be read: {_e(str(exc))}</p>")
     if not windows:
         return ""
-    return _section(_summary(windows, session.alignment) + _chart(windows) + _table(windows))
+    return _section(_summary(windows, _rr_match(session, start_time, end_time)) + _chart(windows) + _table(windows))
 
 
-def _summary(windows: Sequence[Dict[str, float]], alignment: Dict[str, object]) -> str:
+def _rr_match(session, start_time: float, end_time: float) -> Dict[str, int]:
+    """RR beats inside the reported interval and how many matched an ECG R-peak."""
+    rr = session.rr
+    if rr is None or len(rr) == 0:
+        return {"beats": 0, "matched": 0}
+    inside = rr[(rr["time"] >= start_time) & (rr["time"] < end_time)]
+    return {"beats": int(len(inside)), "matched": int((inside["aligned_to"] == "ecg_r_peak").sum())}
+
+
+def _summary(windows: Sequence[Dict[str, float]], rr: Dict[str, int]) -> str:
     hr = _finite(window.get("mean_hr_bpm") for window in windows)
     rmssd = _finite(window.get("rmssd_ms") for window in windows)
     trusted = [window for window in windows if window.get("resp_reliable") == 1.0]
     breathing = _finite(window.get("resp_rate_bpm") for window in trusted)
-    rr = (alignment or {}).get("rr") or {}
     parts = []
     if hr.size:
         parts.append(f"Heart rate averaged <b>{hr.mean():.0f} bpm</b>, lowest 5-min window {hr.min():.0f} bpm.")
@@ -93,8 +101,17 @@ def _chart(windows: Sequence[Dict[str, float]]) -> str:
     def y_resp(value: float) -> float:
         return pad_top + (1 - value / resp_high) * plot_h
 
-    hr_points = " ".join(
-        f"{x_window(w['t_hours']):.1f},{y_hr(w['mean_hr_bpm']):.1f}" for w in windows if _ok(w.get("mean_hr_bpm"))
+    # One polyline per run of windows with HR, so a dropout shows as a gap, not a straight line.
+    hr_runs: List[List[str]] = [[]]
+    for w in windows:
+        if _ok(w.get("mean_hr_bpm")):
+            hr_runs[-1].append(f"{x_window(w['t_hours']):.1f},{y_hr(w['mean_hr_bpm']):.1f}")
+        elif hr_runs[-1]:
+            hr_runs.append([])
+    hr_lines = "".join(
+        f'<polyline points="{" ".join(run)}" class="hr"/>' if len(run) > 1 else
+        f'<circle cx="{run[0].split(",")[0]}" cy="{run[0].split(",")[1]}" r="2.5" class="hrdot"/>'
+        for run in hr_runs if run
     )
     dots = []
     for w in windows:
@@ -126,7 +143,7 @@ def _chart(windows: Sequence[Dict[str, float]]) -> str:
         + f'<svg viewBox="0 0 {width} {height}" class="cardio" role="img" aria-label="Heart rate and breathing over the night">'
         + hour_ticks
         + axes
-        + (f'<polyline points="{hr_points}" class="hr"/>' if hr_points else "")
+        + hr_lines
         + "".join(dots)
         + "</svg>"
     )
@@ -151,6 +168,7 @@ def _section(body: str) -> str:
     style = (
         "<style>.cardio{width:100%;height:auto;margin-top:6px}.cardio .grid{stroke:var(--gridline)}"
         ".cardio .tick{fill:var(--text-muted);font-size:11px}.cardio .hr{fill:none;stroke:#d64545;stroke-width:2}"
+        ".cardio .hrdot{fill:#d64545}"
         ".cardio .resp{fill:#2a9d8f}.cardio .resp.untrusted{fill:none;stroke:#2a9d8f;stroke-width:1.2}"
         ".hrc{color:#d64545;fill:#d64545}.respc{color:#2a9d8f;fill:#2a9d8f}.cardio-card{margin-top:20px}</style>"
     )

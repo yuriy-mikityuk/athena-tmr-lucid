@@ -30,6 +30,27 @@ class NightCardioTest(unittest.TestCase):
             self.assertIn("Breathing median <b>12.0/min</b> over 4 of 4 windows", section)
             self.assertNotIn("<script", section)
 
+    def test_dropout_breaks_the_line_and_rr_counts_stay_inside_the_interval(self):
+        from unittest.mock import patch
+
+        rng = np.random.default_rng(22)
+        with tempfile.TemporaryDirectory() as tmp:
+            truth = write_raw_session(tmp, 30 * 60, rng, breaths_per_min=12.0)
+            session = load_polar_session(Path(tmp))
+            # Report only the middle 20 minutes; the Polar log covers 30.
+            start, end = truth["wall0"] + 5 * 60, truth["wall0"] + 25 * 60
+            windows = night_cardio_windows(session, start, end)
+            windows[1]["mean_hr_bpm"] = float("nan")  # an RR dropout
+            with patch("muse_tmr.reports.night_cardio.night_cardio_windows", return_value=windows), patch(
+                "muse_tmr.data.polar_session.load_polar_session", return_value=session
+            ):
+                section = night_cardio_section(Path(tmp), start, end)
+            self.assertEqual(section.count('class="hr"/>'), 1)  # windows 2-3 form one line
+            self.assertEqual(section.count('class="hrdot"'), 1)  # window 0 stands alone
+            inside = session.rr[(session.rr["time"] >= start) & (session.rr["time"] < end)]
+            self.assertLess(len(inside), len(session.rr))
+            self.assertIn(f"of {len(inside)} RR beats matched", section)
+
     def test_no_polar_folder_means_no_section(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(night_cardio_section(Path(tmp), 0.0, 600.0), "")
