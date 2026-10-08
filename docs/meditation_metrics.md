@@ -60,8 +60,9 @@ EEG, 10 s epochs, no correction across metrics.
    muse-tmr analyze-meditation data/recordings/session/<name> --blocks <blocks.json>
    ```
 
-   Writes `epochs.csv`, `blocks.csv` and `summary.json` to
-   `data/reports/meditation/<name>/`. 40 min of synthetic 4-channel data with the
+   Writes `epochs.csv`, `blocks.csv`, `summary.json` and a readable `report.html`
+   (primary result per block, EMG check, breathing/HRV, paper metrics, blocks,
+   limitations) to `data/reports/meditation/<name>/`. 40 min of synthetic 4-channel data with the
    Lyapunov exponent on takes about 40 s on an M-series laptop; `--no-lyapunov`
    skips the slowest metric.
 

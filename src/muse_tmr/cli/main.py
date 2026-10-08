@@ -1204,6 +1204,7 @@ async def _analyze_meditation(args: argparse.Namespace) -> int:
     )
     emg = summary["emg"]
     print(f"meditation analysis written: {paths['summary']} ({time.monotonic() - started:.1f} s)")
+    print(f"report: {paths['report']}")
     print(
         f"epochs in blocks={summary['counts']['epochs_in_blocks']} clean={summary['counts']['clean_epochs']}"
     )

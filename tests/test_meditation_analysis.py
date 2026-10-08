@@ -137,6 +137,12 @@ class MeditationAnalysisEndToEndTest(unittest.TestCase):
             self.assertEqual(written["primary_metric"]["metric"], "lzc")
             self.assertIn("lyapunov_enabled", written["config"]["complexity"])
             self.assertTrue(paths["epochs"].exists() and paths["blocks"].exists())
+            page = paths["report"].read_text()
+            self.assertIn("Primary result", page)
+            self.assertIn("Muscle (EMG) check", page)
+            self.assertIn("<svg", page)
+            self.assertNotIn("http://", page)
+            self.assertNotIn("https://", page)
 
     def test_emg_only_difference_is_flagged_and_residualized_contrast_shrinks(self):
         # B is A plus broadband EMG-like 30-95 Hz bursts. Pure 60-90 Hz noise
@@ -315,6 +321,35 @@ class MeditationWithPolarTest(unittest.TestCase):
         summary = asyncio.run(analyze_meditation_frames(aiter_frames(frames), plan, config)).summary
         self.assertEqual(summary["cardio"], {"available": False})
         self.assertFalse(any(item["group"] == "chest" for item in summary["contrasts"]))
+
+
+class MeditationReportTest(unittest.TestCase):
+    def test_condition_names_are_escaped_and_cardio_shown(self):
+        from muse_tmr.reports.meditation_report import render_meditation_report
+
+        summary = {
+            "conditions": ["<b>focus</b>", "open & wide"],
+            "recording": "/data/recordings/session/x",
+            "counts": {"blocks": 2},
+            "contrasts": [
+                {"metric": "lzc", "group": "all", "variant": "clean", "a_mean": 0.5, "b_mean": 0.4, "difference": 0.1}
+            ],
+            "emg": {},
+            "cardio": {"available": True, "breathing_difference_bpm": None, "breathing_unreliable_blocks": [1]},
+            "limitations": ["n = 1"],
+        }
+        rows = [
+            {"variant": variant, "block_index": index, "condition": condition, "start_s": 60, "end_s": 540,
+             "epochs": 40, "lzc_all": 0.5 - index * 0.1, "cardio_resp_rate_bpm": 6.0, "cardio_resp_reliable": float(index == 0)}
+            for index, condition in enumerate(summary["conditions"])
+            for variant in ("all", "clean")
+        ]
+        page = render_meditation_report(summary, rows)
+        self.assertNotIn("<b>focus</b>", page)
+        self.assertIn("&lt;b&gt;focus&lt;/b&gt;", page)
+        self.assertIn("open &amp; wide", page)
+        self.assertIn("Breathing was not compared", page)
+        self.assertIn("block(s) 1", page)
 
 
 class AggregateMeditationTest(unittest.TestCase):
