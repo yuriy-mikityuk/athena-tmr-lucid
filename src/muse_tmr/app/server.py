@@ -98,8 +98,6 @@ class RecordingHandle:
     stop_signalled_at_seconds: Optional[float] = None
     with_polar: bool = False
     meditation: bool = False  # blocks.json from a guided meditation lives in output_dir
-    report_job: BackgroundJob = field(default_factory=BackgroundJob)
-    analysis_job: BackgroundJob = field(default_factory=BackgroundJob)
 
 
 def _real_launcher(command: List[str], log_path: Path):
@@ -344,6 +342,9 @@ class LocalMuseAppState:
         self._devices: Sequence[Mapping[str, Any]] = ()
         self._last_scan: Optional[Dict[str, Any]] = None
         self._battery_percent: Optional[float] = None
+        # Report builds and meditation analyses, keyed by (recording folder, job kind),
+        # so they work for any recording on disk, not just the one in memory.
+        self._jobs: Dict[Tuple[str, str], BackgroundJob] = {}
         self._source = None
         self._contact_stop_requested = threading.Event()
         self._contact_thread: Optional[threading.Thread] = None
@@ -570,10 +571,8 @@ class LocalMuseAppState:
         with self._lock:
             if self._recording is not None and self._recording_alive_unlocked():
                 return False
-            # A restart would drop the handle and with it the report/analysis links.
-            if self._recording is not None and (
-                self._recording.report_job.running() or self._recording.analysis_job.running()
-            ):
+            # A restart would lose track of running report/analysis jobs.
+            if any(job.running() for job in self._jobs.values()):
                 return False
             if self._connection_state in ("scanning", "connecting", "connected"):
                 return False
@@ -702,16 +701,13 @@ class LocalMuseAppState:
                 handle.started_at_seconds,
                 handle.state,
                 handle.with_polar,
-                handle.report_job,
-                handle.analysis_job,
                 handle.meditation,
             )
 
         if escalate_pid is not None:
             self._terminator(escalate_pid, signal.SIGKILL)
 
-        (kind, output_dir, log_path, pid, preset, duration, started, state, with_polar, report_job,
-         analysis_job, meditation) = snapshot
+        (kind, output_dir, log_path, pid, preset, duration, started, state, with_polar, meditation) = snapshot
         progress = _read_json_tolerant(output_dir / "progress.json")
         summary = _read_json_tolerant(output_dir / "summary.json")
         summary_available = bool(summary)
@@ -748,8 +744,8 @@ class LocalMuseAppState:
             "log_path": str(log_path),
             "report_path": _expected_report_path(output_dir),
             "report_command": _report_command(output_dir),
-            "report": self.report_status(output_dir, report_job),
-            "meditation": self._meditation_payload(output_dir, progress, analysis_job) if meditation else None,
+            "report": self.report_status(output_dir),
+            "meditation": self._meditation_payload(output_dir, progress) if meditation else None,
             "started_at_seconds": started,
             "duration_seconds": duration,
             "elapsed_seconds": elapsed,
@@ -816,66 +812,110 @@ class LocalMuseAppState:
         return self.reports_base() / kind / f"{output_dir.name}.html"
 
     def build_report(self) -> Tuple[Mapping[str, Any], HTTPStatus]:
-        """Run scripts/generate_nightly_report.py for the finished recording, detached."""
+        """Build the REM report for the recording the app launched last."""
+        output_dir, error = self._finished_handle_dir()
+        if error:
+            return error
+        _job, status = self._start_report(output_dir)
+        return (self._recording_payload(), status) if status == HTTPStatus.OK else (_job, status)
 
-        def command(handle: RecordingHandle) -> Tuple[List[str], Path]:
-            report_file = self._report_file(handle.output_dir)
+    def analyze_meditation(self) -> Tuple[Mapping[str, Any], HTTPStatus]:
+        """Analyze the guided meditation the app launched last."""
+        output_dir, error = self._finished_handle_dir()
+        if error:
+            return error
+        _job, status = self._start_analysis(output_dir)
+        return (self._recording_payload(), status) if status == HTTPStatus.OK else (_job, status)
+
+    def build_report_for(self, kind: Any, name: Any) -> Tuple[Mapping[str, Any], HTTPStatus]:
+        output_dir, error = self._recording_dir(kind, name)
+        if error:
+            return error
+        payload, status = self._start_report(output_dir)
+        return (self._recording_entry(output_dir), status) if status == HTTPStatus.OK else (payload, status)
+
+    def analyze_meditation_for(self, kind: Any, name: Any) -> Tuple[Mapping[str, Any], HTTPStatus]:
+        output_dir, error = self._recording_dir(kind, name)
+        if error:
+            return error
+        payload, status = self._start_analysis(output_dir)
+        return (self._recording_entry(output_dir), status) if status == HTTPStatus.OK else (payload, status)
+
+    def _finished_handle_dir(self):
+        with self._lock:
+            handle = self._recording
+            if handle is None:
+                return None, ({"error": "no finished recording"}, HTTPStatus.CONFLICT)
+            if self._recording_alive_unlocked():
+                return None, ({"error": "the recording is still running"}, HTTPStatus.CONFLICT)
+            return handle.output_dir, None
+
+    def _recording_dir(self, kind: Any, name: Any):
+        """A recording folder from user input, only inside the recordings base."""
+        if kind not in RECORDING_KINDS or not isinstance(name, str) or not name or "/" in name or name.startswith("."):
+            return None, ({"error": "unknown recording"}, HTTPStatus.BAD_REQUEST)
+        base = self._recordings_base_resolved().resolve()
+        output_dir = (base / kind / name).resolve()
+        if not _is_relative_to(output_dir, base) or not output_dir.is_dir():
+            return None, ({"error": "unknown recording"}, HTTPStatus.NOT_FOUND)
+        with self._lock:
+            handle = self._recording
+            if handle is not None and handle.output_dir.resolve() == output_dir and self._recording_alive_unlocked():
+                return None, ({"error": "the recording is still running"}, HTTPStatus.CONFLICT)
+        return output_dir, None
+
+    def _start_report(self, output_dir: Path) -> Tuple[Mapping[str, Any], HTTPStatus]:
+        def command() -> Tuple[List[str], Path]:
+            report_file = self._report_file(output_dir)
             return [
                 sys.executable,
                 str(self._project_root() / "scripts" / "generate_nightly_report.py"),
-                str(handle.output_dir.resolve()),
+                str(output_dir.resolve()),
                 "--output",
                 str(report_file.resolve()),
             ], report_file
 
-        return self._start_job("report_job", command, "report.log")
+        return self._start_job(output_dir, "report", command, "report.log")
 
-    def analyze_meditation(self) -> Tuple[Mapping[str, Any], HTTPStatus]:
-        """Run analyze-meditation on a finished guided meditation, detached."""
-
-        def command(handle: RecordingHandle) -> Tuple[List[str], Path]:
-            if not handle.meditation:
+    def _start_analysis(self, output_dir: Path) -> Tuple[Mapping[str, Any], HTTPStatus]:
+        def command() -> Tuple[List[str], Path]:
+            if not (output_dir / "blocks.json").is_file():
                 raise JobUnavailable("this recording has no meditation plan")
-            output_dir = self._meditation_report_dir(handle.output_dir)
+            report_dir = self._meditation_report_dir(output_dir)
             return [
                 sys.executable,
                 "-m",
                 "muse_tmr.cli.main",
                 "analyze-meditation",
-                str(handle.output_dir.resolve()),
-                "--blocks",
-                str((handle.output_dir / "blocks.json").resolve()),
-                "--output-dir",
                 str(output_dir.resolve()),
-            ], output_dir / "report.html"
+                "--blocks",
+                str((output_dir / "blocks.json").resolve()),
+                "--output-dir",
+                str(report_dir.resolve()),
+            ], report_dir / "report.html"
 
-        return self._start_job("analysis_job", command, "meditation-analysis.log")
+        return self._start_job(output_dir, "analysis", command, "meditation-analysis.log")
+
+    def _job(self, output_dir: Path, kind: str) -> BackgroundJob:
+        return self._jobs.setdefault((str(Path(output_dir).resolve()), kind), BackgroundJob())
 
     def _start_job(
         self,
-        attribute: str,
-        build_command: Callable[[RecordingHandle], Tuple[List[str], Path]],
+        output_dir: Path,
+        kind: str,
+        build_command: Callable[[], Tuple[List[str], Path]],
         log_name: str,
     ) -> Tuple[Mapping[str, Any], HTTPStatus]:
         with self._lock:
-            handle = self._recording
-            if handle is None:
-                return {"error": "no finished recording"}, HTTPStatus.CONFLICT
-            if self._recording_alive_unlocked():
-                return {"error": "the recording is still running"}, HTTPStatus.CONFLICT
-            job: BackgroundJob = getattr(handle, attribute)
+            job = self._job(output_dir, kind)
             if job.running():
-                existing = True
-            else:
-                # Reserve before releasing the lock so a second tab cannot start another one.
-                job.launching = True
-                existing = False
-        if existing:
-            return self._recording_payload(), HTTPStatus.OK
+                return {}, HTTPStatus.OK
+            # Reserve before releasing the lock so a second tab cannot start another one.
+            job.launching = True
         try:
-            command, output_file = build_command(handle)
+            command, output_file = build_command()
             output_file.parent.mkdir(parents=True, exist_ok=True)
-            process = self._launcher(command, handle.output_dir / log_name)
+            process = self._launcher(command, Path(output_dir) / log_name)
         except JobUnavailable as exc:
             with self._lock:
                 job.launching = False
@@ -887,7 +927,46 @@ class LocalMuseAppState:
         with self._lock:
             job.process = process
             job.launching = False
-        return self._recording_payload(), HTTPStatus.OK
+        return {}, HTTPStatus.OK
+
+    def list_recordings(self, limit: int = 20) -> Dict[str, Any]:
+        base = self._recordings_base_resolved()
+        folders = []
+        for kind in RECORDING_KINDS:
+            kind_dir = base / kind
+            if kind_dir.is_dir():
+                folders.extend(path for path in kind_dir.iterdir() if path.is_dir() and not path.name.startswith("."))
+        folders.sort(key=lambda path: path.name, reverse=True)
+        return {"recordings": [self._recording_entry(path) for path in folders[:limit]]}
+
+    def _recording_entry(self, output_dir: Path) -> Dict[str, Any]:
+        summary = _read_json_tolerant(output_dir / "summary.json")
+        progress = _read_json_tolerant(output_dir / "progress.json")
+        with self._lock:
+            handle = self._recording
+            live = (
+                handle is not None
+                and handle.output_dir.resolve() == output_dir.resolve()
+                and self._recording_alive_unlocked()
+            )
+        meditation = (output_dir / "blocks.json").is_file()
+        try:
+            started = dt.datetime.strptime(output_dir.name[:15], "%Y%m%d_%H%M%S").isoformat()
+        except ValueError:
+            started = None
+        return {
+            "kind": output_dir.parent.name,
+            "name": output_dir.name,
+            "started_at": started,
+            "live": live,
+            "duration_seconds": summary.get("duration_seconds", progress.get("elapsed_seconds")),
+            "stop_reason": summary.get("stop_reason") or ("recording" if live else None),
+            "frame_count": summary.get("frame_count", progress.get("frame_count")),
+            "with_polar": (output_dir / "polar").is_dir(),
+            "meditation": meditation,
+            "report": None if live else self.report_status(output_dir),
+            "meditation_report": self._meditation_analysis_status(output_dir) if meditation and not live else None,
+        }
 
     def _project_root(self) -> Path:
         from muse_tmr.cli.main import _find_project_root
@@ -897,10 +976,17 @@ class LocalMuseAppState:
             raise JobUnavailable("report script not found: not running from a project checkout")
         return root
 
-    def report_status(self, output_dir: Path, job: BackgroundJob) -> Dict[str, Any]:
+    def report_status(self, output_dir: Path) -> Dict[str, Any]:
         report_file = self._report_file(output_dir)
         url = f"/reports/{report_file.relative_to(self.reports_base()).as_posix()}"
-        return job.status(report_file, url, output_dir / "report.log")
+        return self._job(output_dir, "report").status(report_file, url, output_dir / "report.log")
+
+    def _meditation_analysis_status(self, output_dir: Path) -> Dict[str, Any]:
+        report_dir = self._meditation_report_dir(output_dir)
+        url = f"/reports/{(report_dir / 'report.html').relative_to(self.reports_base()).as_posix()}"
+        return self._job(output_dir, "analysis").status(
+            report_dir / "report.html", url, output_dir / "meditation-analysis.log"
+        )
 
     def _meditation_report_dir(self, output_dir: Path) -> Path:
         return self.reports_base() / "meditation" / output_dir.name
@@ -974,14 +1060,12 @@ class LocalMuseAppState:
                 return {"error": str(exc)}, HTTPStatus.BAD_REQUEST
         return self._recording_payload(), HTTPStatus.OK
 
-    def _meditation_payload(self, output_dir: Path, progress: Mapping[str, Any], job: BackgroundJob) -> Dict[str, Any]:
-        report_dir = self._meditation_report_dir(output_dir)
-        url = f"/reports/{(report_dir / 'report.html').relative_to(self.reports_base()).as_posix()}"
+    def _meditation_payload(self, output_dir: Path, progress: Mapping[str, Any]) -> Dict[str, Any]:
         return {
             "plan": _read_json_tolerant(output_dir / "blocks.json") or None,
             # Block times count from the first Muse frame, not from the recorder start.
             "first_frame_elapsed_seconds": progress.get("first_frame_elapsed_seconds"),
-            "analysis": job.status(report_dir / "report.html", url, output_dir / "meditation-analysis.log"),
+            "analysis": self._meditation_analysis_status(output_dir),
         }
 
     def _recordings_base_resolved(self) -> Path:
@@ -1293,6 +1377,9 @@ class LocalMuseAppHandler(BaseHTTPRequestHandler):
         if path.startswith("/reports/"):
             self._serve_report(path[len("/reports/"):])
             return
+        if path == "/api/recordings":
+            self._write_json(self.server.app_state.list_recordings())
+            return
         if path == "/api/muse/diagnostics":
             self._write_json(self.server.app_state.diagnostics())
             return
@@ -1337,6 +1424,13 @@ class LocalMuseAppHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/api/meditation/rating":
             payload, status = self.server.app_state.save_meditation_rating(self._read_json_body())
+            self._write_json(payload, status=status)
+            return
+        if self.path in ("/api/recordings/report", "/api/recordings/analyze"):
+            body = self._read_json_body()
+            state = self.server.app_state
+            action = state.build_report_for if self.path.endswith("/report") else state.analyze_meditation_for
+            payload, status = action(body.get("kind"), body.get("name"))
             self._write_json(payload, status=status)
             return
         if self.path == "/api/meditation/analyze":

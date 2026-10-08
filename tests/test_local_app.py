@@ -1019,6 +1019,64 @@ class TestLocalMuseAppMeditation(TestLocalMuseAppReport):
         self.assertIsNone(payload["meditation"])
 
 
+class TestLocalMuseAppRecentRecordings(TestLocalMuseAppReport):
+    def make_recording(self, kind, name, summary=None, blocks=False, polar=False):
+        folder = self.state._recordings_base_resolved() / kind / name
+        folder.mkdir(parents=True)
+        if summary is not None:
+            (folder / "summary.json").write_text(json.dumps(summary))
+        if blocks:
+            (folder / "blocks.json").write_text("{}")
+        if polar:
+            (folder / "polar").mkdir()
+        return folder
+
+    def test_lists_recordings_newest_first_with_their_reports(self):
+        self.make_recording("night", "20261007_230000", {"duration_seconds": 28800, "stop_reason": "duration_complete"})
+        self.make_recording("session", "20261008_235854", {"duration_seconds": 791, "stop_reason": "user_stopped"}, blocks=True, polar=True)
+        (self.reports / "night").mkdir(parents=True)
+        (self.reports / "night" / "20261007_230000.html").write_text("<html></html>")
+
+        recordings = self.state.list_recordings()["recordings"]
+        self.assertEqual([item["name"] for item in recordings], ["20261008_235854", "20261007_230000"])
+        newest, older = recordings
+        self.assertEqual((newest["stop_reason"], newest["meditation"], newest["with_polar"]), ("user_stopped", True, True))
+        self.assertEqual(newest["started_at"], "2026-10-08T23:58:54")
+        self.assertEqual(newest["report"]["state"], "none")
+        self.assertEqual(newest["meditation_report"]["state"], "none")
+        self.assertEqual(older["report"]["url"], "/reports/night/20261007_230000.html")
+        self.assertIsNone(older["meditation_report"])
+
+    def test_builds_for_an_older_recording_and_rejects_bad_input(self):
+        folder = self.make_recording("session", "20261008_235854", {"stop_reason": "user_stopped"})
+        entry, status = self.state.build_report_for("session", "20261008_235854")
+        self.assertEqual(int(status), 200)
+        self.assertEqual(entry["report"]["state"], "running")
+        command, _proc = self.procs[0]
+        self.assertEqual(command[2], str(folder.resolve()))
+        self.assertFalse(self.state.idle_for_update())
+
+        _entry, status = self.state.analyze_meditation_for("session", "20261008_235854")
+        self.assertEqual(int(status), 409)  # no blocks.json
+        for kind, name, expected in (
+            ("bogus", "x", 400),
+            ("session", "../night", 400),
+            ("session", "..", 400),
+            ("session", "20990101_000000", 404),
+        ):
+            _payload, status = self.state.build_report_for(kind, name)
+            self.assertEqual(int(status), expected, (kind, name))
+
+    def test_live_recording_cannot_be_reported_yet(self):
+        payload, _ = self.state.start_recording("session")
+        name = Path(payload["output_dir"]).name
+        _payload, status = self.state.build_report_for("session", name)
+        self.assertEqual(int(status), 409)
+        entry = self.state.list_recordings()["recordings"][0]
+        self.assertTrue(entry["live"])
+        self.assertIsNone(entry["report"])
+
+
 class TestLocalMuseAppRecordingEndpoint(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
