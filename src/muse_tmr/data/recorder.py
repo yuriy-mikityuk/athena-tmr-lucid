@@ -6,10 +6,12 @@ import asyncio
 import datetime as dt
 import json
 import os
+import signal
+import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from muse_raw_stream import MuseRawStream
 
@@ -76,6 +78,61 @@ class RecordingSummary:
         }
 
 
+class CompanionProcess:
+    """A child recorder (e.g. ``record-polar``) beside the Muse recording.
+
+    Its failures are only ever logged as Muse events: nothing here may raise
+    into the Muse recorder or change its stop_reason.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        command: Sequence[str],
+        log_path: Path,
+        stop_timeout_seconds: float = 30.0,
+    ) -> None:
+        self.name = name
+        self.command = list(command)
+        self.log_path = Path(log_path)
+        self.stop_timeout_seconds = stop_timeout_seconds
+        self.process: Optional[subprocess.Popen] = None
+        self.exit_reported = False
+
+    def start(self) -> int:
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.log_path.open("ab") as log:
+            self.process = subprocess.Popen(
+                self.command, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT
+            )
+        return self.process.pid
+
+    def poll(self) -> Optional[int]:
+        """Return code once, the first time the child is seen to have exited."""
+        if self.process is None or self.exit_reported:
+            return None
+        code = self.process.poll()
+        if code is not None:
+            self.exit_reported = True
+        return code
+
+    def request_stop(self) -> None:
+        """SIGINT for a clean stop (the child closes its own streams)."""
+        if self.process is not None and self.process.poll() is None:
+            self.process.send_signal(signal.SIGINT)
+
+    def wait(self) -> Optional[int]:
+        """Wait for the child after request_stop, killing it after the timeout."""
+        if self.process is None:
+            return None
+        try:
+            self.process.wait(timeout=self.stop_timeout_seconds)
+        except subprocess.TimeoutExpired:
+            self.process.kill()
+            self.process.wait(timeout=5)
+        return self.process.returncode
+
+
 class OvernightRecorder:
     """Record MuseFrames, raw packets, metadata, events, and a summary."""
 
@@ -83,6 +140,7 @@ class OvernightRecorder:
         self,
         config: RecordingConfig,
         watchdog: Optional[RecordingWatchdog] = None,
+        companions: Sequence[CompanionProcess] = (),
     ) -> None:
         config.validate()
         self.config = config
@@ -91,6 +149,7 @@ class OvernightRecorder:
             modality_timeout_seconds=config.modality_timeout_seconds,
         )
         self._last_event_name: Optional[str] = None
+        self.companions: List[CompanionProcess] = list(companions)
         # The recorder holds the only BLE connection while it runs, so it also
         # publishes contact quality for the app. 128 Hz matches the app's live
         # amused monitor.
@@ -192,6 +251,7 @@ class OvernightRecorder:
                     details={"source": metadata.source_name},
                 ),
             )
+            self._companions_start(events_file)
 
             try:
                 stream = source.stream().__aiter__()
@@ -286,6 +346,7 @@ class OvernightRecorder:
                             source_diagnostics=_source_diagnostics(source),
                         )
                         last_progress_write = now_monotonic
+                        self._companions_poll(events_file)
 
                     for event in self.watchdog.observe_frame(frame, time.monotonic()):
                         self._write_event(events_file, event)
@@ -298,6 +359,7 @@ class OvernightRecorder:
             finally:
                 raw_stream.close()
                 await source.stop()
+                self._companions_request_stop(events_file)
 
             self._write_event(
                 events_file,
@@ -308,7 +370,62 @@ class OvernightRecorder:
                 ),
             )
 
-        return write_summary()
+        summary = write_summary()
+        # Only now wait on children, so a slow one cannot cost the Muse summary.
+        self._companions_wait(events_path)
+        return summary
+
+    def _companion_event(self, events_file, event: str, companion: CompanionProcess, **details) -> None:
+        try:
+            self._write_event(
+                events_file,
+                WatchdogEvent(
+                    event=event,
+                    timestamp=time.monotonic(),
+                    details={"companion": companion.name, **details},
+                ),
+            )
+        except Exception:
+            pass
+
+    def _companions_start(self, events_file) -> None:
+        for companion in self.companions:
+            try:
+                pid = companion.start()
+                self._companion_event(events_file, "companion_started", companion, pid=pid)
+            except Exception as exc:
+                self._companion_event(events_file, "companion_start_failed", companion, error=str(exc))
+
+    def _companions_poll(self, events_file) -> None:
+        for companion in self.companions:
+            try:
+                code = companion.poll()
+                if code is not None:
+                    self._companion_event(events_file, "companion_exited", companion, returncode=code)
+            except Exception as exc:
+                self._companion_event(events_file, "companion_error", companion, error=str(exc))
+
+    def _companions_request_stop(self, events_file) -> None:
+        for companion in self.companions:
+            try:
+                companion.request_stop()
+                self._companion_event(events_file, "companion_stop_requested", companion)
+            except Exception as exc:
+                self._companion_event(events_file, "companion_error", companion, error=str(exc))
+
+    def _companions_wait(self, events_path: Path) -> None:
+        if not self.companions:
+            return
+        try:
+            with events_path.open("a", encoding="utf-8") as events_file:
+                for companion in self.companions:
+                    try:
+                        code = companion.wait()
+                        self._companion_event(events_file, "companion_stopped", companion, returncode=code)
+                    except Exception as exc:
+                        self._companion_event(events_file, "companion_error", companion, error=str(exc))
+        except Exception:
+            pass
 
     async def _reconnect_until_ready(
         self,

@@ -60,6 +60,9 @@ def run_fast_tests():
         'tests.test_pilot4_cueing',
         'tests.test_complexity_features',
         'tests.test_meditation_analysis',
+        'tests.test_polar_h10_protocol',
+        'tests.test_cardio_resp_features',
+        'tests.test_polar_recording',
     ]
     
     for module in fast_modules:

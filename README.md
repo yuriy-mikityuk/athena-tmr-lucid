@@ -91,7 +91,7 @@ Each stage has a runbook in `docs/` and an automated validator, so a failed prec
 
 | Group | Commands |
 | ----- | -------- |
-| Acquisition | `discover` · `stream` · `record` · `replay` · `app` |
+| Acquisition | `discover` · `stream` · `record` · `replay` · `app` · `record-polar` · `decode-polar` |
 | Annotation & training | `annotate-template` · `train-rem-classifier` |
 | Audio & cue libraries | `play-test-cue` · `calibrate-volume` · `create-cue-library` · `validate-cue-library` · `list-cues` |
 | TLR cues | `create-tlr-cue` · `train-tlr-cue` · `plan-tlr-block` |

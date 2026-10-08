@@ -211,6 +211,12 @@ Prefer the existing simple module style until an issue explicitly introduces a p
   `muse_tmr.reports.meditation_analysis` (see `docs/meditation_metrics.md`). Keep it
   decoupled from REM detection, the gate, the scheduler, the arousal guard and audio,
   keep the inference unit the session, and never commit blocks files or reports.
+- Polar H10 companion recording lives in `muse_tmr.sources.polar_h10`,
+  `muse_tmr.data.polar_recorder`, `muse_tmr.data.polar_session` and
+  `muse_tmr.features.cardio_resp_features` (see `docs/polar_h10.md`). It runs as its own
+  process, keeps raw BLE payloads first, never puts chest ACC into `MuseFrame.imu`, and
+  stays out of REM detection, the gate, the arousal guard, the scheduler and audio. Never
+  commit device addresses, serials or Polar recordings.
 
 ## Testing Expectations
 
