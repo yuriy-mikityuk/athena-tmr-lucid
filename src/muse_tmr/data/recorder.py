@@ -246,6 +246,14 @@ class OvernightRecorder:
 
                     for event in self.watchdog.observe_frame(frame, time.monotonic()):
                         self._write_event(events_file, event)
+            except asyncio.CancelledError:
+                # The app's Stop button (or Ctrl-C) sends SIGINT, and asyncio.run
+                # cancels this task. Treat it as a normal stop so the summary
+                # still gets written; uncancel so asyncio.run returns normally.
+                uncancel = getattr(asyncio.current_task(), "uncancel", None)  # 3.11+
+                if uncancel is not None:
+                    uncancel()
+                stop_reason = "user_stopped"
             finally:
                 raw_stream.close()
                 await source.stop()

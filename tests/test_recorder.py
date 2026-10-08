@@ -117,6 +117,20 @@ class BrokenDiagnosticsFakeSource(DiagnosticsFakeSource):
         raise RuntimeError("decoder gone")
 
 
+class EndlessFakeSource(RecordingFakeSource):
+    async def stream(self):
+        timestamp = 10.0
+        while True:
+            yield MuseFrame(
+                timestamp=timestamp,
+                eeg=EEGSample(timestamp=timestamp, channels_uv={"TP9": [0.1]}),
+                source="fake",
+                raw_packet=b"\x0a",
+            )
+            timestamp += 0.01
+            await asyncio.sleep(0.01)
+
+
 class TestOvernightRecorder(unittest.IsolatedAsyncioTestCase):
     async def test_record_writes_expected_outputs(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -264,6 +278,27 @@ class TestOvernightRecorder(unittest.IsolatedAsyncioTestCase):
             progress = json.loads((Path(tmp) / "progress.json").read_text())
             self.assertIsNone(progress["source_diagnostics"])
             self.assertIn("TP9", progress["contact"]["channels"])
+
+    async def test_cancel_finishes_as_user_stop_with_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = EndlessFakeSource()
+            recorder = OvernightRecorder(
+                RecordingConfig(output_dir=Path(tmp), duration_seconds=60, allow_short=True)
+            )
+            task = asyncio.create_task(recorder.record(source))
+            await asyncio.sleep(0.1)
+
+            # What asyncio.run does on SIGINT from the app's Stop button.
+            task.cancel()
+            summary = await task
+
+            self.assertEqual(summary.stop_reason, "user_stopped")
+            self.assertGreater(summary.frame_count, 0)
+            self.assertEqual(source.stop_count, 1)
+            payload = json.loads(Path(summary.summary_path).read_text())
+            self.assertEqual(payload["stop_reason"], "user_stopped")
+            events = Path(summary.events_path).read_text()
+            self.assertIn("recording_stopped", events)
 
     def test_duration_requires_overnight_window_unless_allowed(self):
         with tempfile.TemporaryDirectory() as tmp:

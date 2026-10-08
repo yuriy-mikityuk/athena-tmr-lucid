@@ -454,6 +454,11 @@ class TestLocalMuseAppRecording(unittest.TestCase):
             ],
         )
         self.assertNotIn("--allow-short", command)
+        self.assertTrue(payload["report_command"].startswith("cd "))
+        self.assertIn(
+            f"&& {sys.executable} scripts/generate_nightly_report.py {expected_dir}",
+            payload["report_command"],
+        )
         self.assertEqual(payload["kind"], "night")
         self.assertEqual(payload["preset"], "p21")
         self.assertTrue(payload["active"])

@@ -8,6 +8,7 @@ import json
 import mimetypes
 import os
 import posixpath
+import shlex
 import signal
 import subprocess
 import sys
@@ -145,6 +146,22 @@ def _expected_report_path(output_dir: Path) -> str:
     if kind in ("night", "session"):
         return str(Path("data/reports") / kind / f"{output_dir.name}.html")
     return str(Path("data/reports/nightly") / f"{output_dir.name}.html")
+
+
+def _report_command(output_dir: Path) -> str:
+    """A command that works pasted into a fresh terminal.
+
+    The report script lives in the repo and writes to a cwd-relative
+    data/reports/, so cd to the project root and use the app's own Python.
+    """
+    from muse_tmr.cli.main import _find_project_root
+
+    parts = (sys.executable, "scripts/generate_nightly_report.py", str(output_dir.resolve()))
+    command = " ".join(shlex.quote(part) for part in parts)
+    project_root = _find_project_root(Path(__file__).resolve())
+    if project_root is None:
+        return command
+    return f"cd {shlex.quote(str(project_root))} && {command}"
 
 
 def _format_hours(hours: float) -> str:
@@ -547,6 +564,7 @@ class LocalMuseAppState:
             "output_dir": str(output_dir),
             "log_path": str(log_path),
             "report_path": _expected_report_path(output_dir),
+            "report_command": _report_command(output_dir),
             "started_at_seconds": started,
             "duration_seconds": duration,
             "elapsed_seconds": elapsed,
