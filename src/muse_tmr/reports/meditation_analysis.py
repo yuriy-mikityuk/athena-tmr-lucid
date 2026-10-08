@@ -303,12 +303,18 @@ class MeditationAnalysis:
             "epochs": output_dir / "epochs.csv",
             "blocks": output_dir / "blocks.csv",
             "summary": output_dir / "summary.json",
+            "report": output_dir / "report.html",
         }
         self.epochs.to_csv(paths["epochs"], index=False)
         self.blocks.to_csv(paths["blocks"], index=False)
         paths["summary"].write_text(
             json.dumps(json_safe(self.summary), indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
+        )
+        from muse_tmr.reports.meditation_report import render_meditation_report
+
+        paths["report"].write_text(
+            render_meditation_report(self.summary, self.blocks.to_dict("records")), encoding="utf-8"
         )
         return paths
 
