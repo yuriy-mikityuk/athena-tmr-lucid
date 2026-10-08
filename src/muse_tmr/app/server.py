@@ -801,6 +801,9 @@ class LocalMuseAppState:
             command.append("--allow-short")
         if with_polar:
             command.append("--with-polar")
+        if duration_seconds is not None:
+            # Timed plans count from the first frame, so connecting must not shorten them.
+            command.append("--duration-from-first-frame")
         return command
 
     def reports_base(self) -> Path:

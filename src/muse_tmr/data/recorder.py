@@ -30,6 +30,11 @@ class RecordingConfig:
     modality_timeout_seconds: float = 120.0
     max_reconnect_attempts: int = 5
     allow_short: bool = False
+    # Count the duration from the first frame instead of the recorder start, so
+    # a slow connect does not eat into a timed plan (guided meditation). Until
+    # the first frame arrives the run may wait up to first_frame_grace_seconds.
+    duration_from_first_frame: bool = False
+    first_frame_grace_seconds: float = 600.0
 
     def validate(self) -> None:
         if self.duration_seconds <= 0:
@@ -176,6 +181,8 @@ class OvernightRecorder:
         started_at_dt = dt.datetime.now(dt.timezone.utc)
         started_monotonic = time.monotonic()
         deadline = started_monotonic + self.config.duration_seconds
+        if self.config.duration_from_first_frame:
+            deadline += self.config.first_frame_grace_seconds
 
         frame_count = 0
         raw_packet_count = 0
@@ -321,6 +328,8 @@ class OvernightRecorder:
                     if first_frame_elapsed is None:
                         # Plans (e.g. meditation blocks) count from the first frame.
                         first_frame_elapsed = time.monotonic() - started_monotonic
+                        if self.config.duration_from_first_frame:
+                            deadline = time.monotonic() + self.config.duration_seconds
                     for modality in frame.modalities():
                         modality_counts[modality] = modality_counts.get(modality, 0) + 1
 

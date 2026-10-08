@@ -702,6 +702,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     record_parser.add_argument("--allow-short", action="store_true", help="Allow short smoke-test recordings.")
     record_parser.add_argument(
+        "--duration-from-first-frame",
+        action="store_true",
+        help="Count the duration from the first Muse frame, not from the start (timed plans).",
+    )
+    record_parser.add_argument(
         "--no-data-timeout-seconds",
         type=float,
         default=30.0,
@@ -1290,13 +1295,16 @@ async def _record(args: argparse.Namespace) -> int:
     source = _build_source(args, duration_seconds=0)
     companions = []
     if getattr(args, "with_polar", False):
-        companions.append(_polar_companion(output_dir, duration_seconds, args.polar_address))
+        # The Muse run may wait up to the first-frame grace before its clock starts.
+        polar_seconds = duration_seconds + (600.0 if args.duration_from_first_frame else 0.0)
+        companions.append(_polar_companion(output_dir, polar_seconds, args.polar_address))
     recorder = OvernightRecorder(
         RecordingConfig(
             output_dir=output_dir,
             duration_seconds=duration_seconds,
             source_name=args.source,
             allow_short=args.allow_short,
+            duration_from_first_frame=args.duration_from_first_frame,
             no_data_timeout_seconds=args.no_data_timeout_seconds,
             max_reconnect_attempts=args.max_reconnect_attempts,
         ),

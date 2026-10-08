@@ -964,6 +964,7 @@ class TestLocalMuseAppMeditation(TestLocalMuseAppReport):
         self.assertNotIn("--duration-hours", command)
         self.assertEqual(command[command.index("--duration-seconds") + 1], "210")  # 30 + 2 x 60 + 60 slack
         self.assertIn("--with-polar", command)
+        self.assertIn("--duration-from-first-frame", command)
         output_dir = Path(payload["output_dir"])
         plan = json.loads((output_dir / "blocks.json").read_text())
         self.assertEqual([block["start_s"] for block in plan["blocks"]], [30.0, 90.0])
