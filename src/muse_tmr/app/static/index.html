@@ -53,6 +53,10 @@
               <dt>Last packet</dt>
               <dd id="device-last-packet">-</dd>
             </div>
+            <div>
+              <dt>Battery</dt>
+              <dd id="device-battery">-</dd>
+            </div>
           </dl>
         </div>
         <section class="contact-panel" aria-labelledby="contact-title">
@@ -84,13 +88,14 @@
           </div>
         </section>
         <div class="actions">
-          <button type="button" id="scan-button">Scan</button>
+          <button type="button" id="scan-button" title="Check that the headband is on and in Bluetooth range">Find headband</button>
           <button type="button" id="connect-button">Connect Muse</button>
           <button type="button" id="start-session-button" class="primary" hidden>Start session</button>
           <button type="button" id="start-night-button" class="primary" hidden>Start night session</button>
           <button type="button" id="stop-recording-button" hidden>Stop recording</button>
           <button type="button" id="disconnect-button" hidden>Disconnect</button>
         </div>
+        <div class="record-hint" id="scan-result" role="status" hidden></div>
         <label class="record-option" id="polar-option" hidden>
           <input type="checkbox" id="with-polar-checkbox">
           Also record Polar H10 (chest strap: ECG, RR, breathing)

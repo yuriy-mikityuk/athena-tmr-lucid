@@ -310,6 +310,8 @@ class LocalMuseAppState:
         self._device_address: Optional[str] = config.address
         self._error_message: Optional[str] = None
         self._devices: Sequence[Mapping[str, Any]] = ()
+        self._last_scan: Optional[Dict[str, Any]] = None
+        self._battery_percent: Optional[float] = None
         self._source = None
         self._contact_stop_requested = threading.Event()
         self._contact_thread: Optional[threading.Thread] = None
@@ -433,6 +435,10 @@ class LocalMuseAppState:
             return state.to_dict()
 
     def scan(self) -> Mapping[str, Any]:
+        with self._lock:
+            # A new scan replaces the old answer even if it fails.
+            self._devices = ()
+            self._last_scan = None
         self._set_state("scanning", error_message=None)
         try:
             if self.config.source == "mock":
@@ -445,12 +451,27 @@ class LocalMuseAppState:
                 )
             else:
                 devices = tuple(_device_to_dict(device) for device in asyncio.run(self._amused_source().discover()))
+            devices = tuple(sorted(devices, key=lambda device: -(device.get("rssi") or -999)))
+            configured = (self.config.address or "").lower()
             with self._lock:
                 self._devices = devices
+                self._last_scan = {
+                    "at_seconds": time.time(),
+                    "count": len(devices),
+                    "configured_address": self.config.address,
+                    # None when no address is configured: any Muse will do.
+                    "configured_found": (
+                        any(str(device.get("address", "")).lower() == configured for device in devices)
+                        if configured
+                        else None
+                    ),
+                }
                 self._connection_state = "disconnected"
                 self._error_message = None if devices else "No Muse devices found"
                 return self._state_unlocked(extra={"devices": list(devices)})
         except Exception as exc:
+            with self._lock:
+                self._last_scan = {"at_seconds": time.time(), "count": 0, "failed": True, "error": str(exc)}
             self._set_state("error", error_message=str(exc))
             return self.state()
 
@@ -473,7 +494,7 @@ class LocalMuseAppState:
             metadata = asyncio.run(source.connect())
             with self._lock:
                 self._source = source
-                self._device_name = metadata.device_name
+                self._device_name = self._display_name_unlocked(metadata.device_name, metadata.device_id)
                 self._device_address = metadata.device_id
                 self._connection_state = "connected"
                 self._error_message = None
@@ -500,6 +521,7 @@ class LocalMuseAppState:
             self._connection_state = "disconnected"
             self._device_name = None
             self._device_address = self.config.address
+            self._battery_percent = None
             self._connected_at_seconds = None
             self._error_message = None
             self._start_when_ready_requested = False
@@ -774,6 +796,8 @@ class LocalMuseAppState:
             ),
             "error_message": self._error_message,
             "devices": list(self._devices),
+            "scan": dict(self._last_scan) if self._last_scan else None,
+            "battery_percent": self._battery_percent if self._connection_state == "connected" else None,
             "mock": {
                 "scenario": self.config.mock_scenario,
                 "interval_seconds": self.config.mock_interval_seconds,
@@ -913,6 +937,16 @@ class LocalMuseAppState:
         if len(self._contact_warning_events) > 50:
             del self._contact_warning_events[:-50]
 
+    def _display_name_unlocked(self, name: Optional[str], address: Optional[str]) -> str:
+        """amused names the device by its address when connecting by address;
+        prefer the advertised name from the last scan, else plain "Muse"."""
+        if name and name != address:
+            return name
+        for device in self._devices:
+            if address and str(device.get("address", "")).lower() == str(address).lower() and device.get("name"):
+                return str(device["name"])
+        return "Muse"
+
     def _amused_source(self):
         from muse_tmr.sources.amused_source import AmusedSource
 
@@ -969,6 +1003,8 @@ class LocalMuseAppState:
                     with self._lock:
                         assert self._contact_monitor is not None
                         self._contact_monitor.update(frame)
+                        if frame.battery is not None:
+                            self._battery_percent = float(frame.battery.percent)
             except Exception as exc:
                 self._set_state("error", error_message=str(exc))
 
