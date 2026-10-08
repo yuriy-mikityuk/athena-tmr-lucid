@@ -435,6 +435,10 @@ class LocalMuseAppState:
             return state.to_dict()
 
     def scan(self) -> Mapping[str, Any]:
+        with self._lock:
+            # A new scan replaces the old answer even if it fails.
+            self._devices = ()
+            self._last_scan = None
         self._set_state("scanning", error_message=None)
         try:
             if self.config.source == "mock":
@@ -466,6 +470,8 @@ class LocalMuseAppState:
                 self._error_message = None if devices else "No Muse devices found"
                 return self._state_unlocked(extra={"devices": list(devices)})
         except Exception as exc:
+            with self._lock:
+                self._last_scan = {"at_seconds": time.time(), "count": 0, "failed": True, "error": str(exc)}
             self._set_state("error", error_message=str(exc))
             return self.state()
 

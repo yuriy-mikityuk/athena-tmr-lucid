@@ -203,13 +203,17 @@ function renderActions() {
 function renderScanResult() {
   const scan = latestState.scan;
   const connection = latestState.connection_state || "disconnected";
-  const show = Boolean(scan) && connection !== "connected" && !latestRecording.active;
+  const show = (Boolean(scan) || connection === "scanning") && connection !== "connected" && !latestRecording.active;
   scanResult.hidden = !show;
   if (!show) {
     return;
   }
-  if (connection === "scanning") {
+  if (connection === "scanning" || !scan) {
     scanResult.textContent = "Looking for the headband...";
+    return;
+  }
+  if (scan.failed) {
+    scanResult.textContent = `Scan failed (${scan.error || "Bluetooth error"}). Is Bluetooth on for this Mac?`;
     return;
   }
   const devices = latestState.devices || [];

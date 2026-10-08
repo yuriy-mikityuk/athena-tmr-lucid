@@ -376,6 +376,15 @@ class TestLocalMuseAppBatteryAndScan(unittest.TestCase):
         self.assertTrue(scanned["scan"]["configured_found"])
         self.assertEqual(scanned["scan"]["count"], 2)
 
+    def test_failed_scan_replaces_the_previous_result(self):
+        state = self.make("test-address")
+        self.assertTrue(state.scan()["scan"]["configured_found"])
+        with patch.object(BatteryFakeAmusedSource, "discover", side_effect=RuntimeError("Bluetooth is off")):
+            failed = state.scan()
+        self.assertEqual(failed["devices"], [])
+        self.assertTrue(failed["scan"]["failed"])
+        self.assertIn("Bluetooth is off", failed["scan"]["error"])
+
     def test_scan_says_when_the_configured_headband_is_missing(self):
         state = self.make("not-around")
         self.assertFalse(state.scan()["scan"]["configured_found"])
