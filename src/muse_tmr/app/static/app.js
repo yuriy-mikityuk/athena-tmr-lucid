@@ -49,6 +49,7 @@ let latestContact = {};
 let latestGate = {};
 let latestDiagnostics = {};
 let latestRecording = {};
+let loadedBuild = null;
 
 const stateText = {
   disconnected: "Disconnected",
@@ -105,6 +106,16 @@ async function refreshUiState() {
 }
 
 function renderUiState(payload) {
+  // The server restarts itself on a new main (app --auto-update); reload so
+  // the page runs the matching JS.
+  if (payload.build) {
+    if (loadedBuild == null) {
+      loadedBuild = payload.build;
+    } else if (payload.build !== loadedBuild) {
+      window.location.reload();
+      return;
+    }
+  }
   latestDiagnostics = { source_diagnostics: payload.source_diagnostics || null };
   latestRecording = payload.recording || {};
   latestContact = payload.contact || {};

@@ -515,6 +515,12 @@ class TestLocalMuseAppRecording(unittest.TestCase):
         self.assertEqual(self.terminator.signals, [(4242, signal.SIGINT)])
         self.assertEqual(payload["state"], "stopping")
 
+    def test_running_recording_blocks_auto_update_restart(self):
+        state = self._make_state()
+        self.assertTrue(state.idle_for_update())
+        state.start_recording("night")
+        self.assertFalse(state.idle_for_update())
+
     def test_stop_without_recording_returns_conflict(self):
         state = self._make_state()
         payload, status = state.stop_recording()

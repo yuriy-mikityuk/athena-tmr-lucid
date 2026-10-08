@@ -39,6 +39,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     app_parser.add_argument("--mock-interval-seconds", type=float, default=1.0)
     app_parser.add_argument("--contact-stability-seconds", type=float, default=5.0)
+    app_parser.add_argument(
+        "--auto-update",
+        action="store_true",
+        help="Fast-forward a clean main checkout to origin/main and restart when idle.",
+    )
 
     discover_parser = subparsers.add_parser("discover", help="Discover Muse devices.")
     discover_parser.add_argument(
@@ -753,6 +758,7 @@ def _run_app(args: argparse.Namespace) -> int:
             mock_scenario=args.mock_scenario,
             mock_interval_seconds=args.mock_interval_seconds,
             gate_stability_seconds=args.contact_stability_seconds,
+            auto_update=args.auto_update,
         )
     )
 

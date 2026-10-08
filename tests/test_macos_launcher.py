@@ -58,6 +58,31 @@ class MacosLauncherTest(unittest.TestCase):
         finally:
             installer._install_icon = original_install_icon
 
+    def test_launcher_can_opt_out_of_auto_update(self):
+        installer = load_installer()
+        original_install_icon = installer._install_icon
+        installer._install_icon = lambda resources: False
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir_name:
+                temp_dir = Path(temp_dir_name)
+                target = temp_dir / "Muse TMR Setup.app"
+                installer.create_launcher_app(
+                    target=target,
+                    app_name="Muse TMR Setup",
+                    repo_root=temp_dir,
+                    source="mock",
+                    address="",
+                    host="127.0.0.1",
+                    port=8765,
+                    auto_update=False,
+                )
+                runner_text = (
+                    target / "Contents" / "Resources" / "run-local-app.command"
+                ).read_text(encoding="utf-8")
+                self.assertNotIn("--auto-update", runner_text)
+        finally:
+            installer._install_icon = original_install_icon
+
     def test_amused_launcher_bakes_optional_address(self):
         installer = load_installer()
         original_install_icon = installer._install_icon
@@ -86,6 +111,7 @@ class MacosLauncherTest(unittest.TestCase):
                 ).read_text(encoding="utf-8")
                 self.assertIn("--source amused", runner_text)
                 self.assertIn("--address 2C48FFC8-A1C5-BDFD-A5A4-EEA280A7BBA6", runner_text)
+                self.assertIn("--auto-update", runner_text)
         finally:
             installer._install_icon = original_install_icon
 

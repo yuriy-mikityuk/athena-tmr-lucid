@@ -102,6 +102,13 @@ Double-clicking the app starts the local setup server through Terminal and opens
 the launcher just opens the browser UI. Stop the app with `Ctrl-C` in the Terminal
 window.
 
+The launcher runs the app with `--auto-update`. Every two minutes the app fetches
+`origin/main`; if the checkout is on `main` with no tracked changes and can
+fast-forward, it pulls and restarts itself once it is idle (no recording, not
+scanning or connected), and the open page reloads. A checkout on another branch
+or with local edits is never touched. New dependencies still need a manual
+`pip install`. Pass `--no-auto-update` to the installer to turn this off.
+
 Use `--force` to replace an existing launcher after changing the Muse address,
 repo path, or port:
 
