@@ -558,6 +558,24 @@ class TestLocalMuseAppRecording(unittest.TestCase):
         (polar / "summary.json").write_text(json.dumps({"stop_reason": "user_stopped"}))
         self.assertEqual(state.ui_state()["recording"]["polar"]["state"], "stopped")
 
+    def test_recording_stays_active_while_the_recorder_waits_for_its_polar_child(self):
+        proc = _FakeProc()
+        state = self._make_state(proc=proc)
+        payload, _ = state.start_recording("session", with_polar=True)
+        output_dir = Path(payload["output_dir"])
+        (output_dir / "summary.json").write_text(json.dumps({"stop_reason": "user_stopped"}))
+
+        finishing = state.ui_state()["recording"]
+        self.assertEqual(finishing["state"], "finishing")
+        self.assertTrue(finishing["active"])
+        _payload, status = state.start_recording("session")
+        self.assertEqual(int(status), 409)  # the old child may still hold the H10
+
+        proc.returncode = 0
+        done = state.ui_state()["recording"]
+        self.assertEqual(done["state"], "completed")
+        self.assertFalse(done["active"])
+
     def test_recording_without_polar_has_no_status_or_flag(self):
         state = self._make_state()
         payload, _status = state.start_recording("night")

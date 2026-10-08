@@ -183,7 +183,9 @@ function renderActions() {
   startSessionButton.hidden = !canRecord;
   startNightButton.hidden = !canRecord;
   polarOption.hidden = !(canRecord && isAmused);
-  stopRecordingButton.hidden = !(recordingActive && latestRecording.state !== "stopping");
+  stopRecordingButton.hidden = !(
+    recordingActive && latestRecording.state !== "stopping" && latestRecording.state !== "finishing"
+  );
 
   // Recording needs the live headband and good contact.
   const recordEnabled = canRecord && isAmused && contactReady;
@@ -336,6 +338,8 @@ function renderRecording(recording) {
         ? "Starting recording"
         : state === "stopping"
         ? "Stopping recording"
+        : state === "finishing"
+        ? "Finishing (stopping the H10)"
         : "Recording";
     recordingKind.textContent = [kindLabel, latestRecording.preset].filter(Boolean).join(" · ");
     recordingElapsed.textContent = formatDuration(latestRecording.elapsed_seconds);

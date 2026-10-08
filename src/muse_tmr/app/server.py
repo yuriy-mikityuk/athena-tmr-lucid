@@ -646,7 +646,11 @@ class LocalMuseAppState:
         summary = _read_json_tolerant(output_dir / "summary.json")
         summary_available = bool(summary)
 
-        if summary_available:
+        if summary_available and alive:
+            # The Muse summary is written first, then the recorder waits for its
+            # Polar child to stop the strap; it is not done until it exits.
+            state = "finishing"
+        elif summary_available:
             state = "completed"
         elif not alive and state in ("running", "stopping"):
             state = "failed"
@@ -665,7 +669,7 @@ class LocalMuseAppState:
             reconnects = summary.get("reconnect_attempts")
 
         return {
-            "active": state in ("launching", "running", "stopping"),
+            "active": state in ("launching", "running", "stopping", "finishing"),
             "kind": kind,
             "state": state,
             "pid": pid,
@@ -684,7 +688,7 @@ class LocalMuseAppState:
             "last_event": progress.get("last_event") or summary.get("stop_reason"),
             "summary_available": summary_available,
             "with_polar": with_polar,
-            "polar": _polar_status(output_dir, active=state in ("launching", "running", "stopping"))
+            "polar": _polar_status(output_dir, active=state in ("launching", "running", "stopping", "finishing"))
             if with_polar
             else None,
         }, progress
