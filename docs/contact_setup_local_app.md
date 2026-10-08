@@ -81,6 +81,15 @@ you intentionally pass an explicit host such as `--host 0.0.0.0`.
 
 Stop the app with `Ctrl-C`.
 
+## Recording with a Polar H10
+
+Tick "Also record Polar H10" under the record buttons to start the recorder with
+`--with-polar` (the choice is remembered in this browser). During the recording the strip
+shows the strap's state: streaming with the last HR, no skin contact, no data for N s,
+reconnecting, or failed (see `polar/record-polar.log`). Stop works as before; with Polar on
+the app waits up to 50 s instead of 5 s before force-killing, so the child can stop the
+strap's streams and write its summary. See `docs/polar_h10.md`.
+
 ## macOS Launcher Icon
 
 To create a clickable launcher on your Desktop:

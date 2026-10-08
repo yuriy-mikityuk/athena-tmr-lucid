@@ -394,6 +394,16 @@ button:disabled {
   color: #9a3412;
 }
 
+.record-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
 .record-hint {
   min-height: 20px;
   margin-top: 12px;
