@@ -36,6 +36,9 @@ CONNECTION_STATES = ("disconnected", "scanning", "connecting", "connected", "err
 
 CAFFEINATE = "/usr/bin/caffeinate"
 
+# The recorder rewrites progress.json every ~2 s while frames arrive.
+RECORDER_HEARTBEAT_STALE_SECONDS = 10.0
+
 # kind -> (preset, duration_hours, allow_short)
 RECORDING_KINDS: Dict[str, Tuple[str, float, bool]] = {
     "night": ("p21", 8.0, False),
@@ -95,6 +98,46 @@ def _read_json_tolerant(path: Path) -> Mapping[str, Any]:
         return json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, ValueError, OSError):
         return {}
+
+
+def _recorder_live_view(
+    progress: Mapping[str, Any], now_seconds: float
+) -> Optional[Tuple[Dict[str, Any], Optional[Dict[str, Any]]]]:
+    """Contact snapshot and source diagnostics from the recorder's heartbeat.
+
+    Returns None when progress.json carries no contact (older recorder, or no
+    frame yet). A heartbeat older than RECORDER_HEARTBEAT_STALE_SECONDS means
+    the recorder stopped getting frames, so the contact is reported stale with
+    no channels rather than replaying the last good values.
+    """
+    contact = progress.get("contact")
+    if not isinstance(contact, Mapping):
+        return None
+    heartbeat_age = _heartbeat_age_seconds(progress, now_seconds)
+    if heartbeat_age is None or heartbeat_age > RECORDER_HEARTBEAT_STALE_SECONDS:
+        contact = {**contact, "stale": True, "channels": {}}
+    try:
+        snapshot = ContactQualitySnapshot.from_dict(contact)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+    diagnostics = progress.get("source_diagnostics")
+    if isinstance(diagnostics, Mapping):
+        diagnostics = dict(diagnostics)
+        packet_age = diagnostics.get("last_packet_age_seconds")
+        if isinstance(packet_age, (int, float)) and heartbeat_age is not None:
+            diagnostics["last_packet_age_seconds"] = packet_age + heartbeat_age
+    else:
+        diagnostics = None
+    return snapshot.to_dict(), diagnostics
+
+
+def _heartbeat_age_seconds(progress: Mapping[str, Any], now_seconds: float) -> Optional[float]:
+    try:
+        updated_at = dt.datetime.fromisoformat(str(progress["updated_at"]))
+    except (KeyError, ValueError):
+        return None
+    return max(0.0, now_seconds - updated_at.timestamp())
 
 
 def _expected_report_path(output_dir: Path) -> str:
@@ -210,14 +253,23 @@ class LocalMuseAppState:
             contact = snapshot.to_dict()
             gate_payload = gate.to_dict()
 
+        source_diagnostics = self._source_diagnostics(source)
+        recording, progress = self._recording_payload_and_progress()
+        if recording.get("active"):
+            # The app released BLE to the recorder, so its own monitor sees
+            # nothing; show what the recorder publishes instead.
+            recorder_view = _recorder_live_view(progress, generated_at_seconds)
+            if recorder_view is not None:
+                contact, source_diagnostics = recorder_view
+
         return {
             "service": "muse-tmr-local-app",
             "generated_at_seconds": generated_at_seconds,
             "state": state,
             "contact": contact,
             "gate": gate_payload,
-            "source_diagnostics": self._source_diagnostics(source),
-            "recording": self._recording_payload(),
+            "source_diagnostics": source_diagnostics,
+            "recording": recording,
         }
 
     def contact(self) -> Mapping[str, Any]:
@@ -432,11 +484,14 @@ class LocalMuseAppState:
         return handle.state == "launching"
 
     def _recording_payload(self) -> Mapping[str, Any]:
+        return self._recording_payload_and_progress()[0]
+
+    def _recording_payload_and_progress(self) -> Tuple[Mapping[str, Any], Mapping[str, Any]]:
         escalate_pid: Optional[int] = None
         with self._lock:
             handle = self._recording
             if handle is None:
-                return {"active": False, "state": "idle"}
+                return {"active": False, "state": "idle"}, {}
             alive = self._recording_alive_unlocked()
             if (
                 handle.state == "stopping"
@@ -501,7 +556,7 @@ class LocalMuseAppState:
             "reconnect_attempts": reconnects,
             "last_event": progress.get("last_event") or summary.get("stop_reason"),
             "summary_available": summary_available,
-        }
+        }, progress
 
     def _build_record_command(self, kind: str, output_dir: Path) -> List[str]:
         preset, duration_hours, allow_short = RECORDING_KINDS[kind]

@@ -81,8 +81,8 @@ async function requestJson(path, options = {}) {
 
 function renderState(state) {
   latestState = { ...latestState, ...state };
-  const connection = latestState.connection_state || "disconnected";
-  stateLabel.textContent = stateText[connection] || connection;
+  const connection = displayConnection();
+  stateLabel.textContent = connectionLabel();
   renderSourceBadge(latestState.source || "unknown");
 
   document.querySelectorAll(".status-meter span").forEach((item) => {
@@ -107,12 +107,38 @@ async function refreshUiState() {
 function renderUiState(payload) {
   latestDiagnostics = { source_diagnostics: payload.source_diagnostics || null };
   latestRecording = payload.recording || {};
+  latestContact = payload.contact || {};
   renderState(payload.state || {});
   renderContact(payload.contact || {});
   renderGate(payload.gate || {});
   renderDiagnostics(latestDiagnostics);
   renderRecording(latestRecording);
   renderAppTitle();
+}
+
+// While a recording runs the app has handed BLE to the recorder, so the
+// headband state comes from the recorder's contact snapshot.
+function recorderStreaming() {
+  return (
+    Boolean(latestRecording.active) &&
+    latestContact.connection_state === "connected" &&
+    !latestContact.stale
+  );
+}
+
+function displayConnection() {
+  if (latestRecording.active) {
+    return recorderStreaming() ? "connected" : "connecting";
+  }
+  return latestState.connection_state || "disconnected";
+}
+
+function connectionLabel() {
+  if (latestRecording.active) {
+    return recorderStreaming() ? "Streaming to recorder" : "Waiting for recorder data";
+  }
+  const connection = latestState.connection_state || "disconnected";
+  return stateText[connection] || connection;
 }
 
 function renderAppTitle() {
@@ -176,9 +202,9 @@ function renderDeviceCard() {
   }
 
   deviceConnectionAge.textContent =
-    connection === "connected"
+    connection === "connected" && !latestRecording.active
       ? `Connected ${formatDuration(latestState.connected_elapsed_seconds)}`
-      : stateText[connection] || connection;
+      : connectionLabel();
   deviceAddress.textContent = device.address || "-";
   deviceSource.textContent = latestState.source || "unknown";
   deviceLastPacket.textContent =
@@ -594,6 +620,9 @@ function clamp(value, min, max) {
 }
 
 function numberOrNull(value) {
+  if (value == null || value === "") {
+    return null;
+  }
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }

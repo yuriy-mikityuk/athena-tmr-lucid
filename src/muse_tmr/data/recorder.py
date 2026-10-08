@@ -13,6 +13,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from muse_raw_stream import MuseRawStream
 
+from muse_tmr.contact import ContactQualityConfig, ContactQualityMonitor
 from muse_tmr.data.sample_types import MuseFrame
 from muse_tmr.data.watchdog import RecordingWatchdog, WatchdogEvent
 from muse_tmr.sources.base_source import BaseMuseSource, MuseSourceMetadata
@@ -90,6 +91,13 @@ class OvernightRecorder:
             modality_timeout_seconds=config.modality_timeout_seconds,
         )
         self._last_event_name: Optional[str] = None
+        # The recorder holds the only BLE connection while it runs, so it also
+        # publishes contact quality for the app. 128 Hz matches the app's live
+        # amused monitor.
+        self._contact_monitor = ContactQualityMonitor(
+            source=config.source_name,
+            config=ContactQualityConfig(sample_rate_hz=128.0),
+        )
 
     async def record(self, source: BaseMuseSource) -> RecordingSummary:
         self.config.output_dir.mkdir(parents=True, exist_ok=True)
@@ -218,9 +226,10 @@ class OvernightRecorder:
 
                     if frame.battery is not None:
                         last_battery_percent = frame.battery.percent
+                    self._contact_monitor.observe(frame)
 
                     now_monotonic = time.monotonic()
-                    if now_monotonic - last_progress_write >= 5.0:
+                    if now_monotonic - last_progress_write >= 2.0:
                         self._write_progress(
                             progress_path,
                             elapsed_seconds=now_monotonic - started_monotonic,
@@ -228,6 +237,10 @@ class OvernightRecorder:
                             decoded_frame_count=decoded_frame_count,
                             battery_percent=last_battery_percent,
                             reconnect_attempts=reconnect_attempts,
+                            contact=self._contact_monitor.snapshot(
+                                now_seconds=frame.timestamp
+                            ).to_dict(),
+                            source_diagnostics=_source_diagnostics(source),
                         )
                         last_progress_write = now_monotonic
 
@@ -366,6 +379,8 @@ class OvernightRecorder:
         decoded_frame_count: int,
         battery_percent: Optional[float],
         reconnect_attempts: int,
+        contact: Optional[Dict[str, Any]] = None,
+        source_diagnostics: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Write a small fixed-size heartbeat the app can poll cheaply.
 
@@ -382,7 +397,22 @@ class OvernightRecorder:
             "battery_percent": battery_percent,
             "reconnect_attempts": reconnect_attempts,
             "last_event": self._last_event_name,
+            "contact": contact,
+            "source_diagnostics": source_diagnostics,
         }
         tmp_path = path.with_suffix(".json.tmp")
         tmp_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
         os.replace(tmp_path, path)
+
+
+def _source_diagnostics(source: BaseMuseSource) -> Optional[Dict[str, Any]]:
+    """Best-effort source stats for the app; never allowed to break a recording."""
+    diagnostics = getattr(source, "diagnostics", None)
+    if diagnostics is None:
+        return None
+    try:
+        payload = dict(diagnostics())
+        json.dumps(payload)
+    except Exception:
+        return None
+    return payload

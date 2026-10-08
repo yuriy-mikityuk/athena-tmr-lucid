@@ -212,12 +212,16 @@ class ContactQualityMonitor:
         self._sequence = 0
 
     def update(self, frame: MuseFrame) -> ContactQualitySnapshot:
+        self.observe(frame)
+        return self.snapshot(now_seconds=frame.timestamp)
+
+    def observe(self, frame: MuseFrame) -> None:
+        """Add a frame to the window without computing a snapshot."""
         self._last_frame_timestamp = float(frame.timestamp)
         if frame.eeg is not None:
             self._frames.append(frame)
             self._prune(frame.timestamp)
         self._sequence += 1
-        return self.snapshot(now_seconds=frame.timestamp)
 
     def snapshot(
         self,
