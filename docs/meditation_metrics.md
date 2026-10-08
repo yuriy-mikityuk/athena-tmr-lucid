@@ -148,6 +148,28 @@ So the band carries signal and 55-95 Hz is the default indicator. The steep
 fall-off means it is attenuated by the device's filtering, so the jaw-clench
 check above is still worth doing once.
 
+## Polar H10 breathing and HRV
+
+When the recording was made with `muse-tmr record --with-polar`, `analyze-meditation`
+reads its `polar/` folder (skip it with `--no-polar`). For each block's analysed window
+(block start + trim to block end, same wall-clock base as Muse) `blocks.csv` gets
+`cardio_*` columns: breathing rate from chest ACC (spectral and breath-by-breath), EDR,
+mean HR, RMSSD, SDNN, RSA around the measured breathing rate, LF/HF, `hf_band_valid`,
+RR correction and ECG match percentages, `acc_posture_change_pct` and `resp_reliable`.
+They are contrasted A - B with group `chest` (exploratory), so `aggregate-meditation`
+picks them up across sessions.
+
+Breathing from chest ACC is only trusted when the chest was still (no 10 s window with a
+slow shift above 150 mG in more than 10 % of the block) and the spectral and
+breath-by-breath rates agree within 2/min. Untrusted blocks stay in `blocks.csv` but are
+left out of the breathing contrasts, and `summary.json` lists them under
+`cardio.breathing_unreliable_blocks`. On the first live H10 session both halves failed
+this check (moving around, disagreeing estimates), which is exactly what it is for.
+
+`cardio.breathing_confounded` is set when the two conditions differ in trusted breathing
+rate by more than 1 breath/min: slower breathing was one of the paper's findings for
+jhana, and it can also shift EEG and HRV, so treat it as a confound for the EEG contrasts.
+
 ## Limitations
 
 - n = 1 practitioner. 4 channels, reference at Fpz, temporal channels over the

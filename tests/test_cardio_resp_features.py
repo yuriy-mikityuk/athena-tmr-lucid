@@ -75,6 +75,18 @@ class RespirationTest(unittest.TestCase):
             self.assertAlmostEqual(result["rate_spectral_bpm"], breaths, delta=0.5)
             self.assertAlmostEqual(result["rate_breath_bpm"], breaths, delta=0.5)
 
+    def test_still_chest_is_reliable_and_posture_changes_are_not(self):
+        rng = np.random.default_rng(12)
+        t, xyz = chest_acc(180, rng, 10.0)
+        self.assertEqual(respiration_from_acc(t, xyz)["quality"], "ok")
+        moved = xyz.copy()
+        for start in (20, 60, 100, 140):  # lean, sit back, shift: slow 300-400 mG gravity changes
+            window = (t >= start) & (t < start + 8)
+            moved[window, 0] += 350.0 * np.sin(np.pi * (t[window] - start) / 8.0)
+        result = respiration_from_acc(t, moved)
+        self.assertEqual(result["quality"], "movement")
+        self.assertGreater(result["posture_change_pct"], 10.0)
+
     def test_edr_agrees_with_breathing(self):
         rng = np.random.default_rng(5)
         beats = beat_times(180, rng, breathing_hz=0.2)

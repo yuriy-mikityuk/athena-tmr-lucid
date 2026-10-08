@@ -127,4 +127,5 @@ offset and stays in the result as a small fixed lag.
 - ACC respiration breaks down with posture changes, movement and talking;
   breath-by-breath and spectral rates disagreeing is the warning sign.
 - The HF band is invalid during slow breathing, see above.
-- Not integrated into the meditation analysis yet (#122 follow-up).
+- Breathing from ACC is gated by `resp_reliable` (no posture changes, spectral and
+  breath-by-breath rates agree); `analyze-meditation` only compares trusted blocks.
