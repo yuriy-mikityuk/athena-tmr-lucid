@@ -47,6 +47,8 @@ MEDITATION_AGGREGATE_SCHEMA_VERSION = 1
 TIME_BASE = "seconds_from_recording_start"
 PRIMARY_METRIC = "lzc"
 PRIMARY_GROUP = "all"
+# The one predeclared test: raw (not EMG-residualized) contrast on clean epochs.
+PRIMARY_VARIANT = "clean"
 VARIANTS = ("all", "clean")
 # Power metrics are contrasted, correlated and residualized on log10.
 LOG10_METRICS = frozenset(
@@ -408,7 +410,10 @@ def build_meditation_analysis(
         "primary_metric": {
             "metric": PRIMARY_METRIC,
             "group": PRIMARY_GROUP,
-            "note": "Declared before analysis. Every other metric and group is exploratory.",
+            "variant": PRIMARY_VARIANT,
+            "kind": "raw",
+            "note": "Declared before analysis. Every other metric, group, variant and the "
+            "EMG-residualized contrasts are exploratory.",
         },
         "config": config.to_dict(),
         "versions": _versions(),
@@ -486,6 +491,10 @@ def _block_table(
     return pd.DataFrame(rows)
 
 
+def is_primary(metric: str, group: str, variant: str, kind: str = "raw") -> bool:
+    return (metric, group, variant, kind) == (PRIMARY_METRIC, PRIMARY_GROUP, PRIMARY_VARIANT, "raw")
+
+
 def _contrast(
     block_rows: pd.DataFrame,
     column: str,
@@ -499,7 +508,7 @@ def _contrast(
     b = block_rows.loc[block_rows["condition"] == condition_b, column].dropna()
     a_mean = float(a.mean()) if len(a) else math.nan
     b_mean = float(b.mean()) if len(b) else math.nan
-    primary = metric == PRIMARY_METRIC and group == PRIMARY_GROUP
+    primary = is_primary(metric, group, variant)
     return {
         "metric": metric,
         "group": group,
@@ -577,7 +586,7 @@ def _emg_section(
                     "metric": metric,
                     "group": group,
                     "variant": variant,
-                    "primary": metric == PRIMARY_METRIC and group == PRIMARY_GROUP,
+                    "primary": False,
                     **_residualized_contrast(selected, values, emg_values, condition_a, condition_b),
                 }
             )
@@ -741,7 +750,7 @@ def aggregate_meditation_summaries(
     rows = []
     for (metric, group, variant, kind), differences in sorted(per_contrast.items()):
         finite = np.asarray([value for value in differences if math.isfinite(value)], dtype=float)
-        primary = metric == PRIMARY_METRIC and group == PRIMARY_GROUP
+        primary = is_primary(metric, group, variant, kind)
         row: Dict[str, object] = {
             "metric": metric,
             "group": group,
@@ -772,7 +781,12 @@ def aggregate_meditation_summaries(
         "sessions": labels,
         "n_sessions": n_sessions,
         "min_sessions_for_inference": min_sessions_for_inference,
-        "primary_metric": {"metric": PRIMARY_METRIC, "group": PRIMARY_GROUP},
+        "primary_metric": {
+            "metric": PRIMARY_METRIC,
+            "group": PRIMARY_GROUP,
+            "variant": PRIMARY_VARIANT,
+            "kind": "raw",
+        },
         "emg_confounded_sessions": [
             label for label, summary in zip(labels, summaries) if summary.get("emg", {}).get("emg_confounded")
         ],

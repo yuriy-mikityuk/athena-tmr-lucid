@@ -115,6 +115,10 @@ class MeditationAnalysisEndToEndTest(unittest.TestCase):
         self.assertEqual(summary["counts"]["blocks_with_epochs"], 4)
         lzc = contrast(summary, "lzc")
         self.assertTrue(lzc["primary"])
+        primaries = [item for item in summary["contrasts"] if item["primary"]]
+        self.assertEqual(len(primaries), 1)
+        self.assertFalse(contrast(summary, "lzc", variant="all")["primary"])
+        self.assertFalse(any(item["primary"] for item in summary["emg"]["residualized_contrasts"]))
         self.assertGreater(lzc["difference"], 0.2)
         self.assertGreater(contrast(summary, "permutation_entropy")["difference"], 0)
         self.assertLess(contrast(summary, "aperiodic_exponent_2_40")["difference"], -0.5)
@@ -250,7 +254,9 @@ class AggregateMeditationTest(unittest.TestCase):
         self.assertNotIn("ci95", lzc)
         self.assertTrue(result["warnings"])
         self.assertEqual(result["emg_confounded_sessions"], ["s2"])
-        self.assertEqual(self.row(result, kind="emg_residualized")["differences"], [0.05, 0.10, 0.15])
+        residual = self.row(result, kind="emg_residualized")
+        self.assertEqual(residual["differences"], [0.05, 0.10, 0.15])
+        self.assertFalse(residual["primary"])
         self.assertEqual(self.row(result, metric="sample_entropy")["n_sessions"], 0)
 
     def test_eight_sessions_get_sign_flip_and_bootstrap(self):

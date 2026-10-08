@@ -163,6 +163,20 @@ class ExtractComplexityFeaturesTest(unittest.TestCase):
         for metric in EPOCH_METRICS:
             self.assertIn(f"{metric}_frontal", row.values)
 
+    def test_missing_or_short_channel_marks_the_epoch(self):
+        rng = np.random.default_rng(1)
+        n = 2556
+        channels = {name: list(20.0 * rng.standard_normal(n)) for name in ("TP9", "AF7", "AF8")}
+        row = extract_complexity_features(self.epoch(channels))
+        self.assertTrue(row.is_artifact)
+        self.assertIn("eeg_missing_TP10", row.artifact_flags)
+        self.assertIn("TP10", row.bad_channels)
+
+        channels["TP10"] = list(20.0 * rng.standard_normal(120)) + [float("nan")] * (n - 120)
+        row = extract_complexity_features(self.epoch(channels))
+        self.assertIn("eeg_short_TP10", row.artifact_flags)
+        self.assertTrue(math.isnan(row.values["lzc_TP10"]))
+
 
 @unittest.skipUnless(HAS_ANTROPY, "antropy not installed")
 class AntropyCrossCheckTest(unittest.TestCase):

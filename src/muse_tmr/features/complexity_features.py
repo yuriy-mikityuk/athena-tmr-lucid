@@ -181,23 +181,34 @@ def extract_complexity_features(
     """Per-channel metrics plus channel-group means for one epoch.
 
     Artifact flags come from ``eeg_features`` (clipping, flatline, empty,
-    nonfinite, coverage). Flagged epochs are kept and marked; channels flagged
-    bad get NaN and are left out of the group means.
+    nonfinite, coverage), plus ``eeg_missing_<ch>`` / ``eeg_short_<ch>`` when a
+    configured channel is absent or too short, so a group mean never silently
+    covers fewer channels in a "clean" epoch. Flagged epochs are kept and
+    marked; bad channels get NaN and are left out of the group means.
     """
     config = config or ComplexityConfig()
     config.validate()
     if channels is None:
         channels = _collect_epoch_eeg(epoch)
     eeg_row = extract_eeg_features(epoch, config=config.eeg_feature_config())
+    flags = set(eeg_row.artifact_flags)
     bad = set(eeg_row.bad_channels)
+    min_samples = config.min_channel_seconds * config.sample_rate_hz
+    for channel in config.channels:
+        values = channels.get(channel)
+        if values is None:
+            flags.add(f"eeg_missing_{channel}")
+            bad.add(channel)
+        elif np.count_nonzero(np.isfinite(values)) < min_samples:
+            flags.add(f"eeg_short_{channel}")
+            bad.add(channel)
 
     per_channel: Dict[str, Dict[str, float]] = {}
     for channel in config.channels:
-        values = channels.get(channel)
-        if channel in bad or values is None:
+        if channel in bad:
             per_channel[channel] = {metric: math.nan for metric in EPOCH_METRICS}
             continue
-        per_channel[channel] = channel_metrics(values, config)
+        per_channel[channel] = channel_metrics(channels[channel], config)
 
     values: Dict[str, float] = {}
     for metric in EPOCH_METRICS:
@@ -212,8 +223,8 @@ def extract_complexity_features(
         start_time=epoch.start_time,
         end_time=epoch.end_time,
         values=values,
-        artifact_flags=tuple(eeg_row.artifact_flags),
-        bad_channels=tuple(eeg_row.bad_channels),
+        artifact_flags=tuple(sorted(flags)),
+        bad_channels=tuple(sorted(bad)),
     )
 
 

@@ -78,8 +78,9 @@ EEG, 10 s epochs, no correction across metrics.
    intervals. With 8 or more: two-sided sign-flip permutation test (exact up to
    16 sessions) and a bootstrap 95% CI.
 
-**Primary metric, declared up front: all-channel mean LZC on clean epochs.**
-Everything else is labeled exploratory in the outputs.
+**Primary metric, declared up front: the raw all-channel mean LZC contrast on
+clean epochs.** Everything else, including the all-epochs variant and the
+EMG-residualized contrasts, is labeled exploratory in the outputs.
 
 ## Epochs and blocks
 
@@ -88,8 +89,10 @@ Everything else is labeled exploratory in the outputs.
   first 30 s of the block (`--trim-block-start`). The settle period and anything
   outside blocks are ignored.
 - Artifact flags (clipping, flatline, empty, nonfinite, low coverage) come from
-  `eeg_features`. Flagged epochs are kept and marked; flagged channels get NaN and
-  are left out of the group means. Every contrast is reported twice: `all` epochs
+  `eeg_features`, plus `eeg_missing_<ch>` / `eeg_short_<ch>` when one of the four
+  channels is absent or shorter than 2 s, so a "clean" group mean never silently
+  covers fewer channels. Flagged epochs are kept and marked; flagged channels get
+  NaN and are left out of the group means. Every contrast is reported twice: `all` epochs
   and `clean` epochs.
 - Channel groups: per channel, `all` (mean of the four), `frontal` (AF7, AF8),
   `temporal` (TP9, TP10).
