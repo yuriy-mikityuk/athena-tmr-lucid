@@ -1073,9 +1073,16 @@ class TestLocalMuseAppRecentRecordings(TestLocalMuseAppReport):
 
         folder = self.make_recording("session", "20261009_010000")
         # A recorder this app instance does not know about, with the folder on its command line.
-        recorder = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)", str(folder.resolve())])
+        ready = folder / "ready"
+        recorder = subprocess.Popen(
+            [sys.executable, "-c", "import pathlib, sys, time; pathlib.Path(sys.argv[2]).touch(); time.sleep(30)",
+             str(folder.resolve()), str(ready)]
+        )
         self.addCleanup(recorder.wait)
         self.addCleanup(recorder.kill)
+        deadline = time.time() + 10
+        while not ready.exists() and time.time() < deadline:  # until exec has replaced the forked command line
+            time.sleep(0.02)
         (folder / "launch.json").write_text(json.dumps({"pid": recorder.pid}))
         _payload, status = self.state.build_report_for("session", folder.name)
         self.assertEqual(int(status), 409)
