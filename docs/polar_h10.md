@@ -117,6 +117,15 @@ offset and stays in the result as a small fixed lag.
   component does not say which phase is inhalation without a reference, so the
   ratio could silently come out inverted.
 
+## In the nightly REM report
+
+`scripts/generate_nightly_report.py` (and the app's "Build report") adds a "Heart and
+breathing" chart under the REM curve when the recording has `polar/`: HR and breathing per
+5-minute window on the same time axis, untrusted breathing windows drawn hollow, plus a
+night summary (mean and lowest HR, RMSSD, median trusted breathing, RR-to-ECG match) and a
+table. A Polar log that cannot be read is reported in that section instead of failing the
+report.
+
 ## Limitations
 
 - BLE delay and dropouts, especially with two peripherals on one Mac adapter.
