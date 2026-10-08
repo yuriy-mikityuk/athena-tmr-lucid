@@ -19,6 +19,8 @@ const recordHint = document.querySelector("#record-hint");
 const recordReport = document.querySelector("#record-report");
 const recordReportText = document.querySelector("#record-report-text");
 const recordReportPath = document.querySelector("#record-report-path");
+const buildReportButton = document.querySelector("#build-report-button");
+const openReportLink = document.querySelector("#open-report-link");
 const recordingStrip = document.querySelector("#recording-strip");
 const recordingStatus = document.querySelector("#recording-status");
 const recordingKind = document.querySelector("#recording-kind");
@@ -402,16 +404,27 @@ function renderRecording(recording) {
   stopRecordingButton.disabled = state === "stopping";
 
   const finished = state === "completed" || state === "failed";
-  const reportPath = latestRecording.report_path;
   const outputDir = latestRecording.output_dir;
   recordReport.hidden = !(finished && outputDir);
   if (finished && outputDir) {
-    recordReportText.textContent =
-      state === "completed"
-        ? `Recording finished (${reportPath || "report ready"}). Generate the REM report with:`
-        : "Recording ended early. You can still try a report with:";
-    recordReportPath.textContent =
-      latestRecording.report_command || `python scripts/generate_nightly_report.py ${outputDir}`;
+    const report = latestRecording.report || { state: "none" };
+    const ended = state === "completed" ? "Recording finished." : "Recording ended without a summary.";
+    const reportText = {
+      none: "Build the REM report for it?",
+      running: "Building the report...",
+      ready: "Report ready.",
+      failed: `Report failed, see ${report.log_path || "report.log"}. You can also run:`
+    };
+    recordReportText.textContent = `${ended} ${reportText[report.state] || ""}`;
+    buildReportButton.hidden = report.state === "ready";
+    buildReportButton.disabled = report.state === "running";
+    buildReportButton.textContent = report.state === "failed" ? "Try again" : "Build report";
+    openReportLink.hidden = !(report.state === "ready" && report.url);
+    if (report.url) {
+      openReportLink.href = report.url;
+    }
+    recordReportPath.hidden = report.state !== "failed";
+    recordReportPath.textContent = latestRecording.report_command || "";
   }
 
   const showHint = connection === "connected" && !active && !finished;
@@ -581,6 +594,15 @@ async function startRecording(kind) {
 
 startSessionButton.addEventListener("click", () => startRecording("session"));
 startNightButton.addEventListener("click", () => startRecording("night"));
+
+buildReportButton.addEventListener("click", async () => {
+  buildReportButton.disabled = true;
+  try {
+    await requestJson("/api/session/report", { method: "POST" });
+  } finally {
+    await refreshUiState();
+  }
+});
 
 stopRecordingButton.addEventListener("click", async () => {
   stopRecordingButton.disabled = true;

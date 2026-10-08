@@ -70,6 +70,8 @@ class RecordingHandle:
     state: str = "launching"  # launching | running | stopping | completed | failed
     stop_signalled_at_seconds: Optional[float] = None
     with_polar: bool = False
+    report_process: Optional[Any] = None  # report builder Popen (or a fake in tests)
+    report_launching: bool = False  # reserved under the lock until the builder is spawned
 
 
 def _real_launcher(command: List[str], log_path: Path):
@@ -295,6 +297,7 @@ class LocalMuseAppState:
         recordings_base: Optional[Path] = None,
         now_fn: Optional[Callable[[], dt.datetime]] = None,
         build: Optional[str] = None,
+        reports_base: Optional[Path] = None,
     ) -> None:
         config.validate()
         self.config = config
@@ -302,6 +305,7 @@ class LocalMuseAppState:
         self._launcher = launcher if launcher is not None else _real_launcher
         self._terminator = terminator if terminator is not None else _real_terminator
         self._recordings_base = Path(recordings_base) if recordings_base is not None else None
+        self._reports_base = Path(reports_base) if reports_base is not None else None
         self._now = now_fn if now_fn is not None else (lambda: dt.datetime.now())
         self._recording: Optional[RecordingHandle] = None
         self._lock = threading.Lock()
@@ -538,6 +542,9 @@ class LocalMuseAppState:
         with self._lock:
             if self._recording is not None and self._recording_alive_unlocked():
                 return False
+            # A restart would drop the handle and with it the report's Open link.
+            if self._recording is not None and self._report_running_unlocked(self._recording):
+                return False
             if self._connection_state in ("scanning", "connecting", "connected"):
                 return False
             return self._session_started_at_seconds is None
@@ -658,12 +665,15 @@ class LocalMuseAppState:
                 handle.started_at_seconds,
                 handle.state,
                 handle.with_polar,
+                handle.report_process,
+                handle.report_launching,
             )
 
         if escalate_pid is not None:
             self._terminator(escalate_pid, signal.SIGKILL)
 
-        kind, output_dir, log_path, pid, preset, duration, started, state, with_polar = snapshot
+        (kind, output_dir, log_path, pid, preset, duration, started, state, with_polar, report_process,
+         report_launching) = snapshot
         progress = _read_json_tolerant(output_dir / "progress.json")
         summary = _read_json_tolerant(output_dir / "summary.json")
         summary_available = bool(summary)
@@ -700,6 +710,7 @@ class LocalMuseAppState:
             "log_path": str(log_path),
             "report_path": _expected_report_path(output_dir),
             "report_command": _report_command(output_dir),
+            "report": self.report_status(output_dir, report_process, report_launching),
             "started_at_seconds": started,
             "duration_seconds": duration,
             "elapsed_seconds": elapsed,
@@ -743,6 +754,82 @@ class LocalMuseAppState:
         if with_polar:
             command.append("--with-polar")
         return command
+
+    def reports_base(self) -> Path:
+        if self._reports_base is not None:
+            return self._reports_base
+        return self._recordings_base_resolved().parent / "reports"
+
+    def _report_file(self, output_dir: Path) -> Path:
+        kind = output_dir.parent.name if output_dir.parent.name in ("night", "session") else "nightly"
+        return self.reports_base() / kind / f"{output_dir.name}.html"
+
+    def build_report(self) -> Tuple[Mapping[str, Any], HTTPStatus]:
+        """Run scripts/generate_nightly_report.py for the finished recording, detached."""
+        from muse_tmr.cli.main import _find_project_root
+
+        with self._lock:
+            handle = self._recording
+            if handle is None:
+                return {"error": "no recording to report on"}, HTTPStatus.CONFLICT
+            if self._recording_alive_unlocked():
+                return {"error": "the recording is still running"}, HTTPStatus.CONFLICT
+            if handle.report_launching or self._report_running_unlocked(handle):
+                return_existing = True
+            else:
+                # Reserve before releasing the lock so a second tab cannot start another build.
+                handle.report_launching = True
+                return_existing = False
+        if return_existing:
+            return self._recording_payload(), HTTPStatus.OK
+        project_root = _find_project_root(Path(__file__).resolve())
+        if project_root is None:
+            with self._lock:
+                handle.report_launching = False
+            return {"error": "report script not found: not running from a project checkout"}, HTTPStatus.CONFLICT
+        report_file = self._report_file(handle.output_dir)
+        command = [
+            sys.executable,
+            str(project_root / "scripts" / "generate_nightly_report.py"),
+            str(handle.output_dir.resolve()),
+            "--output",
+            str(report_file.resolve()),
+        ]
+        try:
+            report_file.parent.mkdir(parents=True, exist_ok=True)
+            process = self._launcher(command, handle.output_dir / "report.log")
+        except Exception as exc:
+            with self._lock:
+                handle.report_launching = False
+            return {"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR
+        with self._lock:
+            handle.report_process = process
+            handle.report_launching = False
+        return self._recording_payload(), HTTPStatus.OK
+
+    @staticmethod
+    def _report_running_unlocked(handle: RecordingHandle) -> bool:
+        return handle.report_launching or (
+            handle.report_process is not None and handle.report_process.poll() is None
+        )
+
+    def report_status(self, output_dir: Path, process: Optional[Any], launching: bool = False) -> Dict[str, Any]:
+        report_file = self._report_file(output_dir)
+        exit_code = process.poll() if process is not None else None
+        if launching or (process is not None and exit_code is None):
+            state = "running"
+        elif report_file.is_file() and (process is None or exit_code == 0):
+            state = "ready"
+        elif process is not None:
+            state = "failed"
+        else:
+            state = "none"
+        relative = report_file.relative_to(self.reports_base()).as_posix()
+        return {
+            "state": state,
+            "url": f"/reports/{relative}" if state == "ready" else None,
+            "log_path": str(output_dir / "report.log"),
+        }
 
     def _recordings_base_resolved(self) -> Path:
         if self._recordings_base is not None:
@@ -1050,6 +1137,9 @@ class LocalMuseAppHandler(BaseHTTPRequestHandler):
         if path == "/api/muse/gate":
             self._write_json(self.server.app_state.gate())
             return
+        if path.startswith("/reports/"):
+            self._serve_report(path[len("/reports/"):])
+            return
         if path == "/api/muse/diagnostics":
             self._write_json(self.server.app_state.diagnostics())
             return
@@ -1082,6 +1172,10 @@ class LocalMuseAppHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/api/session/record/stop":
             payload, status = self.server.app_state.stop_recording()
+            self._write_json(payload, status=status)
+            return
+        if self.path == "/api/session/report":
+            payload, status = self.server.app_state.build_report()
             self._write_json(payload, status=status)
             return
         self.send_error(HTTPStatus.NOT_FOUND, "unknown app endpoint")
@@ -1130,6 +1224,21 @@ class LocalMuseAppHandler(BaseHTTPRequestHandler):
             if interval_seconds > 0 and (count <= 0 or sent < count):
                 time.sleep(interval_seconds)
 
+    def _serve_report(self, relative_path: str) -> None:
+        """Generated HTML reports only, from inside the reports folder."""
+        root = self.server.app_state.reports_base().resolve()
+        normalized = posixpath.normpath("/" + relative_path).lstrip("/")
+        file_path = (root / normalized).resolve()
+        if file_path.suffix != ".html" or not _is_relative_to(file_path, root) or not file_path.is_file():
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        body = file_path.read_bytes()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def _serve_static(self) -> None:
         relative_path = self.path.split("?", 1)[0]
         if relative_path in {"", "/"}:
@@ -1162,6 +1271,7 @@ def create_local_app_server(
     recordings_base: Optional[Path] = None,
     now_fn: Optional[Callable[[], dt.datetime]] = None,
     build: Optional[str] = None,
+    reports_base: Optional[Path] = None,
 ) -> LocalMuseAppServer:
     config.validate()
     static_dir = resources.files("muse_tmr.app").joinpath("static")
@@ -1175,6 +1285,7 @@ def create_local_app_server(
             recordings_base=recordings_base,
             now_fn=now_fn,
             build=build,
+            reports_base=reports_base,
         ),
         static_dir=Path(str(static_dir)),
     )

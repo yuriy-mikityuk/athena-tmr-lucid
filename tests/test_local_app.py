@@ -828,6 +828,123 @@ class TestLocalMuseAppRecording(unittest.TestCase):
             self.assertEqual(len(self.launcher.calls), 1)
 
 
+class TestLocalMuseAppReport(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        root = Path(self._tmp.name)
+        self.reports = root / "reports"
+        self.procs = []
+
+        def launcher(command, log_path):
+            proc = _FakeProc(pid=5000 + len(self.procs))
+            self.procs.append((list(command), proc))
+            return proc
+
+        self.server = create_local_app_server(
+            AppConfig(port=0, source="amused"),
+            launcher=launcher,
+            terminator=TerminatorSpy(),
+            recordings_base=root / "recordings",
+            reports_base=self.reports,
+            now_fn=lambda: _FIXED_NOW,
+        )
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.app_state.shutdown)
+        self.state = self.server.app_state
+
+    def finish_recording(self):
+        payload, _ = self.state.start_recording("session")
+        output_dir = Path(payload["output_dir"])
+        (output_dir / "summary.json").write_text(json.dumps({"stop_reason": "duration_complete"}))
+        self.procs[0][1].returncode = 0
+        return output_dir
+
+    def test_no_report_while_recording(self):
+        self.state.start_recording("session")
+        _payload, status = self.state.build_report()
+        self.assertEqual(int(status), 409)
+
+    def test_build_runs_the_script_and_reports_progress(self):
+        output_dir = self.finish_recording()
+        self.assertEqual(self.state.ui_state()["recording"]["report"]["state"], "none")
+
+        payload, status = self.state.build_report()
+        self.assertEqual(int(status), 200)
+        command, report_proc = self.procs[1]
+        report_file = (self.reports / "session" / f"{output_dir.name}.html").resolve()
+        self.assertEqual(command[0], sys.executable)
+        self.assertTrue(command[1].endswith("scripts/generate_nightly_report.py"))
+        self.assertEqual(command[2:], [str(output_dir.resolve()), "--output", str(report_file)])
+        self.assertEqual(payload["report"]["state"], "running")
+
+        # A second click while it runs does not start another builder.
+        self.state.build_report()
+        self.assertEqual(len(self.procs), 2)
+
+        report_file.write_text("<html>report</html>")
+        report_proc.returncode = 0
+        ready = self.state.ui_state()["recording"]["report"]
+        self.assertEqual(ready["state"], "ready")
+        self.assertEqual(ready["url"], f"/reports/session/{output_dir.name}.html")
+
+    def test_report_build_blocks_auto_update_restart(self):
+        self.finish_recording()
+        self.assertTrue(self.state.idle_for_update())
+        self.state.build_report()
+        self.assertFalse(self.state.idle_for_update())
+        self.procs[1][1].returncode = 0
+        self.assertTrue(self.state.idle_for_update())
+
+    def test_concurrent_build_requests_start_one_builder(self):
+        import threading as threads
+
+        self.finish_recording()
+        gate = threads.Event()
+        original = self.state._launcher
+
+        def slow_launcher(command, log_path):
+            gate.wait(2)
+            return original(command, log_path)
+
+        self.state._launcher = slow_launcher
+        results = []
+        workers = [threads.Thread(target=lambda: results.append(self.state.build_report())) for _ in range(2)]
+        for worker in workers:
+            worker.start()
+        time.sleep(0.2)
+        gate.set()
+        for worker in workers:
+            worker.join(5)
+        self.assertEqual(len(self.procs), 2)  # the recorder plus exactly one report builder
+        self.assertEqual(sorted(int(status) for _payload, status in results), [200, 200])
+
+    def test_failed_build_is_reported(self):
+        self.finish_recording()
+        self.state.build_report()
+        self.procs[1][1].returncode = 1
+        failed = self.state.ui_state()["recording"]["report"]
+        self.assertEqual(failed["state"], "failed")
+        self.assertTrue(failed["log_path"].endswith("report.log"))
+
+    def test_reports_are_served_and_nothing_else(self):
+        (self.reports / "session").mkdir(parents=True)
+        (self.reports / "session" / "a.html").write_text("<html>hello</html>")
+        (self.reports / "session" / "a.json").write_text("{}")
+        thread = threading.Thread(target=self.server.serve_forever)
+        thread.start()
+        self.addCleanup(thread.join, 2)
+        self.addCleanup(self.server.shutdown)
+        host, port = self.server.server_address
+        base = f"http://{host}:{port}"
+        with urllib.request.urlopen(f"{base}/reports/session/a.html", timeout=2) as response:
+            self.assertIn("hello", response.read().decode())
+        for bad in ("/reports/session/a.json", "/reports/../../../etc/passwd", "/reports/%2e%2e/%2e%2e/etc/hosts"):
+            with self.assertRaises(urllib.error.HTTPError) as error:
+                urllib.request.urlopen(f"{base}{bad}", timeout=2)
+            self.assertEqual(error.exception.code, 404, bad)
+
+
 class TestLocalMuseAppRecordingEndpoint(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()

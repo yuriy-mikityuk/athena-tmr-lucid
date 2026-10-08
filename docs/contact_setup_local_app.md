@@ -81,6 +81,15 @@ you intentionally pass an explicit host such as `--host 0.0.0.0`.
 
 Stop the app with `Ctrl-C`.
 
+## Reports
+
+When a recording ends, the box under the buttons offers "Build report". It runs
+`scripts/generate_nightly_report.py` for that recording in the background with the app's
+own Python and writes `data/reports/<kind>/<name>.html`; when it is done the box shows an
+"Open report" link served by the app (only `.html` files from `data/reports/`). If the
+build fails, the box points to `report.log` next to the recording and shows the command to
+run by hand.
+
 ## Recording with a Polar H10
 
 Tick "Also record Polar H10" under the record buttons to start the recorder with
