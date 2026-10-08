@@ -62,7 +62,14 @@ def pull_if_behind(repo_root: Path) -> Optional[str]:
     upstream = _git(repo_root, "rev-parse", f"{REMOTE}/{BRANCH}")
     if head is None or upstream is None or head == upstream:
         return None
-    if _git(repo_root, "merge", "--ff-only", "--quiet", f"{REMOTE}/{BRANCH}") is None:
+    # A local main that is ahead of origin also differs from it, and
+    # `merge --ff-only` is then a successful no-op; reporting that as an update
+    # would restart the app in a loop.
+    if _git(repo_root, "merge-base", "--is-ancestor", head, upstream) is None:
+        return None
+    if _git(repo_root, "merge", "--ff-only", "--quiet", upstream) is None:
+        return None
+    if _git(repo_root, "rev-parse", "HEAD") != upstream:
         return None
     return current_build(repo_root)
 

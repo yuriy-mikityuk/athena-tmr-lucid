@@ -72,6 +72,15 @@ class PullIfBehindTest(unittest.TestCase):
         self.assertIsNone(pull_if_behind(self.checkout))
         self.assertEqual((self.checkout / "app.txt").read_text(), "v1\n")
 
+    def test_local_main_ahead_of_origin_is_not_an_update(self):
+        (self.checkout / "local.txt").write_text("x\n")
+        git(self.checkout, "add", "local.txt")
+        git(self.checkout, "commit", "-q", "-m", "local")
+        before = current_build(self.checkout)
+
+        self.assertIsNone(pull_if_behind(self.checkout))
+        self.assertEqual(current_build(self.checkout), before)
+
     def test_diverged_main_is_not_merged(self):
         self.push_new_commit()
         (self.checkout / "local.txt").write_text("x\n")
