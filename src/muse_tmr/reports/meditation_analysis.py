@@ -887,18 +887,24 @@ def aggregate_meditation_summaries(
         labels = [str(item.get("recording") or index) for index, item in enumerate(summaries)]
     labels = list(labels)
     reference = tuple(summaries[0]["conditions"])
+    # One slot per session, so differences[i] always belongs to sessions[i];
+    # a session without a contrast (e.g. no Polar data) stays NaN / null.
     per_contrast: Dict[Tuple[str, str, str, str], List[float]] = {}
-    for summary in summaries:
+    for position, summary in enumerate(summaries):
         conditions = tuple(summary["conditions"])
         if set(conditions) != set(reference):
             raise ValueError(f"session conditions {conditions} do not match {reference}")
         sign = 1.0 if conditions == reference else -1.0
-        for item in summary.get("contrasts", ()):
-            key = (item["metric"], item["group"], item["variant"], "raw")
-            per_contrast.setdefault(key, []).append(sign * _to_float(item["difference"]))
-        for item in summary.get("emg", {}).get("residualized_contrasts", ()):
-            key = (item["metric"], item["group"], item["variant"], "emg_residualized")
-            per_contrast.setdefault(key, []).append(sign * _to_float(item["residualized_difference"]))
+        values = [
+            ((item["metric"], item["group"], item["variant"], "raw"), item["difference"])
+            for item in summary.get("contrasts", ())
+        ] + [
+            ((item["metric"], item["group"], item["variant"], "emg_residualized"), item["residualized_difference"])
+            for item in summary.get("emg", {}).get("residualized_contrasts", ())
+        ]
+        for key, value in values:
+            slots = per_contrast.setdefault(key, [math.nan] * len(summaries))
+            slots[position] = sign * _to_float(value)
 
     n_sessions = len(summaries)
     inference = n_sessions >= min_sessions_for_inference

@@ -266,9 +266,15 @@ class MeditationWithPolarTest(unittest.TestCase):
 
         self.assertEqual(cardio["breathing_unreliable_blocks"], [])
 
-        # The chest contrasts flow into the cross-session aggregate like any other.
-        aggregate = aggregate_meditation_summaries([summary, summary])
-        self.assertTrue(any(row["metric"] == "cardio_resp_rate_bpm" for row in aggregate["rows"]))
+        # The chest contrasts flow into the cross-session aggregate like any other,
+        # and a session recorded without Polar keeps its slot as a gap.
+        without_polar = {**summary, "contrasts": [item for item in summary["contrasts"] if item["group"] != "chest"]}
+        aggregate = aggregate_meditation_summaries([summary, without_polar, summary], labels=["s1", "s2", "s3"])
+        breathing = next(row for row in aggregate["rows"] if row["metric"] == "cardio_resp_rate_bpm")
+        self.assertEqual(aggregate["sessions"], ["s1", "s2", "s3"])
+        self.assertEqual(len(breathing["differences"]), 3)
+        self.assertTrue(math.isnan(breathing["differences"][1]))
+        self.assertEqual(breathing["n_sessions"], 2)
 
     def test_block_with_movement_is_left_out_of_breathing_contrasts(self):
         from muse_tmr.data.polar_session import load_polar_session
