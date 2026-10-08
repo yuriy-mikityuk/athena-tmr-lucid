@@ -87,7 +87,7 @@ Each stage has a runbook in `docs/` and an automated validator, so a failed prec
 
 ## CLI overview
 
-36 commands under one `muse-tmr` entry point. Full invocations with all flags: [`docs/USAGE.md`](docs/USAGE.md).
+38 commands under one `muse-tmr` entry point. Full invocations with all flags: [`docs/USAGE.md`](docs/USAGE.md).
 
 | Group | Commands |
 | ----- | -------- |
