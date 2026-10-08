@@ -71,6 +71,7 @@ class RecordingHandle:
     stop_signalled_at_seconds: Optional[float] = None
     with_polar: bool = False
     report_process: Optional[Any] = None  # report builder Popen (or a fake in tests)
+    report_launching: bool = False  # reserved under the lock until the builder is spawned
 
 
 def _real_launcher(command: List[str], log_path: Path):
@@ -541,6 +542,9 @@ class LocalMuseAppState:
         with self._lock:
             if self._recording is not None and self._recording_alive_unlocked():
                 return False
+            # A restart would drop the handle and with it the report's Open link.
+            if self._recording is not None and self._report_running_unlocked(self._recording):
+                return False
             if self._connection_state in ("scanning", "connecting", "connected"):
                 return False
             return self._session_started_at_seconds is None
@@ -662,12 +666,14 @@ class LocalMuseAppState:
                 handle.state,
                 handle.with_polar,
                 handle.report_process,
+                handle.report_launching,
             )
 
         if escalate_pid is not None:
             self._terminator(escalate_pid, signal.SIGKILL)
 
-        kind, output_dir, log_path, pid, preset, duration, started, state, with_polar, report_process = snapshot
+        (kind, output_dir, log_path, pid, preset, duration, started, state, with_polar, report_process,
+         report_launching) = snapshot
         progress = _read_json_tolerant(output_dir / "progress.json")
         summary = _read_json_tolerant(output_dir / "summary.json")
         summary_available = bool(summary)
@@ -704,7 +710,7 @@ class LocalMuseAppState:
             "log_path": str(log_path),
             "report_path": _expected_report_path(output_dir),
             "report_command": _report_command(output_dir),
-            "report": self.report_status(output_dir, report_process),
+            "report": self.report_status(output_dir, report_process, report_launching),
             "started_at_seconds": started,
             "duration_seconds": duration,
             "elapsed_seconds": elapsed,
@@ -768,11 +774,18 @@ class LocalMuseAppState:
                 return {"error": "no recording to report on"}, HTTPStatus.CONFLICT
             if self._recording_alive_unlocked():
                 return {"error": "the recording is still running"}, HTTPStatus.CONFLICT
-            running = handle.report_process is not None and handle.report_process.poll() is None
-        if running:
+            if handle.report_launching or self._report_running_unlocked(handle):
+                return_existing = True
+            else:
+                # Reserve before releasing the lock so a second tab cannot start another build.
+                handle.report_launching = True
+                return_existing = False
+        if return_existing:
             return self._recording_payload(), HTTPStatus.OK
         project_root = _find_project_root(Path(__file__).resolve())
         if project_root is None:
+            with self._lock:
+                handle.report_launching = False
             return {"error": "report script not found: not running from a project checkout"}, HTTPStatus.CONFLICT
         report_file = self._report_file(handle.output_dir)
         command = [
@@ -786,15 +799,24 @@ class LocalMuseAppState:
             report_file.parent.mkdir(parents=True, exist_ok=True)
             process = self._launcher(command, handle.output_dir / "report.log")
         except Exception as exc:
+            with self._lock:
+                handle.report_launching = False
             return {"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR
         with self._lock:
             handle.report_process = process
+            handle.report_launching = False
         return self._recording_payload(), HTTPStatus.OK
 
-    def report_status(self, output_dir: Path, process: Optional[Any]) -> Dict[str, Any]:
+    @staticmethod
+    def _report_running_unlocked(handle: RecordingHandle) -> bool:
+        return handle.report_launching or (
+            handle.report_process is not None and handle.report_process.poll() is None
+        )
+
+    def report_status(self, output_dir: Path, process: Optional[Any], launching: bool = False) -> Dict[str, Any]:
         report_file = self._report_file(output_dir)
         exit_code = process.poll() if process is not None else None
-        if process is not None and exit_code is None:
+        if launching or (process is not None and exit_code is None):
             state = "running"
         elif report_file.is_file() and (process is None or exit_code == 0):
             state = "ready"

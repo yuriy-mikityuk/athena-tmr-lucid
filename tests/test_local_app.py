@@ -888,6 +888,37 @@ class TestLocalMuseAppReport(unittest.TestCase):
         self.assertEqual(ready["state"], "ready")
         self.assertEqual(ready["url"], f"/reports/session/{output_dir.name}.html")
 
+    def test_report_build_blocks_auto_update_restart(self):
+        self.finish_recording()
+        self.assertTrue(self.state.idle_for_update())
+        self.state.build_report()
+        self.assertFalse(self.state.idle_for_update())
+        self.procs[1][1].returncode = 0
+        self.assertTrue(self.state.idle_for_update())
+
+    def test_concurrent_build_requests_start_one_builder(self):
+        import threading as threads
+
+        self.finish_recording()
+        gate = threads.Event()
+        original = self.state._launcher
+
+        def slow_launcher(command, log_path):
+            gate.wait(2)
+            return original(command, log_path)
+
+        self.state._launcher = slow_launcher
+        results = []
+        workers = [threads.Thread(target=lambda: results.append(self.state.build_report())) for _ in range(2)]
+        for worker in workers:
+            worker.start()
+        time.sleep(0.2)
+        gate.set()
+        for worker in workers:
+            worker.join(5)
+        self.assertEqual(len(self.procs), 2)  # the recorder plus exactly one report builder
+        self.assertEqual(sorted(int(status) for _payload, status in results), [200, 200])
+
     def test_failed_build_is_reported(self):
         self.finish_recording()
         self.state.build_report()
