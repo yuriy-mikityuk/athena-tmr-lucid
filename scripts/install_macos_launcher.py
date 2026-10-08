@@ -41,6 +41,11 @@ def main() -> int:
         help="Project checkout path to launch from.",
     )
     parser.add_argument("--force", action="store_true", help="Replace an existing launcher.")
+    parser.add_argument(
+        "--no-auto-update",
+        action="store_true",
+        help="Do not pass --auto-update (pull origin/main and restart when idle) to the app.",
+    )
     args = parser.parse_args()
 
     repo_root = args.repo_root.expanduser().resolve()
@@ -63,6 +68,7 @@ def main() -> int:
         address=args.address or "",
         host=args.host,
         port=args.port,
+        auto_update=not args.no_auto_update,
     )
     print(f"Installed launcher: {target}")
     return 0
@@ -77,6 +83,7 @@ def create_launcher_app(
     address: str,
     host: str,
     port: int,
+    auto_update: bool = True,
 ) -> None:
     contents = target / "Contents"
     macos = contents / "MacOS"
@@ -101,6 +108,7 @@ def create_launcher_app(
             port=port,
             url=url,
             log_path=log_path,
+            auto_update=auto_update,
         ),
         encoding="utf-8",
     )
@@ -160,6 +168,7 @@ def _runner_script(
     port: int,
     url: str,
     log_path: Path,
+    auto_update: bool = True,
 ) -> str:
     app_args = [
         "-m",
@@ -174,6 +183,8 @@ def _runner_script(
     ]
     if source == "amused" and address:
         app_args.extend(["--address", address])
+    if auto_update:
+        app_args.append("--auto-update")
     command = " ".join(quote(part) for part in app_args)
     return f"""#!/bin/zsh
 set -u

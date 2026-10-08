@@ -194,6 +194,7 @@ class AppConfig:
     mock_scenario: str = "mixed_fair_good"
     mock_interval_seconds: float = 1.0
     gate_stability_seconds: float = 5.0
+    auto_update: bool = False
 
     def validate(self) -> None:
         if self.source not in {"mock", "amused"}:
@@ -217,9 +218,11 @@ class LocalMuseAppState:
         terminator: Optional[Callable[[int, int], None]] = None,
         recordings_base: Optional[Path] = None,
         now_fn: Optional[Callable[[], dt.datetime]] = None,
+        build: Optional[str] = None,
     ) -> None:
         config.validate()
         self.config = config
+        self.build = build
         self._launcher = launcher if launcher is not None else _real_launcher
         self._terminator = terminator if terminator is not None else _real_terminator
         self._recordings_base = Path(recordings_base) if recordings_base is not None else None
@@ -296,6 +299,7 @@ class LocalMuseAppState:
 
         return {
             "service": "muse-tmr-local-app",
+            "build": self.build,
             "generated_at_seconds": generated_at_seconds,
             "state": state,
             "contact": contact,
@@ -430,6 +434,15 @@ class LocalMuseAppState:
         if thread is not None and thread.is_alive():
             thread.join(timeout=2.0)
         return self.state()
+
+    def idle_for_update(self) -> bool:
+        """True when restarting the app would not interrupt anything."""
+        with self._lock:
+            if self._recording is not None and self._recording_alive_unlocked():
+                return False
+            if self._connection_state in ("scanning", "connecting", "connected"):
+                return False
+            return self._session_started_at_seconds is None
 
     def shutdown(self) -> None:
         # Intentionally does NOT stop a running recording: the recorder is a
@@ -1018,6 +1031,7 @@ def create_local_app_server(
     terminator: Optional[Callable[[int, int], None]] = None,
     recordings_base: Optional[Path] = None,
     now_fn: Optional[Callable[[], dt.datetime]] = None,
+    build: Optional[str] = None,
 ) -> LocalMuseAppServer:
     config.validate()
     static_dir = resources.files("muse_tmr.app").joinpath("static")
@@ -1030,20 +1044,38 @@ def create_local_app_server(
             terminator=terminator,
             recordings_base=recordings_base,
             now_fn=now_fn,
+            build=build,
         ),
         static_dir=Path(str(static_dir)),
     )
 
 
 def run_local_app(config: AppConfig) -> int:
-    server = create_local_app_server(config)
+    from muse_tmr.app.auto_update import AutoUpdater, current_build
+    from muse_tmr.cli.main import _find_project_root
+
+    project_root = _find_project_root(Path(__file__).resolve())
+    build = current_build(project_root) if project_root is not None else None
+    server = create_local_app_server(config, build=build)
     host, port = server.server_address
-    print(f"Muse TMR local app serving at http://{host}:{port}")
+    print(
+        f"Muse TMR local app serving at http://{host}:{port} (build {build or 'unknown'})",
+        flush=True,
+    )
+    updater = None
+    if config.auto_update:
+        if project_root is None:
+            print("auto-update off: not running from a project checkout")
+        else:
+            updater = AutoUpdater(project_root, is_idle=server.app_state.idle_for_update)
+            updater.start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        if updater is not None:
+            updater.stop()
         server.app_state.shutdown()
         server.server_close()
     return 0
