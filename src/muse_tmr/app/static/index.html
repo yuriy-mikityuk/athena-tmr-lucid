@@ -26,6 +26,7 @@
           <span id="recording-kind"></span>
           <span id="recording-elapsed">00:00</span>
           <span id="recording-battery"></span>
+          <span id="recording-polar" hidden></span>
           <span id="recording-last-event"></span>
         </div>
         <div class="status-meter" aria-hidden="true">
@@ -90,6 +91,10 @@
           <button type="button" id="stop-recording-button" hidden>Stop recording</button>
           <button type="button" id="disconnect-button" hidden>Disconnect</button>
         </div>
+        <label class="record-option" id="polar-option" hidden>
+          <input type="checkbox" id="with-polar-checkbox">
+          Also record Polar H10 (chest strap: ECG, RR, breathing)
+        </label>
         <div class="record-hint" id="record-hint" role="status" hidden></div>
         <div class="record-report" id="record-report" hidden>
           <span id="record-report-text"></span>

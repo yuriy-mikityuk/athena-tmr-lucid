@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import datetime as dt
 import json
 import mimetypes
@@ -32,6 +33,7 @@ from muse_tmr.contact import (
     available_mock_contact_scenarios,
     builtin_contact_snapshots,
 )
+from muse_tmr.sources.polar_h10 import parse_heart_rate_measurement
 
 CONNECTION_STATES = ("disconnected", "scanning", "connecting", "connected", "error")
 
@@ -39,6 +41,13 @@ CAFFEINATE = "/usr/bin/caffeinate"
 
 # The recorder rewrites progress.json every ~2 s while frames arrive.
 RECORDER_HEARTBEAT_STALE_SECONDS = 10.0
+
+# After Stop (SIGINT to the group) the recorder gets this long before SIGKILL.
+# With a Polar H10 child it first waits for the child to stop the strap's
+# streams and write its summary (up to 30 s, then SIGTERM for 10 s).
+STOP_GRACE_SECONDS = 5.0
+STOP_GRACE_WITH_POLAR_SECONDS = 50.0
+POLAR_STALE_SECONDS = 10.0
 
 # kind -> (preset, duration_hours, allow_short)
 RECORDING_KINDS: Dict[str, Tuple[str, float, bool]] = {
@@ -60,6 +69,7 @@ class RecordingHandle:
     process: Optional[Any] = None  # Popen, or a fake in tests; None after app restart
     state: str = "launching"  # launching | running | stopping | completed | failed
     stop_signalled_at_seconds: Optional[float] = None
+    with_polar: bool = False
 
 
 def _real_launcher(command: List[str], log_path: Path):
@@ -99,6 +109,72 @@ def _read_json_tolerant(path: Path) -> Mapping[str, Any]:
         return json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, ValueError, OSError):
         return {}
+
+
+def _polar_status(output_dir: Path, *, active: bool, now: Optional[float] = None) -> Dict[str, Any]:
+    """What the Polar H10 child is doing, from the files it writes.
+
+    state: starting | connected | stale | reconnecting | stopped | failed.
+    """
+    now = time.time() if now is None else now
+    polar_dir = output_dir / "polar"
+    status: Dict[str, Any] = {"state": "starting", "last_event": None, "data_age_seconds": None,
+                              "heart_rate_bpm": None, "contact": None}
+    events = _tail_jsonl(polar_dir / "events.jsonl")
+    if events:
+        status["last_event"] = events[-1].get("event")
+    raw_path = polar_dir / "raw_notifications.jsonl"
+    try:
+        status["data_age_seconds"] = max(0.0, now - raw_path.stat().st_mtime)
+    except OSError:
+        pass
+    for record in reversed(_tail_jsonl(raw_path)):
+        if record.get("char") == "hr":
+            try:
+                measurement = parse_heart_rate_measurement(base64.b64decode(record["b64"]))
+                status["heart_rate_bpm"] = measurement.heart_rate_bpm
+                status["contact"] = measurement.sensor_contact
+            except Exception:
+                pass
+            break
+
+    muse_events = [event.get("event") for event in _tail_jsonl(output_dir / "events.jsonl")]
+    summary = _read_json_tolerant(polar_dir / "summary.json")
+    if summary:
+        status["state"] = "stopped"
+        status["stop_reason"] = summary.get("stop_reason")
+    elif "companion_start_failed" in muse_events or (active and "companion_exited" in muse_events):
+        status["state"] = "failed"
+    elif status["last_event"] in ("disconnected", "connect_failed"):
+        status["state"] = "reconnecting"
+    elif status["last_event"] == "connected":
+        age = status["data_age_seconds"]
+        status["state"] = "connected" if age is not None and age < POLAR_STALE_SECONDS else "stale"
+    elif status["last_event"] == "recording_stopped":
+        status["state"] = "stopped"
+    return status
+
+
+def _tail_jsonl(path: Path, max_bytes: int = 8192) -> List[Dict[str, Any]]:
+    """Complete JSON lines from the end of a file that is being appended to."""
+    try:
+        with path.open("rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            handle.seek(max(0, size - max_bytes))
+            chunk = handle.read()
+    except OSError:
+        return []
+    lines = chunk.decode("utf-8", errors="replace").splitlines()
+    if size > max_bytes and lines:
+        lines = lines[1:]  # first line is probably cut
+    records = []
+    for line in lines:
+        try:
+            records.append(json.loads(line))
+        except ValueError:
+            continue
+    return records
 
 
 def _recorder_live_view(
@@ -449,7 +525,9 @@ class LocalMuseAppState:
         # detached process meant to outlive the app.
         self.disconnect()
 
-    def start_recording(self, kind: Optional[str]) -> Tuple[Mapping[str, Any], HTTPStatus]:
+    def start_recording(
+        self, kind: Optional[str], with_polar: bool = False
+    ) -> Tuple[Mapping[str, Any], HTTPStatus]:
         if kind not in RECORDING_KINDS:
             return {"error": "kind must be night or session"}, HTTPStatus.BAD_REQUEST
         if self.config.source != "amused":
@@ -462,7 +540,7 @@ class LocalMuseAppState:
             output_dir = (
                 self._recordings_base_resolved() / kind / self._now().strftime("%Y%m%d_%H%M%S")
             )
-            command = self._build_record_command(kind, output_dir)
+            command = self._build_record_command(kind, output_dir, with_polar=with_polar)
             handle = RecordingHandle(
                 kind=kind,
                 output_dir=output_dir,
@@ -472,6 +550,7 @@ class LocalMuseAppState:
                 duration_seconds=duration_hours * 3600.0,
                 started_at_seconds=time.time(),
                 state="launching",
+                with_polar=bool(with_polar),
             )
             self._recording = handle
 
@@ -543,7 +622,8 @@ class LocalMuseAppState:
                 and alive
                 and handle.pid is not None
                 and handle.stop_signalled_at_seconds is not None
-                and time.time() - handle.stop_signalled_at_seconds > 5.0
+                and time.time() - handle.stop_signalled_at_seconds
+                > (STOP_GRACE_WITH_POLAR_SECONDS if handle.with_polar else STOP_GRACE_SECONDS)
             ):
                 escalate_pid = handle.pid
             snapshot = (
@@ -555,17 +635,22 @@ class LocalMuseAppState:
                 handle.duration_seconds,
                 handle.started_at_seconds,
                 handle.state,
+                handle.with_polar,
             )
 
         if escalate_pid is not None:
             self._terminator(escalate_pid, signal.SIGKILL)
 
-        kind, output_dir, log_path, pid, preset, duration, started, state = snapshot
+        kind, output_dir, log_path, pid, preset, duration, started, state, with_polar = snapshot
         progress = _read_json_tolerant(output_dir / "progress.json")
         summary = _read_json_tolerant(output_dir / "summary.json")
         summary_available = bool(summary)
 
-        if summary_available:
+        if summary_available and alive:
+            # The Muse summary is written first, then the recorder waits for its
+            # Polar child to stop the strap; it is not done until it exits.
+            state = "finishing"
+        elif summary_available:
             state = "completed"
         elif not alive and state in ("running", "stopping"):
             state = "failed"
@@ -584,7 +669,7 @@ class LocalMuseAppState:
             reconnects = summary.get("reconnect_attempts")
 
         return {
-            "active": state in ("launching", "running", "stopping"),
+            "active": state in ("launching", "running", "stopping", "finishing"),
             "kind": kind,
             "state": state,
             "pid": pid,
@@ -602,9 +687,13 @@ class LocalMuseAppState:
             "reconnect_attempts": reconnects,
             "last_event": progress.get("last_event") or summary.get("stop_reason"),
             "summary_available": summary_available,
+            "with_polar": with_polar,
+            "polar": _polar_status(output_dir, active=state in ("launching", "running", "stopping", "finishing"))
+            if with_polar
+            else None,
         }, progress
 
-    def _build_record_command(self, kind: str, output_dir: Path) -> List[str]:
+    def _build_record_command(self, kind: str, output_dir: Path, with_polar: bool = False) -> List[str]:
         preset, duration_hours, allow_short = RECORDING_KINDS[kind]
         command = [
             CAFFEINATE,
@@ -629,6 +718,8 @@ class LocalMuseAppState:
         ]
         if allow_short:
             command.append("--allow-short")
+        if with_polar:
+            command.append("--with-polar")
         return command
 
     def _recordings_base_resolved(self) -> Path:
@@ -648,6 +739,7 @@ class LocalMuseAppState:
             "command": list(handle.command),
             "log_path": str(handle.log_path),
             "output_dir": str(handle.output_dir),
+            "with_polar": handle.with_polar,
         }
         try:
             handle.output_dir.mkdir(parents=True, exist_ok=True)
@@ -947,7 +1039,9 @@ class LocalMuseAppHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/api/session/record":
             body = self._read_json_body()
-            payload, status = self.server.app_state.start_recording(body.get("kind"))
+            payload, status = self.server.app_state.start_recording(
+                body.get("kind"), with_polar=bool(body.get("with_polar"))
+            )
             self._write_json(payload, status=status)
             return
         if self.path == "/api/session/record/stop":

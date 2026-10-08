@@ -147,6 +147,7 @@ class TestLocalMuseApp(unittest.TestCase):
         self.assertIn("headband-title", body)
         self.assertIn("session-strip", body)
         self.assertIn("device-card", body)
+        self.assertIn("with-polar-checkbox", body)
         self.assertIn("warning-log", body)
         self.assertIn("diagnostics-panel", body)
         self.assertIn("source-badge", body)
@@ -520,6 +521,86 @@ class TestLocalMuseAppRecording(unittest.TestCase):
         self.assertTrue(state.idle_for_update())
         state.start_recording("night")
         self.assertFalse(state.idle_for_update())
+
+    def test_record_with_polar_passes_flag_and_reports_h10_status(self):
+        import base64
+
+        state = self._make_state()
+        payload, status = state.start_recording("session", with_polar=True)
+        self.assertEqual(int(status), 200)
+        command, _log = self.launcher.calls[0]
+        self.assertEqual(command[-1], "--with-polar")
+        self.assertTrue(payload["with_polar"])
+        self.assertEqual(payload["polar"]["state"], "starting")
+        output_dir = Path(payload["output_dir"])
+        launch = json.loads((output_dir / "launch.json").read_text())
+        self.assertTrue(launch["with_polar"])
+
+        polar = output_dir / "polar"
+        polar.mkdir(parents=True)
+        (polar / "events.jsonl").write_text(
+            json.dumps({"event": "recording_started"}) + "\n" + json.dumps({"event": "connected"}) + "\n"
+        )
+        hr = bytes([0x16, 72, 0x00, 0x04])  # contact supported + detected, RR present
+        (polar / "raw_notifications.jsonl").write_text(
+            json.dumps({"char": "pmd_data", "b64": "AA=="}) + "\n"
+            + json.dumps({"char": "hr", "b64": base64.b64encode(hr).decode()}) + "\n"
+        )
+        status_now = state.ui_state()["recording"]["polar"]
+        self.assertEqual((status_now["state"], status_now["heart_rate_bpm"], status_now["contact"]), ("connected", 72, True))
+
+        (polar / "events.jsonl").write_text(json.dumps({"event": "disconnected"}) + "\n")
+        self.assertEqual(state.ui_state()["recording"]["polar"]["state"], "reconnecting")
+
+        (output_dir / "events.jsonl").write_text(json.dumps({"event": "companion_exited"}) + "\n")
+        self.assertEqual(state.ui_state()["recording"]["polar"]["state"], "failed")
+
+        (polar / "summary.json").write_text(json.dumps({"stop_reason": "user_stopped"}))
+        self.assertEqual(state.ui_state()["recording"]["polar"]["state"], "stopped")
+
+    def test_recording_stays_active_while_the_recorder_waits_for_its_polar_child(self):
+        proc = _FakeProc()
+        state = self._make_state(proc=proc)
+        payload, _ = state.start_recording("session", with_polar=True)
+        output_dir = Path(payload["output_dir"])
+        (output_dir / "summary.json").write_text(json.dumps({"stop_reason": "user_stopped"}))
+
+        finishing = state.ui_state()["recording"]
+        self.assertEqual(finishing["state"], "finishing")
+        self.assertTrue(finishing["active"])
+        _payload, status = state.start_recording("session")
+        self.assertEqual(int(status), 409)  # the old child may still hold the H10
+
+        proc.returncode = 0
+        done = state.ui_state()["recording"]
+        self.assertEqual(done["state"], "completed")
+        self.assertFalse(done["active"])
+
+    def test_recording_without_polar_has_no_status_or_flag(self):
+        state = self._make_state()
+        payload, _status = state.start_recording("night")
+        self.assertNotIn("--with-polar", self.launcher.calls[0][0])
+        self.assertIsNone(payload["polar"])
+
+    def test_stop_waits_longer_before_sigkill_when_polar_is_on(self):
+        for with_polar, expect_kill in ((False, True), (True, False)):
+            terminator = TerminatorSpy()
+            server = create_local_app_server(
+                AppConfig(port=0, source="amused"),
+                launcher=LauncherSpy(),
+                terminator=terminator,
+                recordings_base=self.recordings_base / str(with_polar),
+                now_fn=lambda: _FIXED_NOW,
+            )
+            self.addCleanup(server.server_close)
+            self.addCleanup(server.app_state.shutdown)
+            state = server.app_state
+            state.start_recording("session", with_polar=with_polar)
+            state.stop_recording()
+            state._recording.stop_signalled_at_seconds -= 10.0  # 10 s after Stop
+            state.ui_state()
+            killed = (4242, signal.SIGKILL) in terminator.signals
+            self.assertEqual(killed, expect_kill, f"with_polar={with_polar}")
 
     def test_stop_without_recording_returns_conflict(self):
         state = self._make_state()

@@ -23,6 +23,9 @@ const recordingKind = document.querySelector("#recording-kind");
 const recordingElapsed = document.querySelector("#recording-elapsed");
 const recordingBattery = document.querySelector("#recording-battery");
 const recordingLastEvent = document.querySelector("#recording-last-event");
+const recordingPolar = document.querySelector("#recording-polar");
+const polarOption = document.querySelector("#polar-option");
+const withPolarCheckbox = document.querySelector("#with-polar-checkbox");
 const contactSummary = document.querySelector("#contact-summary");
 const contactList = document.querySelector("#contact-list");
 const allGoodCheck = document.querySelector("#all-good-check");
@@ -179,7 +182,10 @@ function renderActions() {
   const canRecord = connection === "connected" && !recordingActive;
   startSessionButton.hidden = !canRecord;
   startNightButton.hidden = !canRecord;
-  stopRecordingButton.hidden = !(recordingActive && latestRecording.state !== "stopping");
+  polarOption.hidden = !(canRecord && isAmused);
+  stopRecordingButton.hidden = !(
+    recordingActive && latestRecording.state !== "stopping" && latestRecording.state !== "finishing"
+  );
 
   // Recording needs the live headband and good contact.
   const recordEnabled = canRecord && isAmused && contactReady;
@@ -332,6 +338,8 @@ function renderRecording(recording) {
         ? "Starting recording"
         : state === "stopping"
         ? "Stopping recording"
+        : state === "finishing"
+        ? "Finishing (stopping the H10)"
         : "Recording";
     recordingKind.textContent = [kindLabel, latestRecording.preset].filter(Boolean).join(" · ");
     recordingElapsed.textContent = formatDuration(latestRecording.elapsed_seconds);
@@ -340,6 +348,9 @@ function renderRecording(recording) {
     recordingLastEvent.textContent = latestRecording.last_event
       ? String(latestRecording.last_event).replaceAll("_", " ")
       : "";
+    const polarText = polarStatusText(latestRecording.polar);
+    recordingPolar.hidden = !polarText;
+    recordingPolar.textContent = polarText;
   }
 
   stopRecordingButton.textContent = state === "stopping" ? "Stopping" : "Stop recording";
@@ -473,6 +484,42 @@ connectButton.addEventListener("click", async () => {
   await refreshUiState();
 });
 
+function polarStatusText(polar) {
+  if (!polar) {
+    return "";
+  }
+  const heart = polar.heart_rate_bpm != null && polar.contact !== false ? ` · HR ${polar.heart_rate_bpm}` : "";
+  const age = numberOrNull(polar.data_age_seconds);
+  switch (polar.state) {
+    case "connected":
+      return polar.contact === false ? "H10: no skin contact" : `H10: streaming${heart}`;
+    case "stale":
+      return `H10: no data for ${age == null ? "?" : Math.round(age)} s`;
+    case "reconnecting":
+      return "H10: reconnecting";
+    case "failed":
+      return "H10: failed (see polar/record-polar.log)";
+    case "stopped":
+      return "H10: stopped";
+    default:
+      return "H10: connecting";
+  }
+}
+
+// Remember the Polar choice between sessions (per browser, best effort).
+try {
+  withPolarCheckbox.checked = window.localStorage.getItem("withPolar") === "1";
+} catch (error) {
+  withPolarCheckbox.checked = false;
+}
+withPolarCheckbox.addEventListener("change", () => {
+  try {
+    window.localStorage.setItem("withPolar", withPolarCheckbox.checked ? "1" : "0");
+  } catch (error) {
+    // storage unavailable; the checkbox still works for this page
+  }
+});
+
 async function startRecording(kind) {
   startSessionButton.disabled = true;
   startNightButton.disabled = true;
@@ -480,7 +527,7 @@ async function startRecording(kind) {
     await requestJson("/api/session/record", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind })
+      body: JSON.stringify({ kind, with_polar: withPolarCheckbox.checked })
     });
   } finally {
     await refreshUiState();
