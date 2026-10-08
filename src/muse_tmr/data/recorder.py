@@ -261,6 +261,8 @@ class OvernightRecorder:
             try:
                 stream = source.stream().__aiter__()
                 while time.monotonic() < deadline:
+                    if cancel_requested():
+                        raise asyncio.CancelledError()
                     timeout = min(
                         self.config.no_data_timeout_seconds,
                         max(0.01, deadline - time.monotonic()),
@@ -555,6 +557,17 @@ class OvernightRecorder:
         tmp_path = path.with_suffix(".json.tmp")
         tmp_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
         os.replace(tmp_path, path)
+
+
+def cancel_requested() -> bool:
+    """True once this task has been cancelled, even if the cancel got lost.
+
+    On Python 3.11 asyncio.wait_for can swallow a cancel that races with its
+    inner future completing, so a Stop would be ignored until the deadline.
+    Task.cancelling() still counts the request (3.11+).
+    """
+    cancelling = getattr(asyncio.current_task(), "cancelling", None)
+    return bool(cancelling is not None and cancelling())
 
 
 def _uncancel_current_task() -> None:

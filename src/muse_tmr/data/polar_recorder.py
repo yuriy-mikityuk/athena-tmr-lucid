@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Mapping, Optional, Protocol
 
+from muse_tmr.data.recorder import cancel_requested
 from muse_tmr.sources.polar_h10 import (
     CHARACTERISTIC_NAMES,
     CP_RESPONSE,
@@ -137,6 +138,8 @@ class PolarRecorder:
         try:
             attempts = 0
             while time.monotonic() < deadline:
+                if cancel_requested():
+                    raise asyncio.CancelledError()
                 try:
                     device_metadata = await client.connect(on_payload)
                 except asyncio.CancelledError:
@@ -172,6 +175,8 @@ class PolarRecorder:
                         await asyncio.wait_for(client.disconnected.wait(), timeout=timeout)
                     except asyncio.TimeoutError:
                         pass
+                    if cancel_requested():
+                        raise asyncio.CancelledError()
                     if time.monotonic() >= next_anchor:
                         anchor("periodic")
                         next_anchor += CLOCK_ANCHOR_INTERVAL_SECONDS
