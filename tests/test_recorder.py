@@ -131,6 +131,12 @@ class EndlessFakeSource(RecordingFakeSource):
             await asyncio.sleep(0.01)
 
 
+class SlowConnectFakeSource(RecordingFakeSource):
+    async def connect(self, device=None):
+        # Like amused discovery without an explicit address.
+        await asyncio.sleep(60)
+
+
 class TestOvernightRecorder(unittest.IsolatedAsyncioTestCase):
     async def test_record_writes_expected_outputs(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -297,6 +303,25 @@ class TestOvernightRecorder(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(source.stop_count, 1)
             payload = json.loads(Path(summary.summary_path).read_text())
             self.assertEqual(payload["stop_reason"], "user_stopped")
+            events = Path(summary.events_path).read_text()
+            self.assertIn("recording_stopped", events)
+
+    async def test_cancel_while_connecting_still_writes_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = SlowConnectFakeSource()
+            recorder = OvernightRecorder(
+                RecordingConfig(output_dir=Path(tmp), duration_seconds=60, allow_short=True)
+            )
+            task = asyncio.create_task(recorder.record(source))
+            await asyncio.sleep(0.05)
+
+            task.cancel()
+            summary = await task
+
+            self.assertEqual(summary.stop_reason, "user_stopped")
+            self.assertEqual(summary.frame_count, 0)
+            self.assertEqual(source.stop_count, 1)
+            self.assertTrue(Path(summary.summary_path).exists())
             events = Path(summary.events_path).read_text()
             self.assertIn("recording_stopped", events)
 

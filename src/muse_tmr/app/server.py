@@ -156,12 +156,27 @@ def _report_command(output_dir: Path) -> str:
     """
     from muse_tmr.cli.main import _find_project_root
 
-    parts = (sys.executable, "scripts/generate_nightly_report.py", str(output_dir.resolve()))
-    command = " ".join(shlex.quote(part) for part in parts)
     project_root = _find_project_root(Path(__file__).resolve())
+    parts = (
+        _report_python(project_root),
+        "scripts/generate_nightly_report.py",
+        str(output_dir.resolve()),
+    )
+    command = " ".join(shlex.quote(part) for part in parts)
     if project_root is None:
         return command
     return f"cd {shlex.quote(str(project_root))} && {command}"
+
+
+def _report_python(project_root: Optional[Path]) -> str:
+    # Under the macOS Python.app launch (see AGENTS.md) sys.executable is the
+    # base interpreter and the venv only arrives via PYTHONPATH, which a fresh
+    # terminal does not have. Point at the project's venv in that case.
+    if sys.prefix == sys.base_prefix and project_root is not None:
+        venv_python = project_root / ".venv" / "bin" / "python"
+        if venv_python.exists():
+            return str(venv_python)
+    return sys.executable
 
 
 def _format_hours(hours: float) -> str:
