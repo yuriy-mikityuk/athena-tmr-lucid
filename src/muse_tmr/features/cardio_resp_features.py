@@ -36,6 +36,12 @@ class CardioRespConfig:
     respiration_resample_hz: float = 10.0
     respiration_min_seconds: float = 30.0
     min_breath_seconds: float = 1.2
+    # Breathing moves the chest by ~10-20 mG; a 10 s window whose slow (<0.7 Hz)
+    # acceleration shifts by more than this is a posture change or movement.
+    posture_change_mg: float = 150.0
+    posture_change_max_pct: float = 10.0
+    # Spectral and breath-by-breath rates further apart than this: not trusted.
+    respiration_agreement_bpm: float = 2.0
     rr_resample_hz: float = 4.0
     lf_band_hz: Tuple[float, float] = (0.04, 0.15)
     hf_band_hz: Tuple[float, float] = (0.15, 0.4)
@@ -204,11 +210,30 @@ def respiration_from_acc(
         return {**nan, "seconds": float(times[-1] - times[0]) if times.size else 0.0}
     grid = np.arange(times[0], times[-1], 1.0 / fs)
     resampled = np.column_stack([np.interp(grid, times, xyz[:, axis]) for axis in range(xyz.shape[1])])
+    centered = resampled - resampled.mean(axis=0)
     sos = butter(2, config.respiration_band_hz, btype="bandpass", fs=fs, output="sos")
-    filtered = sosfiltfilt(sos, resampled - resampled.mean(axis=0), axis=0)
+    filtered = sosfiltfilt(sos, centered, axis=0)
     _values, vectors = np.linalg.eigh(np.cov(filtered.T))
     component = filtered @ vectors[:, -1]
-    return {**_respiration_rates(component, fs, config), "seconds": float(grid[-1] - grid[0])}
+    rates = _respiration_rates(component, fs, config)
+
+    slow = sosfiltfilt(butter(2, config.respiration_band_hz[1], btype="lowpass", fs=fs, output="sos"), centered, axis=0)
+    window = int(10 * fs)
+    shifts = [float(np.ptp(slow[start : start + window], axis=0).max()) for start in range(0, slow.shape[0] - window + 1, window)]
+    posture_pct = 100.0 * float(np.mean(np.asarray(shifts) > config.posture_change_mg)) if shifts else 0.0
+    disagree = abs(rates["rate_spectral_bpm"] - rates["rate_breath_bpm"])
+    if posture_pct > config.posture_change_max_pct:
+        quality = "movement"
+    elif not math.isfinite(disagree) or disagree > config.respiration_agreement_bpm:
+        quality = "rates_disagree"
+    else:
+        quality = "ok"
+    return {
+        **rates,
+        "seconds": float(grid[-1] - grid[0]),
+        "posture_change_pct": posture_pct,
+        "quality": quality,
+    }
 
 
 def respiration_from_ecg(
@@ -284,6 +309,9 @@ def extract_cardio_resp_features(
     features["resp_rate_bpm"] = respiration["rate_spectral_bpm"]
     features["resp_rate_breath_bpm"] = respiration["rate_breath_bpm"]
     features["resp_breaths"] = respiration["breaths"]
+    features["acc_posture_change_pct"] = float(respiration.get("posture_change_pct", math.nan))
+    # 1 only when the chest was still and both breathing estimates agree.
+    features["resp_reliable"] = float(respiration.get("quality") == "ok")
 
     peaks = _between(session.r_peaks, start_time, end_time)
     edr = (

@@ -30,8 +30,13 @@ def ecg_signal(beats_s, seconds, rng, breathing_hz=0.25, amplitude_mod=0.1, nois
 
 
 def chest_acc(seconds, rng, breaths_per_min, amplitude_mg=6.0, noise_mg=1.5):
+    """breaths_per_min may be a number or a function of time (seconds)."""
     t = np.arange(int(seconds * ACC_FS)) / ACC_FS
-    phase = 2 * math.pi * breaths_per_min / 60.0 * t
+    if callable(breaths_per_min):
+        rate_hz = np.array([breaths_per_min(value) for value in t]) / 60.0
+        phase = 2 * math.pi * np.cumsum(rate_hz) / ACC_FS
+    else:
+        phase = 2 * math.pi * breaths_per_min / 60.0 * t
     breathing = amplitude_mg * (np.sin(phase) + 0.3 * np.sin(2 * phase + 0.5))
     direction = np.array([0.3, 0.2, 0.93])
     gravity = np.array([120.0, -60.0, 990.0])
@@ -94,7 +99,8 @@ def acc_frame_delta(timestamp_ns, samples, resolution=16, block=8):
 
 
 def write_raw_session(
-    session_dir, seconds, rng, *, breaths_per_min=12.0, drift_ppm=50.0, with_ecg=True, reset_at_s=None, gap_s=5.0
+    session_dir, seconds, rng, *, breaths_per_min=12.0, drift_ppm=50.0, with_ecg=True, reset_at_s=None, gap_s=5.0,
+    wall0=1_790_000_000.0, acc_breaths_per_min=None,
 ):
     """Write polar/raw_notifications.jsonl (+ clock anchors) for a synthetic session.
 
@@ -110,7 +116,6 @@ def write_raw_session(
 
     polar_dir = Path(session_dir) / "polar"
     polar_dir.mkdir(parents=True, exist_ok=True)
-    wall0 = 1_790_000_000.0
     mono0 = 5_000.0
     sensor0_ns = 599_616_000_000_000_000  # H10 default time after a reset
     drift = drift_ppm * 1e-6
@@ -118,7 +123,7 @@ def write_raw_session(
 
     beats = beat_times(seconds, rng, breathing_hz=breathing_hz)
     t_ecg, ecg = ecg_signal(beats, seconds, rng, breathing_hz=breathing_hz)
-    t_acc, xyz = chest_acc(seconds, rng, breaths_per_min)
+    t_acc, xyz = chest_acc(seconds, rng, acc_breaths_per_min or breaths_per_min)
 
     def sensor_ns(true_s):
         # After a power-down the H10 clock restarts from its default time.

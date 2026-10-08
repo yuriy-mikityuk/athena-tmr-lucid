@@ -666,6 +666,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="auto",
     )
     meditation_analysis_parser.add_argument("--no-lyapunov", action="store_true")
+    meditation_analysis_parser.add_argument(
+        "--no-polar",
+        action="store_true",
+        help="Ignore a polar/ folder (Polar H10 breathing and HRV) in the recording.",
+    )
 
     meditation_aggregate_parser = subparsers.add_parser(
         "aggregate-meditation",
@@ -1191,7 +1196,7 @@ async def _analyze_meditation(args: argparse.Namespace) -> int:
         else _default_path_base() / "data" / "reports" / "meditation" / recording_dir.name
     )
     started = time.monotonic()
-    analysis = await analyze_meditation_recording(recording_dir, blocks, config)
+    analysis = await analyze_meditation_recording(recording_dir, blocks, config, use_polar=not args.no_polar)
     paths = analysis.write(output_dir)
     summary = analysis.summary
     primary = next(
@@ -1207,6 +1212,18 @@ async def _analyze_meditation(args: argparse.Namespace) -> int:
         f"EMG indicator {emg['indicator']}: confounded={emg['emg_confounded']} "
         f"(log10 diff clean={emg['condition_difference']['clean']['difference_log10']:+.3f})"
     )
+    cardio = summary["cardio"]
+    if cardio.get("available"):
+        difference = cardio["breathing_difference_bpm"]
+        if difference is not None and difference == difference:
+            print(
+                f"Polar H10 breathing {summary['contrast']}: {difference:+.1f} /min, "
+                f"confounded={cardio['breathing_confounded']}"
+            )
+        else:
+            print(f"Polar H10 breathing not compared: unreliable in block(s) {cardio['breathing_unreliable_blocks']}")
+    elif cardio.get("error"):
+        print(f"Polar H10 data not used: {cardio['error']}")
     return 0
 
 
