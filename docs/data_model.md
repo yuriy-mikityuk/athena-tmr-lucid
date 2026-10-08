@@ -90,6 +90,26 @@ Replay speed is explicit:
 `start_seconds` and `end_seconds` are relative to the raw recording start, allowing
 feature code to replay a specific sleep segment without loading unrelated packets.
 
+## Polar H10 Raw Notifications
+
+`muse-tmr record-polar` writes `<session_dir>/polar/raw_notifications.jsonl`, one JSON
+object per line, appended and flushed as each BLE payload arrives:
+
+| Field | Meaning |
+| ----- | ------- |
+| `seq` | Running number within the file. |
+| `dir` | `rx` for notifications from the strap, `tx` for PMD control-point commands we wrote. |
+| `char` | `hr` (Heart Rate Measurement 0x2A37), `pmd_cp` (PMD control point), `pmd_data` (PMD data). |
+| `uuid` | Full characteristic UUID, lower case. |
+| `wall` | Host `time.time()` at receipt or write, seconds. |
+| `mono` | Host `time.monotonic()` at the same moment. |
+| `b64` | Payload bytes, base64. |
+
+The logged `tx` start commands (rate, resolution, range, channels) and `rx` start
+responses (conversion factor) are enough to decode the PMD data frames again, so
+`muse-tmr decode-polar` needs nothing but this file. A torn last line after a hard kill
+is skipped. Decoded files, alignment and features are described in `docs/polar_h10.md`.
+
 ## Sleep Epochs
 
 `muse_tmr.features.epochs.EpochBuilder` consumes any async stream of `MuseFrame`

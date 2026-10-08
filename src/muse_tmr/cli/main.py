@@ -7,6 +7,7 @@ import asyncio
 import datetime as dt
 import json
 import os
+import signal
 import sys
 import time
 from pathlib import Path
@@ -708,6 +709,34 @@ def build_parser() -> argparse.ArgumentParser:
         help="Cumulative reconnect attempts allowed for the whole recording before giving up.",
     )
     record_parser.add_argument("--quiet", action="store_true")
+    record_parser.add_argument(
+        "--with-polar",
+        action="store_true",
+        help="Also record a Polar H10 in a separate record-polar process (its failures never stop the Muse).",
+    )
+    record_parser.add_argument("--polar-address", help="Polar H10 BLE address. If omitted, name discovery is used.")
+
+    polar_parser = subparsers.add_parser(
+        "record-polar",
+        help="Record a Polar H10 (HR/RR, ECG, chest ACC) into <output-dir>/polar/.",
+    )
+    polar_parser.add_argument("--output-dir", type=Path, required=True, help="Session directory, shared with the Muse recording.")
+    polar_duration = polar_parser.add_mutually_exclusive_group(required=True)
+    polar_duration.add_argument("--duration-seconds", type=float)
+    polar_duration.add_argument("--duration-hours", type=float)
+    polar_parser.add_argument("--address", help="Polar H10 BLE address. If omitted, name discovery is used.")
+    polar_parser.add_argument("--name-filter", default="Polar H10")
+    polar_parser.add_argument("--no-ecg", action="store_true")
+    polar_parser.add_argument("--no-acc", action="store_true")
+    polar_parser.add_argument("--acc-rate", type=int, default=50, choices=(25, 50, 100, 200))
+    polar_parser.add_argument("--acc-range", type=int, default=2, choices=(2, 4, 8))
+    polar_parser.add_argument("--max-reconnect-attempts", type=int, default=1000)
+
+    decode_polar_parser = subparsers.add_parser(
+        "decode-polar",
+        help="Rebuild decoded Polar files from <session_dir>/polar/raw_notifications.jsonl.",
+    )
+    decode_polar_parser.add_argument("session_dir", type=Path)
     _add_brainflow_args(record_parser)
     _add_openmuse_lsl_args(record_parser)
     _add_muse_sdk_args(record_parser)
@@ -791,6 +820,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return _aggregate_meditation(args)
     if args.command == "record":
         return asyncio.run(_record(args))
+    if args.command == "record-polar":
+        return asyncio.run(_record_polar(args))
+    if args.command == "decode-polar":
+        return _decode_polar(args)
 
     parser.print_help()
     return 0
@@ -1205,8 +1238,30 @@ def _aggregate_meditation(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cancel_on_stop_signals() -> None:
+    """Make SIGINT and SIGTERM cancel the running task, however we were launched.
+
+    A process started in the background by a non-interactive shell (``cmd &``)
+    inherits SIGINT as ignored, and Python then installs no KeyboardInterrupt
+    handler, so neither Ctrl-C, the app's Stop nor the --with-polar parent
+    could stop a recorder cleanly. The recorders treat the cancel as a normal
+    user stop and close their streams.
+    """
+    loop = asyncio.get_running_loop()
+    task = asyncio.current_task()
+    if task is None:
+        return
+    for stop_signal in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(stop_signal, task.cancel)
+        except (NotImplementedError, RuntimeError, ValueError):
+            pass  # no signal support here (Windows, not the main thread)
+
+
 async def _record(args: argparse.Namespace) -> int:
     from muse_tmr.data.recorder import OvernightRecorder, RecordingConfig
+
+    _cancel_on_stop_signals()
 
     duration_seconds = (
         args.duration_seconds
@@ -1215,6 +1270,9 @@ async def _record(args: argparse.Namespace) -> int:
     )
     output_dir = _resolve_output_dir(args.output_dir) if args.output_dir else _default_recording_dir()
     source = _build_source(args, duration_seconds=0)
+    companions = []
+    if getattr(args, "with_polar", False):
+        companions.append(_polar_companion(output_dir, duration_seconds, args.polar_address))
     recorder = OvernightRecorder(
         RecordingConfig(
             output_dir=output_dir,
@@ -1223,10 +1281,77 @@ async def _record(args: argparse.Namespace) -> int:
             allow_short=args.allow_short,
             no_data_timeout_seconds=args.no_data_timeout_seconds,
             max_reconnect_attempts=args.max_reconnect_attempts,
-        )
+        ),
+        companions=companions,
     )
     summary = await recorder.record(source)
     print(f"recording complete summary={summary.summary_path}")
+    return 0
+
+
+def _polar_companion(output_dir: Path, duration_seconds: float, address: Optional[str]):
+    from muse_tmr.data.recorder import CompanionProcess
+
+    # A little longer than the Muse run: the parent decides the end and stops it.
+    command = [
+        sys.executable,
+        "-m",
+        "muse_tmr.cli.main",
+        "record-polar",
+        "--output-dir",
+        str(output_dir),
+        "--duration-seconds",
+        str(duration_seconds + 120.0),
+    ]
+    if address:
+        command.extend(["--address", address])
+    return CompanionProcess("polar", command, Path(output_dir) / "polar" / "record-polar.log")
+
+
+async def _record_polar(args: argparse.Namespace) -> int:
+    from muse_tmr.data.polar_recorder import PolarRecorder, PolarRecordingConfig
+    from muse_tmr.sources.polar_h10 import PolarH10Client, PolarH10Settings
+
+    _cancel_on_stop_signals()
+    if args.no_ecg and args.no_acc:
+        print("note: --no-ecg and --no-acc leave only HR/RR")
+    duration_seconds = args.duration_seconds if args.duration_seconds is not None else args.duration_hours * 3600
+    output_dir = _resolve_output_dir(args.output_dir)
+    client = PolarH10Client(
+        PolarH10Settings(
+            ecg=not args.no_ecg,
+            acc=not args.no_acc,
+            acc_rate_hz=args.acc_rate,
+            acc_range_g=args.acc_range,
+        ),
+        address=args.address,
+        name_filter=args.name_filter,
+    )
+    recorder = PolarRecorder(
+        PolarRecordingConfig(
+            output_dir=output_dir,
+            duration_seconds=duration_seconds,
+            max_reconnect_attempts=args.max_reconnect_attempts,
+        )
+    )
+    summary = await recorder.record(client)
+    decode = summary.get("decode") or {}
+    print(
+        f"polar recording complete stop_reason={summary['stop_reason']} "
+        f"reconnects={summary['reconnects']} counts={json.dumps(decode.get('counts', {}), sort_keys=True)} "
+        f"dir={output_dir / 'polar'}"
+    )
+    return 0
+
+
+def _decode_polar(args: argparse.Namespace) -> int:
+    from muse_tmr.data.polar_recorder import decode_polar_session
+
+    session_dir = _resolve_output_dir(args.session_dir)
+    result = decode_polar_session(session_dir)
+    print(f"decoded {session_dir / 'polar'}: {json.dumps(result['counts'], sort_keys=True)}")
+    if result["errors"]:
+        print(f"decode errors: {json.dumps(result['errors'], sort_keys=True)}")
     return 0
 
 

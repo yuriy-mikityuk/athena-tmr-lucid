@@ -27,6 +27,7 @@ Complete command and code reference for `muse-tmr`, organized by workflow stage.
 - [Morning puzzle retest](#morning-puzzle-retest)
 - [Cued-vs-uncued analysis](#cued-vs-uncued-analysis)
 - [Meditation complexity analysis](#meditation-complexity-analysis)
+- [Polar H10 companion recording](#polar-h10-companion-recording)
 - [Local Muse contact setup app](#local-muse-contact-setup-app)
 - [Validation plan and pilots](#validation-plan-and-pilots)
 
@@ -422,6 +423,17 @@ muse-tmr aggregate-meditation data/reports/meditation/*/summary.json \
 ```
 
 A/B meditation blocks with LZC, entropies, Hjorth, 1/f fits, Lyapunov, band-envelope DFA and an EMG check per session; p-values only across 8+ sessions. Protocol, metric definitions and limitations: `docs/meditation_metrics.md`.
+
+## Polar H10 companion recording
+
+```bash
+muse-tmr record --source amused --duration-hours 8 --with-polar [--polar-address <ble-address>]
+muse-tmr record-polar --output-dir data/recordings/session/<name> --duration-seconds 600 \
+  [--address <ble-address>] [--no-ecg] [--no-acc] [--acc-rate 50] [--acc-range 2]
+muse-tmr decode-polar data/recordings/session/<name>
+```
+
+Records HR/RR, 130 Hz ECG and chest ACC from a Polar H10 into `<session>/polar/` in a separate process, so a strap problem never touches the Muse recording. Raw BLE payloads are kept and `decode-polar` rebuilds everything from them. `muse_tmr.data.polar_session.load_polar_session` maps the data onto the Muse wall-clock time base; `muse_tmr.features.cardio_resp_features` gives RR/HRV, breathing rate and RSA per window. Details and limitations: `docs/polar_h10.md`.
 
 ## Local Muse contact setup app
 

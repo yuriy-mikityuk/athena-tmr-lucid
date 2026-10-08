@@ -325,6 +325,34 @@ class TestOvernightRecorder(unittest.IsolatedAsyncioTestCase):
             events = Path(summary.events_path).read_text()
             self.assertIn("recording_stopped", events)
 
+    async def test_stop_is_not_lost_when_the_cancel_gets_swallowed(self):
+        # What asyncio.wait_for can do on Python 3.11 when a frame and the
+        # cancel arrive together: the cancel never reaches the recorder.
+        class SwallowingSource(EndlessFakeSource):
+            async def stream(self):
+                timestamp = 10.0
+                while True:
+                    yield MuseFrame(
+                        timestamp=timestamp,
+                        eeg=EEGSample(timestamp=timestamp, channels_uv={"TP9": [0.1]}),
+                        source="fake",
+                    )
+                    timestamp += 0.01
+                    try:
+                        await asyncio.sleep(0.01)
+                    except asyncio.CancelledError:
+                        pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            recorder = OvernightRecorder(
+                RecordingConfig(output_dir=Path(tmp), duration_seconds=30, allow_short=True)
+            )
+            task = asyncio.create_task(recorder.record(SwallowingSource()))
+            await asyncio.sleep(0.1)
+            task.cancel()
+            summary = await asyncio.wait_for(task, timeout=5)
+            self.assertEqual(summary.stop_reason, "user_stopped")
+
     def test_duration_requires_overnight_window_unless_allowed(self):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(ValueError):
