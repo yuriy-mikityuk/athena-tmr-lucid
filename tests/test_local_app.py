@@ -1075,8 +1075,10 @@ class TestLocalMuseAppRecentRecordings(TestLocalMuseAppReport):
         # A recorder this app instance does not know about, with the folder on its command line.
         ready = folder / "ready"
         recorder = subprocess.Popen(
-            [sys.executable, "-c", "import pathlib, sys, time; pathlib.Path(sys.argv[2]).touch(); time.sleep(30)",
-             str(folder.resolve()), str(ready)]
+            # Long like the real caffeinate + python recorder command, with the folder near the end.
+            [sys.executable, "-c", "import pathlib, sys, time; pathlib.Path(sys.argv[-1]).touch(); time.sleep(30)",
+             "--preset", "p1034", "--duration-seconds", "2400", "--no-data-timeout-seconds", "45",
+             "--max-reconnect-attempts", "1000", "--output-dir", str(folder.resolve()), str(ready)]
         )
         self.addCleanup(recorder.wait)
         self.addCleanup(recorder.kill)

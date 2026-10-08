@@ -168,7 +168,8 @@ def _process_mentions(pid: int, output_dir: Path) -> bool:
         return False
     try:
         command = subprocess.run(
-            ["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True, timeout=5
+            # -ww: no width limit, the folder sits at the end of a long recorder command line.
+            ["ps", "-ww", "-p", str(pid), "-o", "command="], capture_output=True, text=True, timeout=5
         ).stdout
     except (OSError, subprocess.SubprocessError):
         return True  # alive and we cannot tell more: err on the safe side
