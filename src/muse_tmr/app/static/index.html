@@ -103,7 +103,11 @@
         <div class="record-hint" id="record-hint" role="status" hidden></div>
         <div class="record-report" id="record-report" hidden>
           <span id="record-report-text"></span>
-          <code id="record-report-path"></code>
+          <div class="record-report-actions">
+            <button type="button" id="build-report-button">Build report</button>
+            <a id="open-report-link" href="#" target="_blank" rel="noopener" hidden>Open report</a>
+          </div>
+          <code id="record-report-path" hidden></code>
         </div>
         <section class="warning-log" id="warning-log-section" hidden>
           <h2>Contact Warnings</h2>

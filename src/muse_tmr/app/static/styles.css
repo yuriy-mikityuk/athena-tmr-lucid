@@ -428,6 +428,17 @@ button:disabled {
   font-size: 0.88rem;
 }
 
+.record-report-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.record-report-actions a {
+  color: var(--accent, #0f766e);
+  font-weight: 700;
+}
+
 .record-report code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.82rem;
