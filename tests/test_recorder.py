@@ -93,6 +93,30 @@ class ReconnectAttemptFailsThenRecoversSource(RecordingFakeSource):
         )
 
 
+class DiagnosticsFakeSource(RecordingFakeSource):
+    async def stream(self):
+        yield MuseFrame(
+            timestamp=5.0,
+            eeg=EEGSample(
+                timestamp=5.0,
+                channels_uv={
+                    channel: [float(i % 7) for i in range(8)]
+                    for channel in ("TP9", "AF7", "AF8", "TP10")
+                },
+            ),
+            source="fake",
+            raw_packet=b"\x09",
+        )
+
+    def diagnostics(self):
+        return {"last_packet_age_seconds": 0.2, "decoder": {"eeg_rolling_sample_rate_hz": 128.0}}
+
+
+class BrokenDiagnosticsFakeSource(DiagnosticsFakeSource):
+    def diagnostics(self):
+        raise RuntimeError("decoder gone")
+
+
 class TestOvernightRecorder(unittest.IsolatedAsyncioTestCase):
     async def test_record_writes_expected_outputs(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -207,6 +231,39 @@ class TestOvernightRecorder(unittest.IsolatedAsyncioTestCase):
             events = Path(summary.events_path).read_text()
             self.assertIn("reconnect_failed", events)
             self.assertIn("simulated reconnect failure", events)
+
+    async def test_progress_publishes_contact_and_source_diagnostics(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            recorder = OvernightRecorder(
+                RecordingConfig(output_dir=Path(tmp), duration_seconds=0.01, allow_short=True)
+            )
+
+            await recorder.record(DiagnosticsFakeSource())
+
+            progress = json.loads((Path(tmp) / "progress.json").read_text())
+            contact = progress["contact"]
+            self.assertEqual(contact["connection_state"], "connected")
+            self.assertFalse(contact["stale"])
+            self.assertEqual(
+                sorted(contact["channels"]), ["AF7", "AF8", "TP10", "TP9"]
+            )
+            self.assertEqual(contact["channels"]["TP9"]["sample_count"], 8)
+            self.assertEqual(
+                progress["source_diagnostics"]["decoder"]["eeg_rolling_sample_rate_hz"], 128.0
+            )
+
+    async def test_failing_source_diagnostics_do_not_break_recording(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            recorder = OvernightRecorder(
+                RecordingConfig(output_dir=Path(tmp), duration_seconds=0.01, allow_short=True)
+            )
+
+            summary = await recorder.record(BrokenDiagnosticsFakeSource())
+
+            self.assertEqual(summary.frame_count, 1)
+            progress = json.loads((Path(tmp) / "progress.json").read_text())
+            self.assertIsNone(progress["source_diagnostics"])
+            self.assertIn("TP9", progress["contact"]["channels"])
 
     def test_duration_requires_overnight_window_unless_allowed(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -521,6 +521,87 @@ class TestLocalMuseAppRecording(unittest.TestCase):
         self.assertEqual(recording["elapsed_seconds"], 120.0)
         self.assertEqual(recording["last_event"], "reconnect_scheduled")
 
+    def _write_progress_with_contact(self, output_dir, updated_at):
+        channels = {
+            channel: {
+                "channel": channel,
+                "status": "good",
+                "fill": 1.0,
+                "coverage": 1.0,
+                "sample_count": 256,
+                "reason_codes": [],
+            }
+            for channel in ("TP9", "AF7", "AF8", "TP10")
+        }
+        (output_dir / "progress.json").write_text(
+            json.dumps(
+                {
+                    "updated_at": updated_at.isoformat(),
+                    "elapsed_seconds": 30.0,
+                    "frame_count": 500,
+                    "contact": {
+                        "source": "amused",
+                        "connection_state": "connected",
+                        "sequence": 500,
+                        "timestamp_seconds": updated_at.timestamp(),
+                        "stale": False,
+                        "channels": channels,
+                    },
+                    "source_diagnostics": {
+                        "last_packet_age_seconds": 0.5,
+                        "decoder": {"eeg_rolling_sample_rate_hz": 128.0},
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    def test_ui_state_shows_recorder_contact_while_recording(self):
+        state = self._make_state()
+        state.start_recording("session")
+        output_dir = (self.recordings_base / "session" / "20260707_010000").resolve()
+        self._write_progress_with_contact(output_dir, dt.datetime.now(dt.timezone.utc))
+
+        payload = state.ui_state()
+
+        self.assertEqual(payload["state"]["connection_state"], "disconnected")
+        self.assertTrue(payload["contact"]["all_good"])
+        self.assertEqual(payload["contact"]["channels"]["AF7"]["status"], "good")
+        diagnostics = payload["source_diagnostics"]
+        self.assertEqual(diagnostics["decoder"]["eeg_rolling_sample_rate_hz"], 128.0)
+        self.assertGreaterEqual(diagnostics["last_packet_age_seconds"], 0.5)
+        self.assertLess(diagnostics["last_packet_age_seconds"], 5.0)
+        self.assertNotIn("contact", payload["recording"])
+
+    def test_ui_state_marks_recorder_contact_stale_when_heartbeat_stops(self):
+        state = self._make_state()
+        state.start_recording("session")
+        output_dir = (self.recordings_base / "session" / "20260707_010000").resolve()
+        updated_at = dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=60)
+        self._write_progress_with_contact(output_dir, updated_at)
+
+        payload = state.ui_state()
+
+        contact = payload["contact"]
+        self.assertTrue(contact["stale"])
+        self.assertFalse(contact["all_good"])
+        self.assertEqual(contact["channels"], {})
+        self.assertGreater(payload["source_diagnostics"]["last_packet_age_seconds"], 60.0)
+
+    def test_ui_state_falls_back_without_recorder_contact(self):
+        state = self._make_state()
+        state.start_recording("session")
+        output_dir = (self.recordings_base / "session" / "20260707_010000").resolve()
+        (output_dir / "progress.json").write_text(
+            json.dumps({"elapsed_seconds": 5.0, "frame_count": 10}), encoding="utf-8"
+        )
+
+        payload = state.ui_state()
+
+        self.assertEqual(payload["contact"]["connection_state"], "disconnected")
+        self.assertFalse(payload["contact"]["all_good"])
+        self.assertIsNone(payload["source_diagnostics"])
+
     def test_ui_state_marks_completed_when_summary_present(self):
         proc = _FakeProc()
         state = self._make_state(proc=proc)
