@@ -176,6 +176,8 @@ def _cardio_section(cardio: Mapping[str, object], all_rows) -> str:
 def _paper_metrics_section(contrasts, condition_a: str, condition_b: str) -> str:
     rows = []
     for metric, label in PAPER_METRICS:
+        if metric == "lzc":
+            continue  # the predeclared primary result has its own section
         item = contrasts.get((metric, "all", "clean"))
         if item is None:
             continue

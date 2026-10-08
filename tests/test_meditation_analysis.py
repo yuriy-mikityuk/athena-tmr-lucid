@@ -142,6 +142,8 @@ class MeditationAnalysisEndToEndTest(unittest.TestCase):
             self.assertIn("Muscle (EMG) check", page)
             self.assertIn("<svg", page)
             self.assertNotIn("http://", page)
+            exploratory = page.split("Metrics from the paper", 1)[1].split("</section>", 1)[0]
+            self.assertNotIn("Lempel-Ziv", exploratory)
             self.assertNotIn("https://", page)
 
     def test_emg_only_difference_is_flagged_and_residualized_contrast_shrinks(self):
