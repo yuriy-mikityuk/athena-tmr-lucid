@@ -86,8 +86,9 @@ host wall-clock too.
 4. HR-service RR intervals have no sensor timestamp. With ECG on, each
    notification's RR batch is matched to a run of consecutive ECG R-peaks and
    takes their times (`aligned_to = ecg_r_peak`). With ECG off, beats keep a
-   receive-time estimate (`aligned_to = host_receive`) that can be off by up to
-   about a second.
+   receive-time estimate (`aligned_to = host_receive`). On a live H10 a
+   notification arrived a median 2 s (up to ~3 s) after its last beat, so
+   these estimates are that far off.
 
 Expected error: on synthetic data with 50 ppm drift and random BLE delays the
 mapped times are within a few ms of the truth over 8 h. A constant minimum BLE

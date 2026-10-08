@@ -7,6 +7,7 @@ import asyncio
 import datetime as dt
 import json
 import os
+import signal
 import sys
 import time
 from pathlib import Path
@@ -1237,8 +1238,30 @@ def _aggregate_meditation(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cancel_on_stop_signals() -> None:
+    """Make SIGINT and SIGTERM cancel the running task, however we were launched.
+
+    A process started in the background by a non-interactive shell (``cmd &``)
+    inherits SIGINT as ignored, and Python then installs no KeyboardInterrupt
+    handler, so neither Ctrl-C, the app's Stop nor the --with-polar parent
+    could stop a recorder cleanly. The recorders treat the cancel as a normal
+    user stop and close their streams.
+    """
+    loop = asyncio.get_running_loop()
+    task = asyncio.current_task()
+    if task is None:
+        return
+    for stop_signal in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(stop_signal, task.cancel)
+        except (NotImplementedError, RuntimeError, ValueError):
+            pass  # no signal support here (Windows, not the main thread)
+
+
 async def _record(args: argparse.Namespace) -> int:
     from muse_tmr.data.recorder import OvernightRecorder, RecordingConfig
+
+    _cancel_on_stop_signals()
 
     duration_seconds = (
         args.duration_seconds
@@ -1289,6 +1312,7 @@ async def _record_polar(args: argparse.Namespace) -> int:
     from muse_tmr.data.polar_recorder import PolarRecorder, PolarRecordingConfig
     from muse_tmr.sources.polar_h10 import PolarH10Client, PolarH10Settings
 
+    _cancel_on_stop_signals()
     if args.no_ecg and args.no_acc:
         print("note: --no-ecg and --no-acc leave only HR/RR")
     duration_seconds = args.duration_seconds if args.duration_seconds is not None else args.duration_hours * 3600

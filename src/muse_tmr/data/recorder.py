@@ -122,14 +122,19 @@ class CompanionProcess:
             self.process.send_signal(signal.SIGINT)
 
     def wait(self) -> Optional[int]:
-        """Wait for the child after request_stop, killing it after the timeout."""
+        """Wait for the child after request_stop; SIGTERM, then SIGKILL, if it hangs."""
         if self.process is None:
             return None
         try:
             self.process.wait(timeout=self.stop_timeout_seconds)
         except subprocess.TimeoutExpired:
-            self.process.kill()
-            self.process.wait(timeout=5)
+            # Ask once more with SIGTERM, which record-polar also handles cleanly.
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=10.0)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait(timeout=5.0)
         return self.process.returncode
 
 

@@ -217,14 +217,14 @@ def align_rr_to_ecg(
     device_beats: pd.DataFrame,
     r_peak_times: np.ndarray,
     *,
-    search_back_seconds: float = 2.5,
+    search_back_seconds: float = 4.0,
     slack_seconds: float = 0.3,
     rr_tolerance_ms: float = 40.0,
 ) -> Tuple[pd.DataFrame, Dict[str, object]]:
     """Put device RR beats on ECG R-peak times where the two agree.
 
-    The HR service sends about once a second, so the last beat of a
-    notification ended somewhere in the second before it arrived. Each
+    The HR service sends about once a second, but on a live H10 the last beat
+    of a notification ended a median 2 s (max ~3.2 s) before it arrived. Each
     notification's RR batch is matched as a block against runs of consecutive
     ECG RR intervals ending within [receive - search_back, receive + slack];
     the run with the smallest mean RR difference wins if it is within
@@ -236,7 +236,7 @@ def align_rr_to_ecg(
     info: Dict[str, object] = {"matched": 0, "beats": int(len(rr)), "notification_delay_s": None, "rr_agreement_ms": None}
     peaks = np.sort(np.asarray(r_peak_times, dtype=float))
     if rr.empty or peaks.size < 3:
-        info["note"] = "no ECG R-peaks; RR beat times are receive-time estimates (uncertainty ~1 s)"
+        info["note"] = "no ECG R-peaks; RR beat times are receive-time estimates (typically ~2 s late)"
         return rr, info
     peak_rr = np.concatenate(([math.nan], np.diff(peaks) * 1000.0))
 

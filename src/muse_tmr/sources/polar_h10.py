@@ -473,19 +473,23 @@ class PolarH10Client:
         return metadata
 
     async def stop(self) -> None:
-        """Stop PMD streams (see Polar known issue) and disconnect; never raises."""
+        """Stop PMD streams (see Polar known issue) and disconnect; never raises.
+
+        Each stop waits briefly for its response so the strap has acted on it
+        before the link goes away.
+        """
         client = self._client
-        self._client = None
         if client is None:
             return
         try:
             if client.is_connected:
                 for measurement_type in reversed(self._started):
                     try:
-                        await self._write_control_point(client, stop_command(measurement_type))
+                        await self._command(stop_command(measurement_type), timeout=2.0)
                     except Exception:
                         pass
         finally:
+            self._client = None
             self._started = []
             try:
                 await client.disconnect()
@@ -530,7 +534,7 @@ class PolarH10Client:
             range=selected.get(SETTING_RANGE),
         )
 
-    async def _command(self, payload: bytes) -> ControlPointResponse:
+    async def _command(self, payload: bytes, timeout: Optional[float] = None) -> ControlPointResponse:
         """Write a command and wait for its complete response.
 
         Responses for other commands (a late answer to a timed-out request) are
@@ -540,7 +544,7 @@ class PolarH10Client:
         await self._write_control_point(self._client, payload)
         op_code, measurement_type = payload[0], payload[1] & 0x3F
         loop = asyncio.get_running_loop()
-        deadline = loop.time() + self.settings.command_timeout_seconds
+        deadline = loop.time() + (timeout if timeout is not None else self.settings.command_timeout_seconds)
         while True:
             remaining = deadline - loop.time()
             if remaining <= 0:

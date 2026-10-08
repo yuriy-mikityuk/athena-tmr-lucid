@@ -248,6 +248,76 @@ class ControlPointFragmentTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(written[-1], bytes([0x02, 0x02, 0x00, 0x01, 50, 0, 0x01, 0x01, 16, 0, 0x02, 0x01, 4, 0]))
 
 
+class StopSignalTest(unittest.TestCase):
+    """Reproduces the first live smoke: started via `( ... & )`, SIGINT is inherited as ignored."""
+
+    def run_child(self, stop_signal):
+        import signal
+        import subprocess
+        import time
+
+        script = (
+            "import asyncio, pathlib, sys\n"
+            "from muse_tmr.cli.main import _cancel_on_stop_signals\n"
+            "async def main():\n"
+            "    _cancel_on_stop_signals()\n"
+            "    pathlib.Path(sys.argv[1]).write_text('ready')\n"
+            "    try:\n"
+            "        await asyncio.sleep(60)\n"
+            "    except asyncio.CancelledError:\n"
+            "        pathlib.Path(sys.argv[1]).write_text('cancelled')\n"
+            "asyncio.run(main())\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = Path(tmp) / "state"
+            import os
+
+            import muse_tmr
+
+            source_root = str(Path(muse_tmr.__file__).resolve().parents[1])
+            child = subprocess.Popen(
+                [sys.executable, "-c", script, str(marker)],
+                preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_IGN),
+                env={**os.environ, "PYTHONPATH": source_root + os.pathsep + os.environ.get("PYTHONPATH", "")},
+            )
+            deadline = time.monotonic() + 20
+            while not (marker.exists() and marker.read_text() == "ready") and time.monotonic() < deadline:
+                time.sleep(0.05)
+            child.send_signal(stop_signal)
+            code = child.wait(timeout=20)
+            return code, marker.read_text()
+
+    def test_sigint_cancels_even_when_inherited_as_ignored(self):
+        import signal
+
+        self.assertEqual(self.run_child(signal.SIGINT), (0, "cancelled"))
+
+    def test_sigterm_cancels_too(self):
+        import signal
+
+        self.assertEqual(self.run_child(signal.SIGTERM), (0, "cancelled"))
+
+    def test_companion_escalates_to_sigterm_when_sigint_is_ignored(self):
+        script = (
+            "import signal, sys, time\n"
+            "signal.signal(signal.SIGINT, signal.SIG_IGN)\n"
+            "signal.signal(signal.SIGTERM, lambda *a: sys.exit(5))\n"
+            "print('ready', flush=True)\n"
+            "time.sleep(60)\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "child.log"
+            companion = CompanionProcess("polar", [sys.executable, "-c", script], log, stop_timeout_seconds=0.5)
+            companion.start()
+            import time
+
+            deadline = time.monotonic() + 20
+            while "ready" not in (log.read_text() if log.exists() else "") and time.monotonic() < deadline:
+                time.sleep(0.05)
+            companion.request_stop()
+            self.assertEqual(companion.wait(), 5)
+
+
 class CompanionTest(unittest.IsolatedAsyncioTestCase):
     async def test_crashing_companion_never_affects_the_muse_recording(self):
         with tempfile.TemporaryDirectory() as tmp:
