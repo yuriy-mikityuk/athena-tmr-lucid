@@ -31,6 +31,7 @@ from muse_tmr.annotations import build_rem_annotation_rows  # noqa: E402
 from muse_tmr.data.replay import ReplayConfig, ReplaySession  # noqa: E402
 from muse_tmr.features.epochs import EpochBuilder, EpochConfig  # noqa: E402
 from muse_tmr.models import HeuristicRemDetector  # noqa: E402
+from muse_tmr.reports.night_cardio import night_cardio_section  # noqa: E402
 
 
 async def _build_rows(recording_dir: Path, epoch_seconds: float) -> list[dict]:
@@ -204,6 +205,7 @@ th {{ color: var(--text-muted); font-weight: 500; font-size: 11px; text-transfor
       <summary>Table view &mdash; hourly averages (accessible fallback)</summary>
       <table><thead><tr><th>Hour</th><th>Mean p_rem</th><th>Epochs</th></tr></thead><tbody id="hourlyBody"></tbody></table>
     </details>
+    {cardio_section}
   </div>
 </div>
 
@@ -394,6 +396,7 @@ def build_report(recording_dir: Path, output_path: Path, epoch_seconds: float = 
         hourly_json=json.dumps(hourly, separators=(",", ":")),
         t_max=t_max,
         start_min=start_min,
+        cardio_section=night_cardio_section(recording_dir, t0, rows[-1]["end_time"]),
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
