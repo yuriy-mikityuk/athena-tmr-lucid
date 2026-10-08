@@ -136,6 +136,11 @@ class TestBiometricProcessing(unittest.TestCase):
 
     def test_ppg_to_fnirs_pipeline(self):
         """Test processing PPG data through heart rate and fNIRS"""
+        # simulate_ppg_signal draws unseeded noise; about 1 in 200 draws pushes the
+        # relative TSI just above 100 (#140). Seed it and leave the global state as found.
+        state = np.random.get_state()
+        self.addCleanup(np.random.set_state, state)
+        np.random.seed(0)
         duration = 30
         sample_rate = 64
         heart_rate = 72
