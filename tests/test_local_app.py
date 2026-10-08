@@ -1067,6 +1067,36 @@ class TestLocalMuseAppRecentRecordings(TestLocalMuseAppReport):
             _payload, status = self.state.build_report_for(kind, name)
             self.assertEqual(int(status), expected, (kind, name))
 
+    def test_detached_recorder_is_still_live_after_an_app_restart(self):
+        import os
+        import subprocess
+
+        folder = self.make_recording("session", "20261009_010000")
+        # A recorder this app instance does not know about, with the folder on its command line.
+        recorder = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)", str(folder.resolve())])
+        self.addCleanup(recorder.wait)
+        self.addCleanup(recorder.kill)
+        (folder / "launch.json").write_text(json.dumps({"pid": recorder.pid}))
+        _payload, status = self.state.build_report_for("session", folder.name)
+        self.assertEqual(int(status), 409)
+        self.assertTrue(self.state.list_recordings()["recordings"][0]["live"])
+
+        # Same PID number but not this recording (PID reuse) and no heartbeat: finished.
+        (folder / "launch.json").write_text(json.dumps({"pid": os.getpid()}))
+        self.assertFalse(self.state.list_recordings()["recordings"][0]["live"])
+
+    def test_cli_recording_is_live_while_its_heartbeat_moves(self):
+        import os
+
+        folder = self.make_recording("session", "20261009_020000")
+        (folder / "progress.json").write_text("{}")
+        self.assertTrue(self.state.list_recordings()["recordings"][0]["live"])
+        old = time.time() - 600
+        os.utime(folder / "progress.json", (old, old))
+        self.assertFalse(self.state.list_recordings()["recordings"][0]["live"])
+        (folder / "summary.json").write_text(json.dumps({"stop_reason": "duration_complete"}))
+        self.assertFalse(self.state.list_recordings()["recordings"][0]["live"])
+
     def test_live_recording_cannot_be_reported_yet(self):
         payload, _ = self.state.start_recording("session")
         name = Path(payload["output_dir"]).name

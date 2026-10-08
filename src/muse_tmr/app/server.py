@@ -139,6 +139,42 @@ def _read_json_tolerant(path: Path) -> Mapping[str, Any]:
         return {}
 
 
+RECORDING_HEARTBEAT_LIVE_SECONDS = 120.0
+
+
+def _recording_folder_active(output_dir: Path) -> bool:
+    """A recording folder still being written by some recorder process.
+
+    The final summary.json marks it finished. Before that, it is live if the
+    recorder from launch.json is still running with this folder on its command
+    line (a reused PID won't have it), or if progress.json moved recently (for
+    recordings started from the CLI, which write no launch.json).
+    """
+    if (output_dir / "summary.json").exists():
+        return False
+    pid = _read_json_tolerant(output_dir / "launch.json").get("pid")
+    if isinstance(pid, int) and pid > 0 and _process_mentions(pid, output_dir):
+        return True
+    try:
+        return time.time() - (output_dir / "progress.json").stat().st_mtime < RECORDING_HEARTBEAT_LIVE_SECONDS
+    except OSError:
+        return False
+
+
+def _process_mentions(pid: int, output_dir: Path) -> bool:
+    try:
+        os.kill(pid, 0)
+    except (ProcessLookupError, PermissionError):
+        return False
+    try:
+        command = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True, timeout=5
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return True  # alive and we cannot tell more: err on the safe side
+    return str(output_dir.resolve()) in command or str(output_dir) in command
+
+
 def _polar_status(output_dir: Path, *, active: bool, now: Optional[float] = None) -> Dict[str, Any]:
     """What the Polar H10 child is doing, from the files it writes.
 
@@ -858,11 +894,18 @@ class LocalMuseAppState:
         output_dir = (base / kind / name).resolve()
         if not _is_relative_to(output_dir, base) or not output_dir.is_dir():
             return None, ({"error": "unknown recording"}, HTTPStatus.NOT_FOUND)
+        if self._is_live(output_dir):
+            return None, ({"error": "the recording is still running"}, HTTPStatus.CONFLICT)
+        return output_dir, None
+
+    def _is_live(self, output_dir: Path) -> bool:
+        """Still being written: by the recorder we launched, or by one this app
+        process no longer knows about (it was restarted, or the CLI started it)."""
         with self._lock:
             handle = self._recording
-            if handle is not None and handle.output_dir.resolve() == output_dir and self._recording_alive_unlocked():
-                return None, ({"error": "the recording is still running"}, HTTPStatus.CONFLICT)
-        return output_dir, None
+            if handle is not None and handle.output_dir.resolve() == output_dir.resolve():
+                return self._recording_alive_unlocked()
+        return _recording_folder_active(output_dir)
 
     def _start_report(self, output_dir: Path) -> Tuple[Mapping[str, Any], HTTPStatus]:
         def command() -> Tuple[List[str], Path]:
@@ -942,13 +985,7 @@ class LocalMuseAppState:
     def _recording_entry(self, output_dir: Path) -> Dict[str, Any]:
         summary = _read_json_tolerant(output_dir / "summary.json")
         progress = _read_json_tolerant(output_dir / "progress.json")
-        with self._lock:
-            handle = self._recording
-            live = (
-                handle is not None
-                and handle.output_dir.resolve() == output_dir.resolve()
-                and self._recording_alive_unlocked()
-            )
+        live = self._is_live(output_dir)
         meditation = (output_dir / "blocks.json").is_file()
         try:
             started = dt.datetime.strptime(output_dir.name[:15], "%Y%m%d_%H%M%S").isoformat()
