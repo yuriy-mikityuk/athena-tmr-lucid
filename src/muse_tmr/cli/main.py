@@ -629,6 +629,52 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override the number of cued puzzles. Defaults to half of the session tasks.",
     )
 
+    meditation_plan_parser = subparsers.add_parser(
+        "meditation-plan",
+        help="Write a counterbalanced A/B meditation blocks.json template.",
+    )
+    meditation_plan_parser.add_argument(
+        "--conditions", required=True, help="Two comma-separated condition labels, e.g. focus,open."
+    )
+    meditation_plan_parser.add_argument("--blocks", type=int, default=4)
+    meditation_plan_parser.add_argument("--block-minutes", type=float, default=8.0)
+    meditation_plan_parser.add_argument("--settle-seconds", type=float, default=60.0)
+    meditation_plan_parser.add_argument("--seed", type=int, required=True)
+    meditation_plan_parser.add_argument(
+        "--output",
+        type=Path,
+        help="Output blocks .json path. Defaults to data/protocol/meditation/blocks_<timestamp>.json.",
+    )
+
+    meditation_analysis_parser = subparsers.add_parser(
+        "analyze-meditation",
+        help="Complexity, 1/f, DFA and EMG analysis of one meditation recording.",
+    )
+    meditation_analysis_parser.add_argument("recording_dir", type=Path)
+    meditation_analysis_parser.add_argument("--blocks", type=Path, required=True, help="blocks.json for this recording.")
+    meditation_analysis_parser.add_argument(
+        "--output-dir",
+        type=Path,
+        help="Defaults to data/reports/meditation/<recording name>/.",
+    )
+    meditation_analysis_parser.add_argument("--epoch-seconds", type=float, default=10.0)
+    meditation_analysis_parser.add_argument("--trim-block-start", type=float, default=30.0)
+    meditation_analysis_parser.add_argument(
+        "--emg-indicator",
+        choices=("auto", "emg_power_55_95", "emg_power_30_45"),
+        default="auto",
+    )
+    meditation_analysis_parser.add_argument("--no-lyapunov", action="store_true")
+
+    meditation_aggregate_parser = subparsers.add_parser(
+        "aggregate-meditation",
+        help="Cross-session table of meditation A-B differences (inference unit: session).",
+    )
+    meditation_aggregate_parser.add_argument("summaries", type=Path, nargs="+", help="summary.json files.")
+    meditation_aggregate_parser.add_argument("--output", type=Path, required=True, help="Output .json path.")
+    meditation_aggregate_parser.add_argument("--min-sessions", type=int, default=8)
+    meditation_aggregate_parser.add_argument("--seed", type=int, default=0)
+
     record_parser = subparsers.add_parser("record", help="Record an overnight Muse session.")
     record_parser.add_argument(
         "--source",
@@ -737,6 +783,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return _analyze_cued_uncued(args)
     if args.command == "assign-puzzle-cues":
         return _assign_puzzle_cues(args)
+    if args.command == "meditation-plan":
+        return _meditation_plan(args)
+    if args.command == "analyze-meditation":
+        return asyncio.run(_analyze_meditation(args))
+    if args.command == "aggregate-meditation":
+        return _aggregate_meditation(args)
     if args.command == "record":
         return asyncio.run(_record(args))
 
@@ -1057,6 +1109,99 @@ async def _replay(args: argparse.Namespace) -> int:
         f"replay complete source={metadata.source_name} "
         f"input={session.raw_path} frames={frame_count} modalities={modality_counts}"
     )
+    return 0
+
+
+def _meditation_plan(args: argparse.Namespace) -> int:
+    from muse_tmr.reports.meditation_analysis import build_meditation_plan, write_meditation_blocks
+
+    plan = build_meditation_plan(
+        [condition for condition in args.conditions.split(",")],
+        blocks=args.blocks,
+        block_minutes=args.block_minutes,
+        settle_seconds=args.settle_seconds,
+        seed=args.seed,
+    )
+    if args.output is not None:
+        output = _resolve_output_path(args.output)
+    else:
+        timestamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+        output = _default_path_base() / "data" / "protocol" / "meditation" / f"blocks_{timestamp}.json"
+    write_meditation_blocks(plan, output)
+    print(f"meditation plan written: {output}")
+    print(f"order: {' '.join(plan.order)}")
+    for block in plan.blocks:
+        print(f"  block {block.index}: {block.condition:<12} {block.start_s / 60:6.1f} - {block.end_s / 60:6.1f} min")
+    print("Fill in depth and sensory_fading (0-10) after each block.")
+    return 0
+
+
+async def _analyze_meditation(args: argparse.Namespace) -> int:
+    from muse_tmr.features.complexity_features import ComplexityConfig
+    from muse_tmr.reports.meditation_analysis import (
+        MeditationAnalysisConfig,
+        analyze_meditation_recording,
+        load_meditation_blocks,
+    )
+
+    recording_dir = args.recording_dir.expanduser().resolve()
+    blocks = load_meditation_blocks(args.blocks.expanduser())
+    config = MeditationAnalysisConfig(
+        epoch_seconds=args.epoch_seconds,
+        trim_block_start_seconds=args.trim_block_start,
+        emg_indicator=args.emg_indicator,
+        complexity=ComplexityConfig(lyapunov_enabled=not args.no_lyapunov),
+    )
+    output_dir = (
+        _resolve_output_dir(args.output_dir)
+        if args.output_dir is not None
+        else _default_path_base() / "data" / "reports" / "meditation" / recording_dir.name
+    )
+    started = time.monotonic()
+    analysis = await analyze_meditation_recording(recording_dir, blocks, config)
+    paths = analysis.write(output_dir)
+    summary = analysis.summary
+    primary = next(
+        item for item in summary["contrasts"] if item["primary"] and item["variant"] == "clean"
+    )
+    emg = summary["emg"]
+    print(f"meditation analysis written: {paths['summary']} ({time.monotonic() - started:.1f} s)")
+    print(
+        f"epochs in blocks={summary['counts']['epochs_in_blocks']} clean={summary['counts']['clean_epochs']}"
+    )
+    print(f"primary {summary['contrast']} lzc_all (clean epochs): {primary['difference']:+.4f}")
+    print(
+        f"EMG indicator {emg['indicator']}: confounded={emg['emg_confounded']} "
+        f"(log10 diff clean={emg['condition_difference']['clean']['difference_log10']:+.3f})"
+    )
+    return 0
+
+
+def _aggregate_meditation(args: argparse.Namespace) -> int:
+    from muse_tmr.reports.meditation_analysis import aggregate_meditation_summaries, json_safe
+
+    summaries = [json.loads(path.expanduser().read_text(encoding="utf-8")) for path in args.summaries]
+    result = aggregate_meditation_summaries(
+        summaries,
+        labels=[str(path) for path in args.summaries],
+        min_sessions_for_inference=args.min_sessions,
+        seed=args.seed,
+    )
+    output = _resolve_output_path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(json_safe(result), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    for warning in result["warnings"]:
+        print(f"warning: {warning}")
+    for row in result["rows"]:
+        if row["primary"] and row["kind"] == "raw":
+            extra = ""
+            if "p_sign_flip" in row:
+                extra = f" p={row['p_sign_flip']:.4f} ci95=[{row['ci95'][0]:+.4f}, {row['ci95'][1]:+.4f}]"
+            print(
+                f"primary {result['contrast']} lzc_all ({row['variant']}): "
+                f"mean {row['mean_difference']:+.4f} over {row['n_sessions']} sessions{extra}"
+            )
+    print(f"aggregate written: {output} ({len(result['rows'])} rows, all but the primary are exploratory)")
     return 0
 
 

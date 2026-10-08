@@ -1,0 +1,160 @@
+# Meditation complexity metrics
+
+A side track to the REM/TMR work: check on my own Muse data whether the
+direction of the jhana vs breath-mindfulness result from Mago et al. 2025 shows
+up when I compare two of my own practices. The code lives in
+`muse_tmr.features.complexity_features` and
+`muse_tmr.reports.meditation_analysis` and does not touch REM detection, the
+gate, the scheduler, the arousal guard or audio.
+
+Reference: Mago et al., "Meditative absorption shifts brain dynamics toward
+criticality", arXiv:2511.20990. **Preprint, not peer reviewed.** They found,
+for jhana vs mindfulness of breathing: higher Lempel-Ziv complexity, sample and
+permutation entropy and Hjorth mobility, a flatter aperiodic 1/f slope, a lower
+largest Lyapunov exponent, lower theta/alpha/beta and higher low-gamma DFA,
+lower alpha and higher gamma power. 10 experienced practitioners, 32-channel
+EEG, 10 s epochs, no correction across metrics.
+
+## Protocol
+
+1. Once, before the first session: run the artifact diagnostic so you know what
+   your own EMG looks like on TP9/TP10:
+
+   ```bash
+   muse-tmr diagnose-blink-artifacts --source amused --address "$MUSE_ADDR"
+   ```
+
+   That report only has amplitude metrics. To see the EMG indicators
+   themselves, also record a short jaw check and analyze it as two conditions:
+
+   ```bash
+   muse-tmr meditation-plan --conditions relaxed,clench --blocks 4 \
+     --block-minutes 1 --settle-seconds 30 --seed 1 --output data/protocol/meditation/jaw_check.json
+   # record ~5 min, relax / lightly clench the jaw per the printed schedule, then
+   muse-tmr analyze-meditation data/recordings/session/<name> \
+     --blocks data/protocol/meditation/jaw_check.json --trim-block-start 10
+   ```
+
+   `emg.condition_difference` in the summary should show a clear clench > relaxed
+   difference in `emg_power_55_95`.
+
+2. Per session, generate a counterbalanced plan:
+
+   ```bash
+   muse-tmr meditation-plan --conditions focus,open --blocks 4 --block-minutes 8 \
+     --settle-seconds 60 --seed 17
+   ```
+
+   The order (ABAB or BABA) comes from the seed and is stored in the file. Times
+   are seconds from the first recorded frame, which is what the app's recording
+   timer shows. Eyes closed in both conditions.
+
+3. Start a `session` recording in the app (or `muse-tmr record --allow-short`),
+   follow the printed block times, and after each block fill in `depth` and
+   `sensory_fading` (0-10) in the blocks file. It is personal data: keep it under
+   `data/protocol/` (gitignored), never commit it.
+
+4. Analyze:
+
+   ```bash
+   muse-tmr analyze-meditation data/recordings/session/<name> --blocks <blocks.json>
+   ```
+
+   Writes `epochs.csv`, `blocks.csv` and `summary.json` to
+   `data/reports/meditation/<name>/`. 40 min of synthetic 4-channel data with the
+   Lyapunov exponent on takes about 40 s on an M-series laptop; `--no-lyapunov`
+   skips the slowest metric.
+
+5. After at least 8 sessions, aggregate:
+
+   ```bash
+   muse-tmr aggregate-meditation data/reports/meditation/*/summary.json \
+     --output data/reports/meditation/aggregate.json
+   ```
+
+   The inference unit is the session: one A - B difference of block means per
+   session. Epochs are autocorrelated and would inflate significance. With fewer
+   than 8 sessions it prints descriptives and a warning and reports no p-values or
+   intervals. With 8 or more: two-sided sign-flip permutation test (exact up to
+   16 sessions) and a bootstrap 95% CI.
+
+**Primary metric, declared up front: the raw all-channel mean LZC contrast on
+clean epochs.** Everything else, including the all-epochs variant and the
+EMG-residualized contrasts, is labeled exploratory in the outputs.
+
+## Epochs and blocks
+
+- 10 s non-overlapping epochs from `EpochBuilder`; partial epochs are dropped.
+- An epoch counts for a block only if it lies wholly inside it after trimming the
+  first 30 s of the block (`--trim-block-start`). The settle period and anything
+  outside blocks are ignored.
+- Artifact flags (clipping, flatline, empty, nonfinite, low coverage) come from
+  `eeg_features`, plus `eeg_missing_<ch>` / `eeg_short_<ch>` when one of the four
+  channels is absent or shorter than 2 s, so a "clean" group mean never silently
+  covers fewer channels. Flagged epochs are kept and marked; flagged channels get
+  NaN and are left out of the group means. Every contrast is reported twice: `all` epochs
+  and `clean` epochs.
+- Channel groups: per channel, `all` (mean of the four), `frontal` (AF7, AF8),
+  `temporal` (TP9, TP10).
+
+## Metrics
+
+All parameters live in `ComplexityConfig` and are written into every
+`summary.json`.
+
+| Metric | Definition |
+| ------ | ---------- |
+| `lzc` | LZ76 (Kaspar-Schuster) on the median-binarized signal, normalized by n / log2(n). |
+| `sample_entropy` | m = 2, r = 0.2 * std, Chebyshev distance. |
+| `permutation_entropy` | Order 3, delay 1, normalized to [0, 1]. |
+| `spectral_entropy` | Welch PSD (2 s segments) over 0.5-40 Hz, normalized. |
+| `hjorth_mobility`, `hjorth_complexity` | Derivative as `np.diff`, per-sample units. |
+| `aperiodic_exponent_2_20`, `_2_40` | Log-log line fit of the Welch PSD with iterative peak exclusion (drop points more than 2 robust SDs above the line, refit). exponent = -slope; offsets reported too. |
+| `lyapunov_max` | Rosenstein 1993, embedding dimension 7, delay 4 samples, Theiler window 64 samples, 32-step divergence curve, per second. **Experimental**: noisy and parameter-sensitive on 10 s windows. |
+| `band_power_*`, `relative_power_*` | Welch PSD integrated over the existing `EEG_BANDS`. |
+| `emg_power_30_45` (+ `_rel` to 1-45 Hz), `emg_power_55_95` | EMG indicators, see below. |
+| `dfa_theta/alpha/beta/low_gamma/broadband` | Per block: band-pass, Hilbert amplitude envelope, DFA with 16 log-spaced windows from 1 s to 1/10 of the data. Built from contiguous clean runs of at least 20 s, each filtered on its own, then concatenated. Fit range and window count are in `blocks.csv`. |
+
+Complexity metrics (LZC, entropies, Hjorth, Lyapunov) use a detrended,
+zero-phase 0.5-40 Hz band-pass. Spectral and EMG metrics use the detrended
+signal with a 50 Hz notch. Power metrics are contrasted, correlated and
+residualized on log10.
+
+## EMG check
+
+Lower alpha, higher gamma, a flatter 1/f slope and higher entropy are also what
+scalp EMG produces, and TP9/TP10 sit over the temporalis. So `summary.json`
+always carries an `emg` section:
+
+- `indicator`: `emg_power_55_95` (above 50 Hz mains, below its 100 Hz harmonic)
+  when that band is at least 3 dB above the 110-125 Hz floor, otherwise
+  `emg_power_30_45`, which overlaps EEG gamma and is a weaker check.
+- `condition_difference`: A - B of the log10 indicator. Beyond 0.1 log10 units
+  (about 26%) in either variant, `emg_confounded` is true.
+- `correlations`: Spearman rho across epochs between the indicator and each
+  metric. No p-values, epochs are autocorrelated.
+- `residualized_contrasts`: each metric's A - B after regressing it on the log10
+  indicator within the session (OLS on epochs). A contrast that disappears after
+  residualizing is probably muscle.
+- Compare `aperiodic_exponent_2_20` with `_2_40`: flattening only in 2-40 Hz
+  points to EMG.
+
+**Does Muse pass 55-95 Hz?** Checked on a 13 min Muse S Athena session
+(`p1034`, amused decoder): the EEG stream runs at about 254 samples/s, so
+Nyquist is 128 Hz. Above 60 Hz the spectrum is not a flat noise floor: it falls
+with a log-log slope of about -4 down to 95 Hz, the 100 Hz mains harmonic
+stands out above its neighbours, and 55-95 Hz sits about 23 dB above 110-125 Hz.
+So the band carries signal and 55-95 Hz is the default indicator. The steep
+fall-off means it is attenuated by the device's filtering, so the jaw-clench
+check above is still worth doing once.
+
+## Limitations
+
+- n = 1 practitioner. 4 channels, reference at Fpz, temporal channels over the
+  temporalis.
+- Criticality markers are still debated, and the reference paper is a preprint.
+- MMN (BLE timestamp jitter is tens to hundreds of ms, no Fz/Cz) and neuronal
+  avalanches (4 channels) are not possible on this setup, and the jhana
+  manipulation itself is not reproduced: this compares two of my own practices.
+- No correction across the exploratory metrics. Only the primary metric is meant
+  for a yes/no reading, and only after enough sessions.

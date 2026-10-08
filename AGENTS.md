@@ -206,6 +206,12 @@ Prefer the existing simple module style until an issue explicitly introduces a p
   use `muse-tmr run-pilot5-full-night`, and do not interpret results until dream
   report, blind retest, scheduler logs, and cued-vs-uncued analysis are generated.
 
+- Meditation complexity analysis is a side track: metrics in
+  `muse_tmr.features.complexity_features`, blocks/analysis/aggregation in
+  `muse_tmr.reports.meditation_analysis` (see `docs/meditation_metrics.md`). Keep it
+  decoupled from REM detection, the gate, the scheduler, the arousal guard and audio,
+  keep the inference unit the session, and never commit blocks files or reports.
+
 ## Testing Expectations
 
 For Python changes, run the fastest relevant checks:
