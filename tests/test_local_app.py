@@ -945,6 +945,80 @@ class TestLocalMuseAppReport(unittest.TestCase):
             self.assertEqual(error.exception.code, 404, bad)
 
 
+class TestLocalMuseAppMeditation(TestLocalMuseAppReport):
+    def start(self, **overrides):
+        body = {"conditions": ["focus", "open"], "blocks": 2, "block_minutes": 1, "settle_seconds": 30, "seed": 4}
+        body.update(overrides)
+        return self.state.start_meditation(body)
+
+    def test_bad_plans_are_rejected(self):
+        for overrides in ({"conditions": ["focus"]}, {"blocks": 1}, {"block_minutes": 0}, {"settle_seconds": -1}):
+            _payload, status = self.start(**overrides)
+            self.assertEqual(int(status), 400, overrides)
+        self.assertEqual(self.procs, [])
+
+    def test_start_writes_the_plan_and_records_long_enough(self):
+        payload, status = self.start(with_polar=True)
+        self.assertEqual(int(status), 200)
+        command, _proc = self.procs[0]
+        self.assertNotIn("--duration-hours", command)
+        self.assertEqual(command[command.index("--duration-seconds") + 1], "210")  # 30 + 2 x 60 + 60 slack
+        self.assertIn("--with-polar", command)
+        self.assertIn("--duration-from-first-frame", command)
+        output_dir = Path(payload["output_dir"])
+        plan = json.loads((output_dir / "blocks.json").read_text())
+        self.assertEqual([block["start_s"] for block in plan["blocks"]], [30.0, 90.0])
+        self.assertEqual(payload["meditation"]["plan"]["conditions"], ["focus", "open"])
+        self.assertIsNone(payload["meditation"]["first_frame_elapsed_seconds"])
+        (output_dir / "progress.json").write_text(json.dumps({"elapsed_seconds": 12.0, "first_frame_elapsed_seconds": 4.5}))
+        self.assertEqual(self.state.ui_state()["recording"]["meditation"]["first_frame_elapsed_seconds"], 4.5)
+
+    def test_ratings_are_saved_into_blocks_json(self):
+        payload, _ = self.start()
+        output_dir = Path(payload["output_dir"])
+        _payload, status = self.state.save_meditation_rating({"block_index": 1, "depth": "7", "sensory_fading": 4})
+        self.assertEqual(int(status), 200)
+        plan = json.loads((output_dir / "blocks.json").read_text())
+        self.assertEqual((plan["blocks"][1]["depth"], plan["blocks"][1]["sensory_fading"]), (7.0, 4.0))
+        self.assertIsNone(plan["blocks"][0]["depth"])
+        for bad in ({"block_index": 1, "depth": 11}, {"block_index": 9, "depth": 3}, {"depth": 3}):
+            _payload, status = self.state.save_meditation_rating(bad)
+            self.assertEqual(int(status), 400, bad)
+
+    def test_ratings_need_a_meditation_recording(self):
+        self.state.start_recording("session")
+        _payload, status = self.state.save_meditation_rating({"block_index": 0, "depth": 3})
+        self.assertEqual(int(status), 409)
+
+    def test_analyze_runs_analyze_meditation_and_links_the_report(self):
+        payload, _ = self.start()
+        output_dir = Path(payload["output_dir"])
+        _payload, status = self.state.analyze_meditation()
+        self.assertEqual(int(status), 409)  # still recording
+        (output_dir / "summary.json").write_text(json.dumps({"stop_reason": "duration_complete"}))
+        self.procs[0][1].returncode = 0
+
+        payload, status = self.state.analyze_meditation()
+        self.assertEqual(int(status), 200)
+        command, analysis = self.procs[1]
+        report_dir = (self.reports / "meditation" / output_dir.name).resolve()
+        self.assertEqual(command[1:4], ["-m", "muse_tmr.cli.main", "analyze-meditation"])
+        self.assertEqual(command[-4:], ["--blocks", str((output_dir / "blocks.json").resolve()), "--output-dir", str(report_dir)])
+        self.assertEqual(payload["meditation"]["analysis"]["state"], "running")
+        self.assertFalse(self.state.idle_for_update())
+
+        report_dir.mkdir(parents=True, exist_ok=True)
+        (report_dir / "report.html").write_text("<html>ok</html>")
+        analysis.returncode = 0
+        ready = self.state.ui_state()["recording"]["meditation"]["analysis"]
+        self.assertEqual(ready["state"], "ready")
+        self.assertEqual(ready["url"], f"/reports/meditation/{output_dir.name}/report.html")
+
+    def test_plain_recording_has_no_meditation_section(self):
+        payload, _ = self.state.start_recording("session")
+        self.assertIsNone(payload["meditation"])
+
+
 class TestLocalMuseAppRecordingEndpoint(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()

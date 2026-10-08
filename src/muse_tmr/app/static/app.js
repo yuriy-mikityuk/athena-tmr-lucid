@@ -13,6 +13,16 @@ const scanButton = document.querySelector("#scan-button");
 const connectButton = document.querySelector("#connect-button");
 const startSessionButton = document.querySelector("#start-session-button");
 const startNightButton = document.querySelector("#start-night-button");
+const startMeditationButton = document.querySelector("#start-meditation-button");
+const meditationForm = document.querySelector("#meditation-form");
+const meditationCancel = document.querySelector("#med-cancel");
+const meditationChime = document.querySelector("#med-chime");
+const meditationPanel = document.querySelector("#meditation-panel");
+const meditationNow = document.querySelector("#meditation-now");
+const meditationBlocks = document.querySelector("#meditation-blocks");
+const analyzeMeditationButton = document.querySelector("#analyze-meditation-button");
+const openMeditationReport = document.querySelector("#open-meditation-report");
+const meditationAnalysisText = document.querySelector("#meditation-analysis-text");
 const stopRecordingButton = document.querySelector("#stop-recording-button");
 const disconnectButton = document.querySelector("#disconnect-button");
 const recordHint = document.querySelector("#record-hint");
@@ -186,6 +196,10 @@ function renderActions() {
   const canRecord = connection === "connected" && !recordingActive;
   startSessionButton.hidden = !canRecord;
   startNightButton.hidden = !canRecord;
+  startMeditationButton.hidden = !(canRecord && isAmused);
+  if (!canRecord) {
+    meditationForm.hidden = true;
+  }
   polarOption.hidden = !(canRecord && isAmused);
   stopRecordingButton.hidden = !(
     recordingActive && latestRecording.state !== "stopping" && latestRecording.state !== "finishing"
@@ -195,6 +209,7 @@ function renderActions() {
   const recordEnabled = canRecord && isAmused && contactReady;
   startSessionButton.disabled = !recordEnabled;
   startNightButton.disabled = !recordEnabled;
+  startMeditationButton.disabled = !recordEnabled;
 
   connectButton.classList.toggle("primary", connection !== "connected");
   connectButton.disabled = connection === "connecting";
@@ -440,6 +455,7 @@ function renderRecording(recording) {
     }
   }
 
+  renderMeditation(latestRecording);
   renderActions();
 }
 
@@ -617,6 +633,258 @@ stopRecordingButton.addEventListener("click", async () => {
 disconnectButton.addEventListener("click", async () => {
   await requestJson("/api/muse/disconnect", { method: "POST" });
   await refreshUiState();
+});
+
+// --- guided meditation -------------------------------------------------------
+
+const meditationState = { outputDir: null, items: new Map(), lastPhase: null, anchor: null };
+let audioContext = null;
+
+function chimeEnabled() {
+  try {
+    return window.localStorage.getItem("meditationChime") !== "0";
+  } catch (error) {
+    return true;
+  }
+}
+
+function ensureAudio() {
+  if (!audioContext) {
+    const Context = window.AudioContext || window.webkitAudioContext;
+    audioContext = Context ? new Context() : null;
+  }
+  if (audioContext && audioContext.state === "suspended") {
+    audioContext.resume().catch(() => {});
+  }
+}
+
+// Browsers only allow sound after a click; any click on the page unlocks it again
+// after a reload in the middle of a session.
+document.addEventListener("click", () => {
+  if (latestRecording.meditation && latestRecording.active) {
+    ensureAudio();
+  }
+});
+
+function playChime(count) {
+  if (!chimeEnabled() || !audioContext) {
+    return;
+  }
+  const start = audioContext.currentTime + 0.05;
+  for (let index = 0; index < count; index += 1) {
+    const time = start + index * 0.9;
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    oscillator.type = "sine";
+    oscillator.frequency.value = 528;
+    gain.gain.setValueAtTime(0.0001, time);
+    gain.gain.exponentialRampToValueAtTime(0.08, time + 0.08);
+    gain.gain.exponentialRampToValueAtTime(0.0001, time + 1.6);
+    oscillator.connect(gain).connect(audioContext.destination);
+    oscillator.start(time);
+    oscillator.stop(time + 1.7);
+  }
+}
+
+function planSeconds(recording, meditation) {
+  const elapsed = numberOrNull(recording.elapsed_seconds);
+  const offset = numberOrNull(meditation.first_frame_elapsed_seconds);
+  if (elapsed == null || offset == null) {
+    return null;
+  }
+  // progress.json moves every ~2 s; extrapolate in between so the countdown runs smoothly.
+  const now = Date.now() / 1000;
+  if (!meditationState.anchor || meditationState.anchor.value !== elapsed) {
+    meditationState.anchor = { value: elapsed, at: now };
+  }
+  return meditationState.anchor.value + Math.min(3, now - meditationState.anchor.at) - offset;
+}
+
+function meditationPhase(blocks, seconds, active) {
+  if (!active) {
+    return { key: "done" };
+  }
+  if (seconds == null) {
+    return { key: "waiting" };
+  }
+  if (seconds < blocks[0].start_s) {
+    return { key: "settle", left: blocks[0].start_s - seconds };
+  }
+  for (const block of blocks) {
+    if (seconds < block.end_s) {
+      return { key: `block-${block.index}`, block, left: block.end_s - seconds };
+    }
+  }
+  return { key: "done" };
+}
+
+function renderMeditation(recording) {
+  const meditation = recording.meditation;
+  const plan = meditation && meditation.plan;
+  meditationPanel.hidden = !plan;
+  if (!plan) {
+    return;
+  }
+  if (meditationState.outputDir !== recording.output_dir) {
+    meditationState.outputDir = recording.output_dir;
+    meditationState.items = new Map();
+    meditationState.lastPhase = null;
+    meditationState.anchor = null;
+    meditationBlocks.innerHTML = "";
+  }
+  const blocks = plan.blocks || [];
+  const active = Boolean(recording.active);
+  const seconds = planSeconds(recording, meditation);
+  const phase = meditationPhase(blocks, seconds, active);
+
+  if (phase.key === "waiting") {
+    meditationNow.textContent = "Waiting for the first headband data...";
+  } else if (phase.key === "settle") {
+    meditationNow.textContent = `Settling in · ${formatDuration(phase.left)}`;
+  } else if (phase.block) {
+    meditationNow.textContent = `Block ${phase.block.index + 1} of ${blocks.length} · ${phase.block.condition} · ${formatDuration(phase.left)} left`;
+  } else {
+    meditationNow.textContent = active
+      ? "All blocks done. Rate them below; the recording is finishing."
+      : "Done. Rate the blocks, then analyze.";
+  }
+  if (active && chimeEnabled() && !audioContext) {
+    meditationNow.textContent += " (click the page to enable tones)";
+  }
+
+  const last = meditationState.lastPhase;
+  if (last && last !== "waiting" && last !== phase.key && active) {
+    playChime(phase.key === "done" ? 2 : 1);
+  }
+  meditationState.lastPhase = phase.key;
+
+  blocks.forEach((block) => renderMeditationBlock(block, seconds, active, phase));
+  renderMeditationAnalysis(recording, meditation, active);
+}
+
+function renderMeditationBlock(block, seconds, active, phase) {
+  let item = meditationState.items.get(block.index);
+  if (!item) {
+    const li = document.createElement("li");
+    const label = document.createElement("span");
+    const ratings = document.createElement("span");
+    ratings.className = "ratings";
+    li.append(label, ratings);
+    meditationBlocks.appendChild(li);
+    item = { li, label, ratings, built: false };
+    meditationState.items.set(block.index, item);
+  }
+  const done = !active || (seconds != null && seconds >= block.end_s);
+  const current = phase.block && phase.block.index === block.index;
+  item.li.className = current ? "current" : done ? "done" : "upcoming";
+  item.label.textContent = `${block.condition} · ${(block.start_s / 60).toFixed(1)}–${(block.end_s / 60).toFixed(1)} min`;
+  if (done && !item.built) {
+    item.built = true;
+    const depth = ratingSelect("Depth", block.depth);
+    const fading = ratingSelect("Sensory fading", block.sensory_fading);
+    const saved = document.createElement("small");
+    const save = async () => {
+      saved.textContent = "saving...";
+      const response = await fetch("/api/meditation/rating", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          block_index: block.index,
+          depth: depth.select.value,
+          sensory_fading: fading.select.value
+        })
+      });
+      saved.textContent = response.ok ? "saved" : "not saved";
+    };
+    depth.select.addEventListener("change", save);
+    fading.select.addEventListener("change", save);
+    item.ratings.append(depth.label, fading.label, saved);
+  }
+}
+
+function ratingSelect(name, value) {
+  const label = document.createElement("label");
+  label.textContent = `${name} `;
+  const select = document.createElement("select");
+  ["", ...Array.from({ length: 11 }, (_, index) => String(index))].forEach((option) => {
+    const element = document.createElement("option");
+    element.value = option;
+    element.textContent = option === "" ? "-" : option;
+    select.appendChild(element);
+  });
+  select.value = value == null ? "" : String(Math.round(value));
+  label.appendChild(select);
+  return { label, select };
+}
+
+function renderMeditationAnalysis(recording, meditation, active) {
+  const analysis = meditation.analysis || { state: "none" };
+  const finished = !active && recording.state === "completed";
+  analyzeMeditationButton.hidden = !finished || analysis.state === "ready";
+  analyzeMeditationButton.disabled = analysis.state === "running";
+  analyzeMeditationButton.textContent = analysis.state === "failed" ? "Analyze again" : "Analyze meditation";
+  openMeditationReport.hidden = !(analysis.state === "ready" && analysis.url);
+  if (analysis.url) {
+    openMeditationReport.href = analysis.url;
+  }
+  meditationAnalysisText.textContent =
+    analysis.state === "running"
+      ? "Analyzing (about a minute)..."
+      : analysis.state === "failed"
+      ? `Analysis failed, see ${analysis.log_path}`
+      : "";
+}
+
+startMeditationButton.addEventListener("click", () => {
+  meditationForm.hidden = !meditationForm.hidden;
+  meditationChime.checked = chimeEnabled();
+});
+
+meditationCancel.addEventListener("click", () => {
+  meditationForm.hidden = true;
+});
+
+meditationForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    window.localStorage.setItem("meditationChime", meditationChime.checked ? "1" : "0");
+  } catch (error) {
+    // the setting just won't be remembered
+  }
+  if (meditationChime.checked) {
+    ensureAudio();
+  }
+  const body = {
+    conditions: [document.querySelector("#med-condition-a").value, document.querySelector("#med-condition-b").value],
+    blocks: Number(document.querySelector("#med-blocks").value),
+    block_minutes: Number(document.querySelector("#med-block-minutes").value),
+    settle_seconds: Number(document.querySelector("#med-settle").value),
+    with_polar: withPolarCheckbox.checked
+  };
+  const response = await fetch("/api/meditation/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const formError = document.querySelector("#med-error");
+  if (response.ok) {
+    meditationForm.hidden = true;
+    formError.hidden = true;
+  } else {
+    const payload = await response.json().catch(() => ({}));
+    formError.hidden = false;
+    formError.textContent = payload.error || `${response.status} ${response.statusText}`;
+  }
+  await refreshUiState();
+});
+
+analyzeMeditationButton.addEventListener("click", async () => {
+  analyzeMeditationButton.disabled = true;
+  try {
+    await requestJson("/api/meditation/analyze", { method: "POST" });
+  } finally {
+    await refreshUiState();
+  }
 });
 
 refreshUiState();

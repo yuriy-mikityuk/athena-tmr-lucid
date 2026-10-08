@@ -167,6 +167,7 @@ class TestOvernightRecorder(unittest.IsolatedAsyncioTestCase):
             self.assertIn("frame_count", progress)
             self.assertIn("elapsed_seconds", progress)
             self.assertIn("battery_percent", progress)
+            self.assertIsNotNone(progress["first_frame_elapsed_seconds"])
 
     async def test_no_data_timeout_reconnects_and_continues(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -352,6 +353,31 @@ class TestOvernightRecorder(unittest.IsolatedAsyncioTestCase):
             task.cancel()
             summary = await asyncio.wait_for(task, timeout=5)
             self.assertEqual(summary.stop_reason, "user_stopped")
+
+    async def test_duration_can_count_from_the_first_frame(self):
+        class SlowConnect(EndlessFakeSource):
+            async def connect(self, device=None):
+                await asyncio.sleep(0.4)  # a slow BLE connect
+                return await super().connect(device)
+
+        for from_first_frame in (False, True):
+            with tempfile.TemporaryDirectory() as tmp:
+                recorder = OvernightRecorder(
+                    RecordingConfig(
+                        output_dir=Path(tmp),
+                        duration_seconds=0.6,
+                        allow_short=True,
+                        duration_from_first_frame=from_first_frame,
+                    )
+                )
+                started = asyncio.get_running_loop().time()
+                summary = await recorder.record(SlowConnect())
+                wall = asyncio.get_running_loop().time() - started
+                self.assertEqual(summary.stop_reason, "duration_complete")
+                if from_first_frame:
+                    self.assertGreater(wall, 0.95)  # 0.4 s connect + a full 0.6 s of data
+                else:
+                    self.assertLess(wall, 0.85)
 
     def test_duration_requires_overnight_window_unless_allowed(self):
         with tempfile.TemporaryDirectory() as tmp:
