@@ -147,6 +147,8 @@ class TestLocalMuseApp(unittest.TestCase):
         self.assertIn("headband-title", body)
         self.assertIn("session-strip", body)
         self.assertIn("device-card", body)
+        self.assertIn("device-battery", body)
+        self.assertIn("scan-result", body)
         self.assertIn("with-polar-checkbox", body)
         self.assertIn("warning-log", body)
         self.assertIn("diagnostics-panel", body)
@@ -327,6 +329,74 @@ class TestLocalMuseAppAmusedScan(unittest.TestCase):
                 thread.join(timeout=2)
                 server.app_state.shutdown()
                 server.server_close()
+
+
+class BatteryFakeAmusedSource(LoopSafeFakeAmusedSource):
+    """Connects by address like amused (name == address) and streams battery frames."""
+
+    async def discover(self):
+        from muse_tmr.sources.base_source import MuseDeviceInfo
+
+        return [
+            MuseDeviceInfo(name="Muse-OTHER", address="other-address", rssi=-80),
+            MuseDeviceInfo(name="MuseS-1234", address="test-address", rssi=-55),
+        ]
+
+    async def connect(self, device=None):
+        self.connect_calls += 1
+        return MuseSourceMetadata(
+            source_name="amused", device_name="test-address", device_id="test-address", capabilities={"eeg": True}
+        )
+
+    async def stream(self):
+        from muse_tmr.data.sample_types import BatterySample, MuseFrame
+
+        self.stream_calls += 1
+        percent = 81.5
+        while not self.stop_requested:
+            yield MuseFrame(timestamp=time.time(), battery=BatterySample(timestamp=time.time(), percent=percent), source="amused")
+            await asyncio.sleep(0.01)
+
+
+class TestLocalMuseAppBatteryAndScan(unittest.TestCase):
+    def make(self, address):
+        BatteryFakeAmusedSource.instances = []
+        patcher = patch("muse_tmr.sources.amused_source.AmusedSource", BatteryFakeAmusedSource)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        server = create_local_app_server(AppConfig(port=0, source="amused", address=address))
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.app_state.shutdown)
+        return server.app_state
+
+    def test_scan_reports_configured_headband_and_sorts_by_signal(self):
+        state = self.make("test-address")
+        scanned = state.scan()
+        self.assertEqual([device["name"] for device in scanned["devices"]], ["MuseS-1234", "Muse-OTHER"])
+        self.assertTrue(scanned["scan"]["configured_found"])
+        self.assertEqual(scanned["scan"]["count"], 2)
+
+    def test_scan_says_when_the_configured_headband_is_missing(self):
+        state = self.make("not-around")
+        self.assertFalse(state.scan()["scan"]["configured_found"])
+
+    def test_battery_while_connected_and_name_instead_of_address(self):
+        state = self.make("test-address")
+        self.assertIsNone(state.state()["battery_percent"])
+        state.scan()
+        state.connect()
+        deadline = time.time() + 2
+        while state.state()["battery_percent"] is None and time.time() < deadline:
+            time.sleep(0.02)
+        connected = state.state()
+        self.assertEqual(connected["battery_percent"], 81.5)
+        self.assertEqual(connected["device"]["name"], "MuseS-1234")
+        state.disconnect()
+        self.assertIsNone(state.state()["battery_percent"])
+
+    def test_name_falls_back_to_muse_without_a_scan(self):
+        state = self.make("test-address")
+        self.assertEqual(state.connect()["device"]["name"], "Muse")
 
 
 class TestLocalMuseAppAmusedConnect(unittest.TestCase):

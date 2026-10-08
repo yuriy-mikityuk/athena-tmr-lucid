@@ -6,6 +6,8 @@ const deviceConnectionAge = document.querySelector("#device-connection-age");
 const deviceAddress = document.querySelector("#device-address");
 const deviceSource = document.querySelector("#device-source");
 const deviceLastPacket = document.querySelector("#device-last-packet");
+const deviceBattery = document.querySelector("#device-battery");
+const scanResult = document.querySelector("#scan-result");
 const errorBox = document.querySelector("#error-box");
 const scanButton = document.querySelector("#scan-button");
 const connectButton = document.querySelector("#connect-button");
@@ -198,6 +200,39 @@ function renderActions() {
   disconnectButton.disabled = connection === "disconnected";
 }
 
+function renderScanResult() {
+  const scan = latestState.scan;
+  const connection = latestState.connection_state || "disconnected";
+  const show = Boolean(scan) && connection !== "connected" && !latestRecording.active;
+  scanResult.hidden = !show;
+  if (!show) {
+    return;
+  }
+  if (connection === "scanning") {
+    scanResult.textContent = "Looking for the headband...";
+    return;
+  }
+  const devices = latestState.devices || [];
+  if (devices.length === 0) {
+    scanResult.textContent =
+      "No Muse found. Turn the headband on (hold the button until the lights run), close the Muse phone app so it releases Bluetooth, then try again.";
+    return;
+  }
+  const best = devices[0];
+  const signal = numberOrNull(best.rssi);
+  const signalText = signal == null || signal <= -100 ? "" : `, signal ${Math.round(signal)} dBm`;
+  if (scan.configured_found === false) {
+    scanResult.textContent = `Found ${devices.length} Muse device(s), but not the configured headband (${shortAddress(scan.configured_address)}). Is another Muse nearby?`;
+    return;
+  }
+  scanResult.textContent = `${best.name || "Muse"} is on and in range${signalText}. Press Connect Muse.`;
+}
+
+function shortAddress(address) {
+  const text = String(address || "");
+  return text.length > 12 ? `${text.slice(0, 8)}...` : text;
+}
+
 function renderSourceBadge(source) {
   const live = source === "amused";
   sourceLabel.textContent = live ? "LIVE Muse" : "MOCK";
@@ -213,7 +248,7 @@ function renderDeviceCard() {
   if (device.name || device.address) {
     deviceName.textContent = device.name || "Muse";
   } else if (candidates.length > 0) {
-    deviceName.textContent = `${candidates.length} headset candidate found`;
+    deviceName.textContent = candidates[0].name || "Muse";
   } else {
     deviceName.textContent = "No headset selected";
   }
@@ -226,6 +261,12 @@ function renderDeviceCard() {
   deviceSource.textContent = latestState.source || "unknown";
   deviceLastPacket.textContent =
     latestState.source === "mock" ? "n/a" : formatAge(diagnostics.last_packet_age_seconds);
+  const battery = numberOrNull(
+    latestRecording.active ? latestRecording.battery_percent : latestState.battery_percent
+  );
+  deviceBattery.textContent = battery == null ? "-" : `${Math.round(battery)}%`;
+  deviceBattery.classList.toggle("low", battery != null && battery < 30);
+  renderScanResult();
 }
 
 function renderContact(snapshot) {
