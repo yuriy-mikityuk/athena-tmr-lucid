@@ -64,6 +64,19 @@ class LoadPolarSessionTest(unittest.TestCase):
             self.assertEqual(features["hf_band_valid"], 0.0)
             self.assertTrue(math.isfinite(features["rmssd_ms"]))
 
+    def test_sensor_clock_reset_mid_session_gets_its_own_fit(self):
+        rng = np.random.default_rng(8)
+        with tempfile.TemporaryDirectory() as tmp:
+            truth = write_raw_session(tmp, 240, rng, reset_at_s=120.0)
+            session = load_polar_session(Path(tmp))
+            self.assertEqual(len(session.alignment["clock_segments"]), 2)
+            times = session.ecg["time"].to_numpy()
+            self.assertTrue(np.all(np.diff(times) > 0))
+            peaks = session.r_peaks["time"].to_numpy()
+            beats = [beat for beat in truth["beats_wall"][1:-1] if abs(beat - truth["wall0"] - 117.5) > 4.0]
+            errors = np.array([peaks[np.argmin(np.abs(peaks - beat))] - beat for beat in beats])
+            self.assertLess(np.abs(errors).max() * 1000.0, 10.0)
+
     def test_without_ecg_rr_keeps_receive_time_estimate(self):
         rng = np.random.default_rng(5)
         with tempfile.TemporaryDirectory() as tmp:
@@ -197,6 +210,44 @@ class SlowFakeSource(RecordingFakeSource):
             await asyncio.sleep(0.05)
 
 
+class ControlPointFragmentTest(unittest.IsolatedAsyncioTestCase):
+    async def test_split_settings_response_and_stale_response_are_handled(self):
+        from muse_tmr.sources.polar_h10 import (
+            MEASUREMENT_ACC,
+            PMD_CONTROL_POINT,
+            ControlPointAssembler,
+            PolarH10Client,
+        )
+
+        settings_first = bytes([0xF0, 0x01, 0x02, 0x00, 0x01]) + bytes([0x00, 0x04, 25, 0, 50, 0, 100, 0, 200, 0])
+        settings_rest = bytes([0xF0, 0x01, 0x02, 0x00, 0x00]) + bytes([0x01, 0x01, 16, 0, 0x02, 0x03, 2, 0, 4, 0, 8, 0])
+        assembler = ControlPointAssembler()
+        self.assertIsNone(assembler.feed(settings_first))
+        whole = assembler.feed(settings_rest)
+        self.assertEqual(len(whole.parameters), 22)
+
+        client = PolarH10Client()
+        callback = client._notification(PMD_CONTROL_POINT)
+        written = []
+
+        class FakeBleak:
+            is_connected = True
+
+            async def write_gatt_char(self, uuid, data, response=True):
+                written.append(bytes(data))
+                if data[0] == 0x01:
+                    callback(None, bytes([0xF0, 0x01, 0x00, 0x00, 0x00, 0x00, 0x01, 0x82, 0x00]))  # stale ECG answer
+                    callback(None, settings_first)
+                    callback(None, settings_rest)
+                elif data[0] == 0x02:
+                    callback(None, bytes([0xF0, 0x02, 0x02, 0x00, 0x00, 0x05, 0x01, 0x00, 0x00, 0x80, 0x3F]))
+
+        client._client = FakeBleak()
+        stream = await client._start_stream(MEASUREMENT_ACC, {0: 50, 2: 4})
+        self.assertEqual((stream.sample_rate, stream.resolution, stream.range, stream.factor), (50, 16, 4, 1.0))
+        self.assertEqual(written[-1], bytes([0x02, 0x02, 0x00, 0x01, 50, 0, 0x01, 0x01, 16, 0, 0x02, 0x01, 4, 0]))
+
+
 class CompanionTest(unittest.IsolatedAsyncioTestCase):
     async def test_crashing_companion_never_affects_the_muse_recording(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -217,6 +268,27 @@ class CompanionTest(unittest.IsolatedAsyncioTestCase):
             self.assertIn(("companion_start_failed", "broken"), names)
             exited = [item for item in events if item["event"] == "companion_exited"]
             self.assertEqual(exited[0]["details"]["returncode"], 3)
+
+    async def test_companion_is_stopped_even_when_muse_cleanup_raises(self):
+        class BrokenStop(SlowFakeSource):
+            async def stop(self):
+                raise RuntimeError("BLE stack gone")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = Path(tmp) / "got_sigint"
+            script = (
+                "import signal, sys, time, pathlib\n"
+                f"signal.signal(signal.SIGINT, lambda *a: (pathlib.Path({str(marker)!r}).touch(), sys.exit(0)))\n"
+                "time.sleep(60)\n"
+            )
+            sleeper = CompanionProcess("polar", [sys.executable, "-c", script], Path(tmp) / "polar.log")
+            recorder = OvernightRecorder(
+                RecordingConfig(output_dir=Path(tmp), duration_seconds=1.0, allow_short=True), companions=[sleeper]
+            )
+            with self.assertRaises(RuntimeError):
+                await recorder.record(BrokenStop())
+            sleeper.process.wait(timeout=10)
+            self.assertTrue(marker.exists())
 
     async def test_long_running_companion_gets_sigint_after_the_muse_summary(self):
         script = "import signal, sys, time\nsignal.signal(signal.SIGINT, lambda *a: sys.exit(0))\ntime.sleep(60)\n"

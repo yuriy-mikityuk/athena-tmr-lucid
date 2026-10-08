@@ -357,9 +357,13 @@ class OvernightRecorder:
                 _uncancel_current_task()
                 stop_reason = "user_stopped"
             finally:
-                raw_stream.close()
-                await source.stop()
-                self._companions_request_stop(events_file)
+                try:
+                    raw_stream.close()
+                    await source.stop()
+                finally:
+                    # Even if Muse cleanup raises, the child must hear about it:
+                    # it has to stop its own H10 streams.
+                    self._companions_request_stop(events_file)
 
             self._write_event(
                 events_file,

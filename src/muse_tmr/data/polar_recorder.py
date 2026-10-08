@@ -26,13 +26,13 @@ from muse_tmr.sources.polar_h10 import (
     MEASUREMENT_ACC,
     MEASUREMENT_ECG,
     MEASUREMENT_NAMES,
+    ControlPointAssembler,
     PmdStreamSettings,
     SETTING_CHANNELS,
     SETTING_RANGE,
     SETTING_RESOLUTION,
     SETTING_SAMPLE_RATE,
     factor_from_settings,
-    parse_control_point_response,
     parse_heart_rate_measurement,
     parse_pmd_frame,
     parse_settings,
@@ -263,6 +263,7 @@ def decode_polar_session(session_dir: Path) -> Dict[str, object]:
     counts = {"hr": 0, "rr": 0, "ecg_frames": 0, "ecg_samples": 0, "acc_frames": 0, "acc_samples": 0}
     errors: Dict[str, int] = {}
     gaps: Dict[str, List[Dict[str, float]]] = {"ecg": [], "acc": []}
+    assembler = ControlPointAssembler()
 
     outputs = {
         "hr": (polar_dir / "hr_rr.jsonl.tmp").open("w", encoding="utf-8"),
@@ -280,7 +281,9 @@ def decode_polar_session(session_dir: Path) -> Dict[str, object]:
                     # A new stream start resets the frame-to-frame period estimate.
                     previous_timestamp[measurement_type] = None
                 elif char == "pmd_cp" and record["dir"] == "rx" and payload[:1] == bytes((CP_RESPONSE,)):
-                    response = parse_control_point_response(payload)
+                    response = assembler.feed(payload)
+                    if response is None:
+                        continue
                     if response.op_code == CP_START and response.measurement_type in pending_start:
                         selected = pending_start.pop(response.measurement_type)
                         factor = factor_from_settings(parse_settings(response.parameters)) if response.parameters else None

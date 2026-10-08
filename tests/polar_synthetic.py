@@ -93,7 +93,9 @@ def acc_frame_delta(timestamp_ns, samples, resolution=16, block=8):
     return pmd_header(2, timestamp_ns, 1, True) + body
 
 
-def write_raw_session(session_dir, seconds, rng, *, breaths_per_min=12.0, drift_ppm=50.0, with_ecg=True):
+def write_raw_session(
+    session_dir, seconds, rng, *, breaths_per_min=12.0, drift_ppm=50.0, with_ecg=True, reset_at_s=None, gap_s=5.0
+):
     """Write polar/raw_notifications.jsonl (+ clock anchors) for a synthetic session.
 
     True time is host wall-clock. The sensor clock runs from the Polar default
@@ -119,11 +121,19 @@ def write_raw_session(session_dir, seconds, rng, *, breaths_per_min=12.0, drift_
     t_acc, xyz = chest_acc(seconds, rng, breaths_per_min)
 
     def sensor_ns(true_s):
+        # After a power-down the H10 clock restarts from its default time.
+        if reset_at_s is not None and true_s >= reset_at_s:
+            true_s = true_s - reset_at_s
         return int(sensor0_ns + true_s * (1.0 + drift) * 1e9)
+
+    def link_down(true_s):
+        return reset_at_s is not None and reset_at_s - gap_s <= true_s < reset_at_s
 
     records = []
 
     def add(true_s, direction, uuid, payload, char):
+        if link_down(true_s):
+            return
         delay = 0.0 if direction == "tx" else 0.004 + rng.exponential(0.03)
         arrival = true_s + delay
         records.append(

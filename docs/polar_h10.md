@@ -77,7 +77,10 @@ host wall-clock too.
    linear program that keeps every frame on or above the line. BLE only ever
    adds delay, so a least-squares line would sit late by the mean delay. The
    residuals above the line are the BLE delays and are reported
-   (`delay_median_ms`, `delay_p95_ms`).
+   (`delay_median_ms`, `delay_p95_ms`). An H10 that powers down during a
+   reconnect restarts its clock, so frames are split into clock segments
+   wherever receive time minus sensor time jumps by more than 30 s, and each
+   segment gets its own fit (`clock_segments`).
 3. Monotonic is converted to wall-clock through the clock anchors; a jump in
    wall - monotonic between anchors (an NTP step) is reported as `ntp_step_ms`.
 4. HR-service RR intervals have no sensor timestamp. With ECG on, each

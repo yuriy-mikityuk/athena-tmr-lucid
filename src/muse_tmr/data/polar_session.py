@@ -3,9 +3,11 @@
 Muse replay timestamps are host wall-clock, so Polar data is mapped there too:
 
 1. sensor clock -> host monotonic: offset plus linear drift fitted to the
-   *lower envelope* of (receive time - sensor time) over all PMD frames. BLE
+   *lower envelope* of (receive time - sensor time) over the PMD frames. BLE
    only ever adds delay, so the earliest-arriving frames carry the mapping and
-   a least-squares line would be biased late by the mean delay;
+   a least-squares line would be biased late by the mean delay. An H10 that
+   powers down during a reconnect restarts its clock, so frames are split into
+   clock segments wherever that offset jumps and each segment gets its own fit;
 2. host monotonic -> wall clock through the clock anchors, so an NTP step
    during the night shows up instead of silently shifting everything;
 3. HR-service RR intervals carry no sensor timestamp: with ECG on, each device
@@ -58,6 +60,28 @@ class ClockMapping:
             "delay_median_ms": self.delay_median_ms,
             "delay_p95_ms": self.delay_p95_ms,
         }
+
+
+CLOCK_JUMP_SECONDS = 30.0
+
+
+def split_clock_segments(frames: Sequence[dict]) -> List[List[dict]]:
+    """Group PMD frame rows (receive order) into runs of one sensor clock.
+
+    Receive time minus sensor time only moves by drift (~2 s over 8 h at
+    70 ppm) and BLE delay; a jump beyond CLOCK_JUMP_SECONDS means the sensor
+    clock was reset or changed.
+    """
+    ordered = sorted(frames, key=lambda row: row["host_mono"])
+    segments: List[List[dict]] = []
+    previous_offset = None
+    for row in ordered:
+        offset = row["host_mono"] - row["sensor_ns"] / 1e9
+        if previous_offset is None or abs(offset - previous_offset) > CLOCK_JUMP_SECONDS:
+            segments.append([])
+        segments[-1].append(row)
+        previous_offset = offset
+    return segments
 
 
 def fit_clock_mapping(sensor_s: Sequence[float], host_s: Sequence[float]) -> ClockMapping:
@@ -129,17 +153,20 @@ def load_polar_session(
     anchors = _read_jsonl(polar_dir / "clock_anchors.jsonl")
 
     mono_to_wall, ntp_step_ms = _anchor_conversion(anchors, ecg_rows + acc_rows + hr_rows)
-    frames = ecg_rows + acc_rows
     alignment: Dict[str, object] = {"method": "lower_envelope_sensor_to_monotonic", "ntp_step_ms": ntp_step_ms}
-    mapping = None
-    if frames:
-        mapping = fit_clock_mapping(
-            [row["sensor_ns"] / 1e9 for row in frames], [row["host_mono"] for row in frames]
-        )
-        alignment["mapping"] = mapping.to_dict()
+    segments = split_clock_segments(ecg_rows + acc_rows)
+    mappings = []
+    for number, segment in enumerate(segments):
+        mapping = fit_clock_mapping([row["sensor_ns"] / 1e9 for row in segment], [row["host_mono"] for row in segment])
+        mappings.append(mapping)
+        for row in segment:
+            row["clock_segment"] = number
+    if mappings:
+        alignment["mapping"] = mappings[0].to_dict()
+        alignment["clock_segments"] = [mapping.to_dict() for mapping in mappings]
 
-    ecg = _expand(ecg_rows, ("uv",), mapping, mono_to_wall)
-    acc = _expand(acc_rows, ("x", "y", "z"), mapping, mono_to_wall)
+    ecg = _expand(ecg_rows, ("uv",), mappings, mono_to_wall)
+    acc = _expand(acc_rows, ("x", "y", "z"), mappings, mono_to_wall)
     hr = pd.DataFrame(
         {
             "time": [float(mono_to_wall(row["host_mono"])) for row in hr_rows],
@@ -278,11 +305,16 @@ def _device_beats(hr_rows: Sequence[dict], mono_to_wall) -> pd.DataFrame:
     return pd.DataFrame({"time": times, "rr_ms": values, "notification": notifications, "receive_time": receives})
 
 
-def _expand(rows: Sequence[dict], columns: Sequence[str], mapping: Optional[ClockMapping], mono_to_wall) -> pd.DataFrame:
-    if not rows or mapping is None:
+def _expand(rows: Sequence[dict], columns: Sequence[str], mappings: Sequence[ClockMapping], mono_to_wall) -> pd.DataFrame:
+    if not rows or not mappings:
         return pd.DataFrame({"time": [], **{column: [] for column in columns}})
-    sensor = np.concatenate([(row["t0_ns"] + row["dt_ns"] * np.arange(row["n"])) / 1e9 for row in rows])
-    times = mono_to_wall(mapping.to_host(sensor))
+    host = np.concatenate(
+        [
+            mappings[row["clock_segment"]].to_host((row["t0_ns"] + row["dt_ns"] * np.arange(row["n"])) / 1e9)
+            for row in rows
+        ]
+    )
+    times = mono_to_wall(host)
     data = {"time": times}
     for column in columns:
         data[column] = np.concatenate([np.asarray(row[column], dtype=float) for row in rows])

@@ -21,7 +21,7 @@ from __future__ import annotations
 import asyncio
 import math
 import struct
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 HEART_RATE_SERVICE = "0000180d-0000-1000-8000-00805f9b34fb"
@@ -170,6 +170,29 @@ def parse_control_point_response(payload: bytes) -> ControlPointResponse:
         more=status == 0 and len(payload) > 4 and payload[4] != 0,
         parameters=bytes(payload[5:]) if status == 0 else b"",
     )
+
+
+class ControlPointAssembler:
+    """Joins control point responses split over several notifications.
+
+    A response with ``more`` set continues in the next notification for the
+    same op code and measurement type, which repeats the 5 byte header; the
+    parameters are concatenated until a fragment arrives without ``more``.
+    """
+
+    def __init__(self) -> None:
+        self._partial: Dict[Tuple[int, int], ControlPointResponse] = {}
+
+    def feed(self, payload: bytes) -> Optional[ControlPointResponse]:
+        response = parse_control_point_response(payload)
+        key = (response.op_code, response.measurement_type)
+        partial = self._partial.pop(key, None)
+        if partial is not None:
+            response = replace(response, parameters=partial.parameters + response.parameters)
+        if response.more:
+            self._partial[key] = response
+            return None
+        return response
 
 
 def parse_settings(parameters: bytes) -> Dict[int, Tuple[int, ...]]:
@@ -408,6 +431,7 @@ class PolarH10Client:
         self._client = None
         self._on_payload: Optional[NotificationCallback] = None
         self._responses: "asyncio.Queue[ControlPointResponse]" = asyncio.Queue()
+        self._assembler = ControlPointAssembler()
         self.disconnected = asyncio.Event()
         self.stream_settings: Dict[str, PmdStreamSettings] = {}
         self._started: List[int] = []
@@ -418,6 +442,7 @@ class PolarH10Client:
         self._on_payload = on_payload
         self.disconnected = asyncio.Event()
         self._responses = asyncio.Queue()
+        self._assembler = ControlPointAssembler()
         device = await self._find_device(BleakScanner)
         self._client = BleakClient(device, disconnected_callback=lambda _client: self.disconnected.set())
         await self._client.connect()
@@ -506,10 +531,24 @@ class PolarH10Client:
         )
 
     async def _command(self, payload: bytes) -> ControlPointResponse:
+        """Write a command and wait for its complete response.
+
+        Responses for other commands (a late answer to a timed-out request) are
+        skipped by op code and measurement type.
+        """
         assert self._client is not None
         await self._write_control_point(self._client, payload)
-        response = await asyncio.wait_for(self._responses.get(), timeout=self.settings.command_timeout_seconds)
-        if not response.ok and not (payload[0] == CP_START and response.status == 6):
+        op_code, measurement_type = payload[0], payload[1] & 0x3F
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self.settings.command_timeout_seconds
+        while True:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                raise asyncio.TimeoutError(f"no response to PMD command {payload.hex()}")
+            response = await asyncio.wait_for(self._responses.get(), timeout=remaining)
+            if response.op_code == op_code and response.measurement_type == measurement_type:
+                break
+        if not response.ok and not (op_code == CP_START and response.status == 6):
             raise RuntimeError(f"PMD command {payload.hex()} failed: {response.status_name}")
         return response
 
@@ -525,8 +564,10 @@ class PolarH10Client:
                 self._on_payload("rx", uuid, payload)
             if uuid == PMD_CONTROL_POINT and payload[:1] == bytes((CP_RESPONSE,)):
                 try:
-                    self._responses.put_nowait(parse_control_point_response(payload))
+                    complete = self._assembler.feed(payload)
                 except ValueError:
-                    pass
+                    return
+                if complete is not None:
+                    self._responses.put_nowait(complete)
 
         return callback
