@@ -42,15 +42,15 @@ from muse_tmr.protocol.calibration import (
 from muse_tmr.reports.meditation_analysis import (
     EpochRecord,
     MeditationAnalysis,
+    NO_BLOCK,
     MeditationAnalysisConfig,
-    MeditationBlock,
     MeditationBlocks,
     _epoch_record,
     assign_block,
     build_meditation_analysis,
     json_safe,
 )
-from muse_tmr.reports.meditation_report import _PAGE, _e, _fmt, _num, _table
+from muse_tmr.reports.meditation_report import _PAGE, _e, _fmt, _num, _table, emg_timeline_svg
 
 # 2: EMG without the 64 Hz line; inhale check reports the ACC peak against the
 # exhale cue instead of the trough-to-peak share.
@@ -58,7 +58,6 @@ from muse_tmr.reports.meditation_report import _PAGE, _e, _fmt, _num, _table
 CALIBRATION_REPORT_SCHEMA_VERSION = 3
 PAIR_LABELS = {"jaw": "Jaw, slight", "forehead": "Forehead, slight", "clench": "Clench pulses", "breathing": "6/min vs 12/min"}
 GROUP_LABELS = (("all", "all"), ("frontal", "AF7/AF8"), ("temporal", "TP9/TP10"))
-_UNSET = MeditationBlock(index=-1, condition="", start_s=0.0, end_s=0.0)
 
 
 @dataclass(frozen=True)
@@ -208,7 +207,7 @@ async def _all_epochs(frames, config: CalibrationReportConfig) -> Tuple[List[Epo
         if origin is None:
             origin = epoch.start_time
         start_s = epoch.start_time - origin
-        records.append(_epoch_record(epoch, _UNSET, start_s, start_s + config.epoch_seconds, analysis_config))
+        records.append(_epoch_record(epoch, NO_BLOCK, start_s, start_s + config.epoch_seconds, analysis_config))
     return records, origin
 
 
@@ -267,6 +266,7 @@ def _timeline(records: Sequence[EpochRecord], segments: Sequence[Mapping[str, ob
         rows.append(
             {
                 "start_s": record.start_s,
+                "end_s": record.end_s,
                 "segment": segment,
                 "artifact": bool(features.get("is_artifact")),
                 "emg_55_95_frontal_db": _db(features.get("emg_power_55_95_frontal")),
@@ -541,52 +541,20 @@ def _tension_section(pairs: Mapping[str, object]) -> str:
 
 
 def _timeline_section(timeline: Sequence[Mapping[str, object]], segments: Sequence[Mapping[str, object]]) -> str:
-    points = [row for row in timeline if math.isfinite(_num(row.get("emg_55_95_temporal_db")))]
-    if len(points) < 2:
-        return ""
-    width, height, left, top, bottom = 860, 220, 44, 26, 24
-    end_s = max(float(row["start_s"]) for row in timeline) + 10.0
-    values = [
-        _num(row.get(key))
-        for row in points
-        for key in ("emg_55_95_frontal_db", "emg_55_95_temporal_db")
-        if math.isfinite(_num(row.get(key)))
+    spans = [
+        {"start_s": item["start_s"], "end_s": item["end_s"], "label": item["condition"], "title": item.get("label"), "shaded": True}
+        for item in segments
+        if item.get("condition") and item.get("condition") != "relaxed"
     ]
-    low, high = min(values) - 1.0, max(values) + 1.0
-
-    def x(seconds: float) -> float:
-        return left + seconds / end_s * (width - left - 4)
-
-    def y(value: float) -> float:
-        return top + (high - value) / (high - low) * (height - top - bottom)
-
-    shapes = []
-    for item in segments:
-        condition = item.get("condition")
-        if condition and condition != "relaxed":
-            x0, x1 = x(float(item["start_s"])), x(float(item["end_s"]))
-            shapes.append(f'<rect x="{x0:.1f}" y="{top}" width="{max(1.0, x1 - x0):.1f}" height="{height - top - bottom}" class="band"><title>{_e(str(item.get("label")))}</title></rect>')
-            shapes.append(f'<text x="{(x0 + x1) / 2:.1f}" y="{top - 8}" class="lbl" text-anchor="middle">{_e(str(condition))}</text>')
-    for key, css in (("emg_55_95_frontal_db", "af"), ("emg_55_95_temporal_db", "tp")):
-        path = " ".join(
-            f"{x(float(row['start_s']) + 5.0):.1f},{y(_num(row[key])):.1f}" for row in points if math.isfinite(_num(row.get(key)))
-        )
-        shapes.append(f'<polyline points="{path}" class="line {css}"/>')
-    for minute in range(0, int(end_s // 60) + 1, 2):
-        shapes.append(f'<text x="{x(minute * 60):.1f}" y="{height - 6}" class="lbl" text-anchor="middle">{minute}</text>')
-    shapes.append(f'<text x="2" y="{y(high - 1):.1f}" class="lbl">{high - 1:.0f} dB</text>')
-    shapes.append(f'<text x="2" y="{y(low + 1):.1f}" class="lbl">{low + 1:.0f} dB</text>')
+    plot = emg_timeline_svg(timeline, spans, "EMG power over the run")
+    if not plot:
+        return ""
     return (
         "<section><h2>55–95 Hz power over the run</h2>"
         "<p class=muted>Per 10 s epoch, dB. <span class=af>AF7/AF8</span> and <span class=tp>TP9/TP10</span>; "
         "shaded steps are not relaxed. Minutes on the axis. The first minutes show how long the muscles take to settle.</p>"
-        f'<svg viewBox="0 0 {width} {height}" class="timeline" role="img" aria-label="EMG power over the run">'
-        + "".join(shapes)
-        + "</svg>"
-        "<style>.timeline{width:100%;height:auto}.timeline .band{fill:var(--line);opacity:.6}"
-        ".timeline .line{fill:none;stroke-width:1.8}.timeline .af{stroke:var(--a)}.timeline .tp{stroke:var(--b)}"
-        ".timeline .lbl{fill:var(--muted);font-size:11px}span.af{color:var(--a);font-weight:600}span.tp{color:var(--b);font-weight:600}</style>"
-        "</section>"
+        + plot
+        + "</section>"
     )
 
 

@@ -12,6 +12,7 @@ from muse_tmr.features.complexity_features import (
     channel_metrics,
     dfa_exponent,
     dfa_window_sizes,
+    emg_power_55_95,
     envelope_dfa,
     extract_complexity_features,
     hjorth_parameters,
@@ -157,6 +158,12 @@ class ComplexityMetricTest(unittest.TestCase):
         self.assertLess(np.std(residual), 0.01 * np.std(line))
         noise = self.rng.standard_normal(self.t.size)
         self.assertAlmostEqual(np.var(remove_lines(noise, FS, (64.0,), 0.5)), np.var(noise), delta=0.005 * np.var(noise))
+
+    def test_emg_power_alone_matches_channel_metrics(self):
+        values = 20.0 * self.noise + 60.0 * np.sin(2 * np.pi * 63.93 * self.t)
+        config = ComplexityConfig(lyapunov_enabled=False)
+        self.assertEqual(emg_power_55_95(values, config), channel_metrics(values, config)["emg_power_55_95"])
+        self.assertTrue(math.isnan(emg_power_55_95(values[:100], config)))
 
     def test_lyapunov_can_be_switched_off(self):
         metrics = channel_metrics(20.0 * self.noise, ComplexityConfig(lyapunov_enabled=False))
