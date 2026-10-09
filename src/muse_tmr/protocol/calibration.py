@@ -21,7 +21,7 @@ import os
 import shutil
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -103,6 +103,10 @@ PROTOCOL: Tuple[Segment, ...] = (
 )
 END_SAY = "Всё, запись закончена. Можно открыть глаза."
 PROTOCOL_SECONDS = PROTOCOL[-1].end_s
+BATTERY_PULL_SAY = (
+    "Дыши как обычно. Открой глаза, отстегни датчик H10 от ремня, открой крышку монеткой "
+    "и вынь батарейку секунд на десять. Потом вставь её обратно и закрой крышку."
+)
 # The recorder runs a little past the protocol so the last epoch is complete.
 RECORD_SECONDS = PROTOCOL_SECONDS + 20.0
 
@@ -113,6 +117,52 @@ TENSION_PAIRS = (
     ("clench", "relaxed_3", "clench", "relaxed_4"),
 )
 BREATHING_PAIR = ("breathing", "breath_6", "breath_12")
+
+# Before a calibration run: the optics on and off, twice, while the 64 Hz line is
+# still strong in the first minutes. Alternating keeps its own fading out of the
+# comparison.
+LINE_CHECK_PRESETS = ("p1034", "p21", "p1034", "p21")
+LINE_CHECK_SECONDS = 120.0
+LINE_CHECK_FILENAME = "line_check.json"
+LINE_CHECK_INTRO_SAY = (
+    "Сначала проверка помехи: четыре куска по две минуты, между ними обруч переподключается. "
+    "Закрой глаза и сиди спокойно."
+)
+LINE_CHECK_SEGMENT_SAY = "Кусок {number} из четырёх."
+LINE_CHECK_DONE_SAY = "Проверка помехи закончена. Дальше калибровка, сиди как сидишь."
+
+
+def calibration_protocol(battery_pull: bool = False) -> Tuple[Segment, ...]:
+    """The protocol; with battery_pull the H10 minute also takes its battery out
+    for ~10 s, so the link really drops and the sensor clock restarts."""
+    if not battery_pull:
+        return PROTOCOL
+    return tuple(
+        replace(segment, label="Eyes open: unclip the H10, take its battery out for ~10 s", say=BATTERY_PULL_SAY)
+        if segment.name == "h10_off"
+        else segment
+        for segment in PROTOCOL
+    )
+
+
+def run_line_check(
+    directories: Sequence[Path],
+    speaker,
+    record: Callable[[Path, str], int],
+    presets: Sequence[str] = LINE_CHECK_PRESETS,
+    log: Callable[[str], None] = lambda message: None,
+) -> List[Dict[str, object]]:
+    """One short recording per preset, in order; ``record(directory, preset)``
+    runs the recorder to the end and returns its exit code."""
+    speaker.speak(LINE_CHECK_INTRO_SAY)
+    results: List[Dict[str, object]] = []
+    for number, (directory, preset) in enumerate(zip(directories, presets), start=1):
+        speaker.speak(LINE_CHECK_SEGMENT_SAY.format(number=number))
+        log(f"line check {number}/{len(presets)}: {preset} -> {directory}")
+        code = record(Path(directory), preset)
+        results.append({"index": number, "preset": preset, "recording": str(directory), "returncode": code})
+    speaker.speak(LINE_CHECK_DONE_SAY)
+    return results
 
 
 @dataclass(frozen=True)

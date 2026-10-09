@@ -6,12 +6,13 @@ import argparse
 import asyncio
 import datetime as dt
 import json
+import math
 import os
 import signal
 import sys
 import time
 from pathlib import Path
-from typing import Mapping, Optional, Sequence, Tuple
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 from muse_tmr import __version__
 
@@ -690,6 +691,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     calibration_run_parser.add_argument("--address", help="Muse BLE address. If omitted, discovery is used.")
     calibration_run_parser.add_argument("--polar-address", help="Polar H10 BLE address. If omitted, name discovery is used.")
+    calibration_run_parser.add_argument(
+        "--preset",
+        choices=("p1034", "p21"),
+        default="p1034",
+        help="Headband preset for the calibration recording. p21 has no optics (default: p1034).",
+    )
+    calibration_run_parser.add_argument(
+        "--battery-pull",
+        action="store_true",
+        help="In the H10 minute, also take the H10 battery out for ~10 s (forces a reconnect and a clock reset).",
+    )
+    calibration_run_parser.add_argument(
+        "--line-check",
+        action="store_true",
+        help="First record 2 min each of p1034, p21, p1034, p21 to see whether the 64 Hz line comes from the optics.",
+    )
     _add_calibration_voice_args(calibration_run_parser)
 
     calibration_guide_parser = subparsers.add_parser(
@@ -699,6 +716,9 @@ def build_parser() -> argparse.ArgumentParser:
     calibration_guide_parser.add_argument("recording_dir", type=Path)
     calibration_guide_parser.add_argument(
         "--recorder-pid", type=int, help="Stop early when this process exits."
+    )
+    calibration_guide_parser.add_argument(
+        "--battery-pull", action="store_true", help="In the H10 minute, also take the H10 battery out for ~10 s."
     )
     _add_calibration_voice_args(calibration_guide_parser)
 
@@ -1332,69 +1352,169 @@ def _calibration_speaker(args: argparse.Namespace):
     return SaySpeaker(voice=voice, rate=args.rate)
 
 
-def _calibration_run(args: argparse.Namespace) -> int:
+def _calibration_record_command(
+    output_dir: Path,
+    preset: str,
+    seconds: float,
+    *,
+    with_polar: bool,
+    address: Optional[str] = None,
+    polar_address: Optional[str] = None,
+) -> List[str]:
     import shutil
-    import subprocess
 
-    from muse_tmr.protocol.calibration import PROTOCOL, PROTOCOL_SECONDS, RECORD_SECONDS, run_guide
-
-    speaker = _calibration_speaker(args)
-    if args.output_dir is not None:
-        output_dir = _resolve_output_dir(args.output_dir)
-    else:
-        stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = _default_path_base() / "data" / "recordings" / "session" / f"{stamp}_calibration"
-    output_dir.mkdir(parents=True, exist_ok=True)
     command = [
         sys.executable, "-m", "muse_tmr.cli.main", "record",
         "--source", "amused",
-        "--preset", "p1034",
-        "--duration-seconds", f"{RECORD_SECONDS:g}",
+        "--preset", preset,
+        "--duration-seconds", f"{seconds:g}",
         "--duration-from-first-frame",
         "--no-data-timeout-seconds", "45",
         "--max-reconnect-attempts", "1000",
         "--output-dir", str(output_dir),
         "--quiet",
         "--allow-short",
-        "--with-polar",
     ]  # fmt: skip
-    if args.address:
-        command += ["--address", args.address]
-    if args.polar_address:
-        command += ["--polar-address", args.polar_address]
+    if with_polar:
+        command.append("--with-polar")
+    if address:
+        command += ["--address", address]
+    if with_polar and polar_address:
+        command += ["--polar-address", polar_address]
     if shutil.which("caffeinate"):
         # Keep the Mac awake for the whole run, on battery too.
         command = ["caffeinate", "-i", "-s", *command]
+    return command
 
-    print(f"calibration run: {output_dir}")
-    print(f"{PROTOCOL_SECONDS / 60:.0f} min from the first Muse frame. Put on the Muse and the H10, sit, eyes closed.")
-    for segment in PROTOCOL:
-        print(f"  {segment.start_s / 60:4.1f}-{segment.end_s / 60:4.1f} min  {segment.label}")
-    print("Connecting to the Muse and the H10 (if the setup app is connected to the Muse, press Disconnect there).")
+
+def _start_recorder(command: List[str], output_dir: Path):
+    import subprocess
+
+    output_dir.mkdir(parents=True, exist_ok=True)
     with (output_dir / "record.log").open("ab") as log_file:
         # Own process group: Ctrl-C reaches only this command, which then stops
         # the recorder (caffeinate + python) with one clean SIGINT.
-        recorder = subprocess.Popen(
+        return subprocess.Popen(
             command, stdin=subprocess.DEVNULL, stdout=log_file, stderr=subprocess.STDOUT, start_new_session=True
         )
+
+
+def _stop_recorder(recorder, stop: bool, wait_seconds: float) -> None:
+    import subprocess
+
+    if stop and recorder.poll() is None:
+        try:
+            os.killpg(recorder.pid, signal.SIGINT)
+        except (ProcessLookupError, PermissionError):
+            pass
+    # The Muse summary comes first, then the recorder stops the H10 streams.
+    deadline = time.monotonic() + wait_seconds
+    while recorder.poll() is None and time.monotonic() < deadline:
+        try:
+            recorder.wait(timeout=1.0)
+        except subprocess.TimeoutExpired:
+            continue
+        except KeyboardInterrupt:
+            print("still stopping the recorder (it stops the H10 streams first)...")
+
+
+def _run_line_check(args: argparse.Namespace, output_dir: Path, speaker) -> Dict[str, object]:
+    from muse_tmr.protocol.calibration import (
+        CALIBRATION_DIRNAME,
+        LINE_CHECK_FILENAME,
+        LINE_CHECK_PRESETS,
+        LINE_CHECK_SECONDS,
+        run_line_check,
+    )
+    from muse_tmr.reports.line_check import VERDICT_TEXT, measure_recording, summarize
+
+    def record(directory: Path, preset: str) -> int:
+        command = _calibration_record_command(
+            directory, preset, LINE_CHECK_SECONDS, with_polar=False, address=args.address
+        )
+        recorder = _start_recorder(command, directory)
+        try:
+            recorder.wait()
+        except KeyboardInterrupt:
+            _stop_recorder(recorder, stop=True, wait_seconds=60.0)
+            raise
+        return int(recorder.returncode)
+
+    directories = [
+        output_dir.parent / f"{output_dir.name}_line{number}_{preset}"
+        for number, preset in enumerate(LINE_CHECK_PRESETS, start=1)
+    ]
+    print(f"line check: {len(directories)} x {LINE_CHECK_SECONDS / 60:.0f} min, presets {', '.join(LINE_CHECK_PRESETS)}")
+    results = run_line_check(directories, speaker, record, log=print)
+    segments = []
+    for result in results:
+        channels: Mapping[str, object] = {}
+        if result["returncode"] == 0:
+            try:
+                channels = asyncio.run(measure_recording(Path(str(result["recording"]))))
+            except Exception as exc:  # a broken segment must not stop the calibration
+                print(f"  segment {result['index']}: could not measure the line ({type(exc).__name__}: {exc})")
+        segments.append({**result, "channels": channels})
+    summary = summarize(segments)
+    for row in summary["segments"]:
+        levels = row.get("channels") or {}
+        cells = ", ".join(
+            f"{channel} {_format_float(level.get('amplitude_uv'), 1)} µV ({_format_float(level.get('height_db'), 0)} dB)"
+            for channel, level in levels.items()
+        )
+        print(f"  {row['index']} {row['preset']}: {cells or 'no data (recorder exit code ' + str(row['returncode']) + ')'}")
+    print(VERDICT_TEXT[summary["verdict"]])
+    target = output_dir / CALIBRATION_DIRNAME / LINE_CHECK_FILENAME
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return summary
+
+
+def _format_float(value, digits: int) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "-"
+    return "-" if not math.isfinite(number) else f"{number:.{digits}f}"
+
+
+def _calibration_run(args: argparse.Namespace) -> int:
+    from muse_tmr.protocol.calibration import RECORD_SECONDS, calibration_protocol, run_guide
+
+    speaker = _calibration_speaker(args)
+    protocol = calibration_protocol(battery_pull=args.battery_pull)
+    if args.output_dir is not None:
+        output_dir = _resolve_output_dir(args.output_dir)
+    else:
+        stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = _default_path_base() / "data" / "recordings" / "session" / f"{stamp}_calibration"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"calibration run: {output_dir} (preset {args.preset})")
+    print("Put on the Muse and the H10, sit, eyes closed. If the setup app is connected to the Muse, press Disconnect there.")
+    if args.line_check:
+        _run_line_check(args, output_dir, speaker)
+    print(f"{protocol[-1].end_s / 60:.0f} min from the first Muse frame:")
+    for segment in protocol:
+        print(f"  {segment.start_s / 60:4.1f}-{segment.end_s / 60:4.1f} min  {segment.label}")
+    print("Connecting to the Muse and the H10.")
+    command = _calibration_record_command(
+        output_dir,
+        args.preset,
+        RECORD_SECONDS,
+        with_polar=True,
+        address=args.address,
+        polar_address=args.polar_address,
+    )
+    recorder = _start_recorder(command, output_dir)
     result = None
     try:
-        result = run_guide(output_dir, speaker, recorder_alive=lambda: recorder.poll() is None, log=print)
+        result = run_guide(
+            output_dir, speaker, protocol=protocol, recorder_alive=lambda: recorder.poll() is None, log=print
+        )
     finally:
-        if recorder.poll() is None and (result is None or result.stop_reason != "completed"):
-            try:
-                os.killpg(recorder.pid, signal.SIGINT)
-            except (ProcessLookupError, PermissionError):
-                pass
-        # The Muse summary comes first, then the recorder stops the H10 streams.
-        deadline = time.monotonic() + RECORD_SECONDS + 120.0
-        while recorder.poll() is None and time.monotonic() < deadline:
-            try:
-                recorder.wait(timeout=1.0)
-            except subprocess.TimeoutExpired:
-                continue
-            except KeyboardInterrupt:
-                print("still stopping the recorder (it stops the H10 streams first)...")
+        stop = result is None or result.stop_reason != "completed"
+        _stop_recorder(recorder, stop=stop, wait_seconds=RECORD_SECONDS + 120.0)
     print(f"guide: {result.stop_reason if result else 'interrupted'}, recorder exit code {recorder.returncode}")
     if result and result.blocks_files:
         print("blocks files: " + ", ".join(sorted(result.blocks_files)))
@@ -1404,7 +1524,7 @@ def _calibration_run(args: argparse.Namespace) -> int:
 
 
 def _calibration_guide(args: argparse.Namespace) -> int:
-    from muse_tmr.protocol.calibration import run_guide
+    from muse_tmr.protocol.calibration import calibration_protocol, run_guide
 
     def interrupt(_signum, _frame):
         raise KeyboardInterrupt
@@ -1425,9 +1545,11 @@ def _calibration_guide(args: argparse.Namespace) -> int:
         return True
 
     recording_dir = args.recording_dir.expanduser().resolve()
+    protocol = calibration_protocol(battery_pull=args.battery_pull)
     result = run_guide(
         recording_dir,
         _calibration_speaker(args),
+        protocol=protocol,
         recorder_alive=recorder_alive,
         log=lambda message: print(message, flush=True),
     )
