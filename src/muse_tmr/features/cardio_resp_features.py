@@ -36,9 +36,12 @@ class CardioRespConfig:
     respiration_resample_hz: float = 10.0
     respiration_min_seconds: float = 30.0
     min_breath_seconds: float = 1.2
-    # In units of the signal's std. Paced 6/min leaves humps up to ~0.5 std in
-    # the pause after a quick exhale; real breaths start around 0.8.
-    min_breath_prominence_std: float = 0.5
+    # A breath is a rise above +h after the last fall below -h, h in std of the
+    # breathing component; humps in the pause after a quick exhale stay inside.
+    # Peaks above 0.5 std, fitted on the first calibration run, gave 9.8/min at
+    # a paced 6/min on the second. This held on both (6.0 and 6.4 at 6/min);
+    # it was chosen on both, so the next run is the real check.
+    breath_hysteresis_std: float = 0.3
     # Breathing moves the chest by ~10-20 mG; a 10 s window whose slow (<0.7 Hz)
     # acceleration shifts by more than this is a posture change or movement.
     posture_change_mg: float = 150.0
@@ -291,13 +294,26 @@ def _respiration_rates(signal: np.ndarray, fs: float, config: CardioRespConfig) 
     if np.any(band) and psd[band].max() > 0:
         index = np.flatnonzero(band)[int(np.argmax(psd[band]))]
         rate_spectral = 60.0 * _parabolic_peak(freqs, psd, index)
-    peaks, _ = find_peaks(
-        signal,
-        distance=max(1, int(config.min_breath_seconds * fs)),
-        prominence=config.min_breath_prominence_std * float(np.std(signal)),
+    starts = breath_starts(
+        signal, config.breath_hysteresis_std * float(np.std(signal)), max(1, int(config.min_breath_seconds * fs))
     )
-    rate_breath = 60.0 * fs / float(np.median(np.diff(peaks))) if peaks.size >= 3 else math.nan
-    return {"rate_spectral_bpm": rate_spectral, "rate_breath_bpm": rate_breath, "breaths": float(peaks.size)}
+    rate_breath = 60.0 * fs / float(np.median(np.diff(starts))) if starts.size >= 3 else math.nan
+    return {"rate_spectral_bpm": rate_spectral, "rate_breath_bpm": rate_breath, "breaths": float(starts.size)}
+
+
+def breath_starts(signal: np.ndarray, threshold: float, min_samples: int = 1) -> np.ndarray:
+    """Samples where the signal rises above +threshold after last being below
+    -threshold, at least min_samples apart."""
+    starts: List[int] = []
+    armed = False
+    for index, value in enumerate(np.asarray(signal, dtype=float)):
+        if value < -threshold:
+            armed = True
+        elif armed and value > threshold:
+            if not starts or index - starts[-1] >= min_samples:
+                starts.append(index)
+            armed = False
+    return np.asarray(starts, dtype=int)
 
 
 # --- windows -----------------------------------------------------------------

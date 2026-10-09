@@ -5,6 +5,7 @@ import numpy as np
 
 from muse_tmr.features.cardio_resp_features import (
     CardioRespConfig,
+    breath_starts,
     correct_rr,
     detect_r_peaks,
     hrv_time_domain,
@@ -91,6 +92,13 @@ class RespirationTest(unittest.TestCase):
         self.assertAlmostEqual(result["rate_spectral_bpm"], 6.0, delta=0.3)
         self.assertAlmostEqual(result["rate_breath_bpm"], 6.0, delta=0.3)
         self.assertEqual(result["quality"], "ok")
+
+    def test_breath_starts_need_a_full_excursion(self):
+        t = np.arange(0.0, 60.0, 0.1)
+        breathing = np.sin(2 * np.pi * t / 10.0)
+        humped = breathing + 0.25 * np.sin(2 * np.pi * t / 2.0) * (breathing < -0.5)
+        # The first rise comes before any fall below -h, so it does not count.
+        self.assertEqual(np.diff(breath_starts(humped, 0.3)).tolist(), [100] * 4)
 
     def test_still_chest_is_reliable_and_posture_changes_are_not(self):
         rng = np.random.default_rng(12)

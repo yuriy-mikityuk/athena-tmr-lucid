@@ -11,6 +11,8 @@ import pandas as pd
 
 from muse_tmr.data.polar_recorder import PolarRecorder, PolarRecordingConfig, decode_polar_session
 from muse_tmr.data.polar_session import (
+    ECG_NOISE_LEAD_SECONDS,
+    ECG_NOISE_TAIL_SECONDS,
     NO_CONTACT_LEAD_SECONDS,
     NO_CONTACT_TAIL_SECONDS,
     fit_clock_mapping,
@@ -89,8 +91,9 @@ class LoadPolarSessionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             truth = write_raw_session(tmp, 240, rng, no_contact=(100.0, 140.0))
             session = load_polar_session(Path(tmp))
-            low = truth["wall0"] + 100.0 - NO_CONTACT_LEAD_SECONDS
-            high = truth["wall0"] + 140.0 + NO_CONTACT_TAIL_SECONDS
+            # The flag and the noisy ECG each mark the span, each with its margins.
+            low = truth["wall0"] + 100.0 - max(NO_CONTACT_LEAD_SECONDS, ECG_NOISE_LEAD_SECONDS)
+            high = truth["wall0"] + 140.0 + max(NO_CONTACT_TAIL_SECONDS, ECG_NOISE_TAIL_SECONDS)
             for frame in (session.rr, session.r_peaks):
                 times = frame["time"].to_numpy()
                 self.assertFalse(np.any((times > low + 1.5) & (times < high - 1.5)))
@@ -107,7 +110,7 @@ class LoadPolarSessionTest(unittest.TestCase):
             self.assertLess(np.abs(errors).max() * 1000.0, 10.0)
 
             # A window across the hole uses its longest part with contact, not a splice.
-            features = extract_cardio_resp_features(session, truth["wall0"] + 70, truth["wall0"] + 240)
+            features = extract_cardio_resp_features(session, truth["wall0"] + 80, truth["wall0"] + 240)
             self.assertAlmostEqual(features["window_seconds"], 240 - (high - truth["wall0"]), delta=1.0)
             self.assertAlmostEqual(features["no_contact_seconds"], high - low, delta=1.0)
             self.assertTrue(math.isfinite(features["rmssd_ms"]))
@@ -123,6 +126,41 @@ class LoadPolarSessionTest(unittest.TestCase):
             self.assertEqual(mostly_off["window_seconds"], 0.0)
             self.assertAlmostEqual(mostly_off["no_contact_seconds"], high - low, delta=0.5)
             self.assertTrue(math.isnan(mostly_off["resp_rate_bpm"]) and math.isnan(mostly_off["mean_hr_bpm"]))
+
+    def test_noisy_ecg_is_dropped_even_while_contact_is_reported(self):
+        # The battery pull: the H10 lost power before it reported anything.
+        rng = np.random.default_rng(12)
+        with tempfile.TemporaryDirectory() as tmp:
+            truth = write_raw_session(tmp, 240, rng, no_contact=(100.0, 140.0), report_contact=False)
+            session = load_polar_session(Path(tmp))
+            self.assertTrue(all(contact for contact in session.hr["contact"] if contact is not None))
+            low, high = truth["wall0"] + 100.0, truth["wall0"] + 140.0
+            for frame in (session.rr, session.r_peaks):
+                times = frame["time"].to_numpy()
+                self.assertFalse(np.any((times > low) & (times < high)))
+            self.assertEqual(session.quality["ecg_noise_spans"], 1)
+            self.assertLess(session.rr["rr_ms"].max(), 1300.0)
+
+    def test_two_power_ups_seconds_apart_get_their_own_clocks(self):
+        # Battery back in, then the cover closed: the clock restarts twice, and
+        # the second time the offset moves only ~20 s (25 s on the real run).
+        rng = np.random.default_rng(13)
+        with tempfile.TemporaryDirectory() as tmp:
+            truth = write_raw_session(tmp, 240, rng, reset_at_s=(120.0, 140.0))
+            session = load_polar_session(Path(tmp))
+            segments = session.alignment["clock_segments"]
+            self.assertEqual(len(segments), 3)
+            self.assertTrue(all(abs(segment["drift_ppm"]) < 1000.0 for segment in segments))
+            peaks = session.r_peaks["time"].to_numpy()
+            beats = [beat for beat in truth["beats_wall"][1:-1] if beat - truth["wall0"] > 145.0]
+            errors = np.array([peaks[np.argmin(np.abs(peaks - beat))] - beat for beat in beats])
+            self.assertLess(np.abs(errors).max() * 1000.0, 10.0)
+
+    def test_clock_fit_refuses_an_impossible_drift(self):
+        sensor = np.arange(0.0, 60.0, 0.5)
+        host = sensor + np.where(sensor < 30.0, 0.0, 25.0)  # two clock runs in one segment
+        mapping = fit_clock_mapping(sensor, host)
+        self.assertEqual(mapping.drift, 0.0)
 
     def test_unknown_contact_does_not_end_a_loss(self):
         hr = pd.DataFrame({"time": [0.0, 1.0, 2.0, 3.0, 4.0, 5.0], "contact": [True, False, None, None, True, None]})

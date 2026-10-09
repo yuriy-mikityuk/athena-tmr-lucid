@@ -49,10 +49,12 @@ MEDITATION_BLOCKS_SCHEMA_VERSION = 1
 # breath-by-breath counting ignores humps under 0.5 std.
 # 4: the 64 Hz line is removed from every series before the metrics; what the
 # band-pass left of it had moved SampEn, LZC and Hjorth on AF7/AF8.
-MEDITATION_SUMMARY_SCHEMA_VERSION = 4
-# Older summaries were computed with the 64 Hz line in the signal; pooling them
-# with newer ones would mix two different measurements under one name.
-MIN_AGGREGATE_SCHEMA_VERSION = 4
+# 5: breath-by-breath counts full cycles; H10 beats around ECG noise are dropped
+# and a restarted H10 clock is caught when its time goes back.
+MEDITATION_SUMMARY_SCHEMA_VERSION = 5
+# Older summaries hold older definitions of the same metric names (the 64 Hz
+# line, breath counting); pooling them with newer ones would mix measurements.
+MIN_AGGREGATE_SCHEMA_VERSION = 5
 # Feature settings that may differ between pooled sessions: without Lyapunov
 # that metric is just missing. Every other setting defines a pooled metric.
 POOLABLE_SETTING_DIFFERENCES = frozenset({"lyapunov_enabled"})
@@ -1032,8 +1034,8 @@ def aggregate_meditation_summaries(
     ]
     if stale:
         raise ValueError(
-            f"summaries before schema_version {MIN_AGGREGATE_SCHEMA_VERSION} were computed with the 64 Hz line "
-            f"in the signal; rebuild them with analyze-meditation: {', '.join(stale)}"
+            f"summaries before schema_version {MIN_AGGREGATE_SCHEMA_VERSION} use older metric definitions "
+            f"(the 64 Hz line, breath counting); rebuild them with analyze-meditation: {', '.join(stale)}"
         )
     definitions = [_feature_definition(summary) for summary in summaries]
     differing = [label for label, definition in zip(labels, definitions) if definition != definitions[0]]

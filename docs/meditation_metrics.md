@@ -201,13 +201,21 @@ A notch on a 10 s epoch rings for ~0.7 s at each end, and that alone moved SampE
 about as much as the line. `emg_power_55_95` and `emg_high_band_over_floor_db`
 also bridge 64 ± 1.5 Hz with the neighbouring bins (`emg_exclude_hz`).
 
-Without the line 55-95 Hz is about 13 dB above 110-125 Hz at rest, clenching raises
-it 8-9 dB, slight forehead tension 1.6 dB on AF7/AF8 and slight jaw tension 1.0 dB
-on TP9/TP10. The 2-40 Hz exponent flattens by roughly 0.1 per dB on every step;
-LZC per dB varies 0.006-0.03 between steps, so only the slope gives a usable
-coefficient. All of this is one run on one day. Summaries from before the line was
-removed (`schema_version` below 4) are refused by `aggregate-meditation`; rebuild
-them with `analyze-meditation`.
+Without the line 55-95 Hz is about 13 dB above 110-125 Hz at rest. On the first
+run clenching raised it 8-9 dB, slight forehead tension 1.6 dB on AF7/AF8 and
+slight jaw tension 1.0 dB on TP9/TP10. The second run, on `p21`, repeated the dB:
+jaw +0.8/+1.0, clench +6.3/+8.8, and a firmer forehead +3.8/+3.0. The metrics did
+not repeat. The 2-40 Hz exponent moved -0.11, -0.18 and -0.68 on the first run and
++0.03, -0.27 and -0.27 on the second (0 to 0.14 per dB), and LZC under clenching
+went +0.05 once and -0.01 the other time. So the EMG check flags a difference in
+muscle, it gives no coefficient to correct a contrast with. Summaries from before
+the current definitions (`schema_version` below 5) are refused by
+`aggregate-meditation`; rebuild them with `analyze-meditation`.
+
+The line check before the second run settled the source: the line stood 32-47 dB
+above its neighbours (AF7 33 and 20 µV) in both `p1034` pieces and 4-6 dB (0.2-0.4
+µV, noise) in both `p21` pieces. The optics put it there, so meditation is better
+recorded on `p21`, with heart rate and breathing from the H10.
 
 ## Polar H10 breathing and HRV
 
@@ -239,9 +247,13 @@ of each method, and the report shows all three per block with their spread.
 `schema_version` 1 still hold the ACC spectral difference alone in that field; the
 contrasts that `aggregate-meditation` reads are the same in both versions.
 
-Breath-by-breath counting ignores humps under 0.5 std of the breathing component.
-At a paced 6/min the chest rests after a quick exhale and small humps there were
-counted as breaths (9.2/min) at the old 0.3 std; real breaths start around 0.8 std.
+Breath-by-breath counts full cycles: a breath starts when the breathing component
+rises above +0.3 std after last being below -0.3 std, so the humps in the pause
+after a quick exhale stay inside. Counting peaks above 0.5 std, fitted on the
+first calibration run, gave 9.8/min at a paced 6/min on the second. Cycles give
+6.0 and 12.0 on the first run and 6.2 and 11.8 on the second, where the 6/min
+breaths themselves were uneven (3 to 13 s). It was chosen on both runs, so a third
+run is the real check.
 
 `cardio.breathing_confounded` is set when that median difference is above 1 breath/min:
 slower breathing was one of the paper's findings for jhana, and it can also shift EEG

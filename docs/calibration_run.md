@@ -49,8 +49,11 @@ muse-tmr calibration-run --line-check --preset p21 --battery-pull
 - `--preset p21` records the calibration itself without optics, so its numbers are
   checked on fresh data without the line.
 - `--battery-pull` changes the H10 minute: unclip it, take the battery out for ~10 s
-  (a coin opens the cover), put it back. The link really drops and the sensor clock
-  restarts, which the first run did not test.
+  (a coin opens the cover; have one at hand before starting), put it back. The link
+  really drops and the sensor clock restarts, which the first run did not test. On
+  the second run the H10 came back twice (closing the cover restarted it again) and
+  the recorder reconnected both times; that double restart is what the clock
+  segment rule in `docs/polar_h10.md` now handles.
 
 The line present in both `p1034` pieces and gone in `p21`: the optics put it there,
 and meditation can be recorded on `p21` with heart rate and breathing from the H10.

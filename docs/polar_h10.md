@@ -79,8 +79,13 @@ host wall-clock too.
    residuals above the line are the BLE delays and are reported
    (`delay_median_ms`, `delay_p95_ms`). An H10 that powers down during a
    reconnect restarts its clock, so frames are split into clock segments
-   wherever receive time minus sensor time jumps by more than 30 s, and each
-   segment gets its own fit (`clock_segments`).
+   wherever receive time minus sensor time jumps by more than 10 s or sensor
+   time goes back by more than 1 s, and each segment gets its own fit
+   (`clock_segments`). On the second calibration run the battery went out, then
+   the H10 restarted again as the cover was closed, 25 s later: the offset moved
+   only 25 s, which the old 30 s rule missed, and the merged run fitted a 22 %
+   "drift" that stretched every later time. A fit beyond 1000 ppm now falls
+   back to the offset alone.
 3. Monotonic is converted to wall-clock through the clock anchors; a jump in
    wall - monotonic between anchors (an NTP step) is reported as `ntp_step_ms`.
 4. HR-service RR intervals have no sensor timestamp. With ECG on, each
@@ -103,6 +108,13 @@ differencing across the hole would invent data, so `extract_cardio_resp_features
 takes the longest part of the window with contact: `window_seconds` is that part
 and `no_contact_seconds` what was cut. When that part is shorter than half the
 window (`min_contact_fraction`) there are no features at all.
+
+The contact bit is not enough on its own. With the battery pulled the H10 lost
+power before it reported anything, and while unclipping and walking it said
+"contact" over rail-to-rail ECG and RR between 260 and 5900 ms. So any second whose
+ECG swings more than 4000 µV around its median also starts a span, from 5 s before
+to 15 s after, and spans less than 10 s apart are joined. Normal seconds peaked at
+1200-1900 µV on three sessions (p99.9 3800 on a quiet 10 min recording).
 
 Expected error: on synthetic data with 50 ppm drift and random BLE delays the
 mapped times are within a few ms of the truth over 8 h. A constant minimum BLE
