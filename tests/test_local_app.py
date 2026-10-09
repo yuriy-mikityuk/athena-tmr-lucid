@@ -1020,6 +1020,138 @@ class TestLocalMuseAppMeditation(TestLocalMuseAppReport):
         self.assertIsNone(payload["meditation"])
 
 
+class TestLocalMuseAppMeditationSeries(TestLocalMuseAppReport):
+    FIRST = {"conditions": ["focus", "open"], "blocks": 4, "block_minutes": 0.5, "settle_seconds": 30, "seed": 4}
+
+    def setUp(self):
+        super().setUp()
+        # One minute per call, so every session gets its own folder.
+        minutes = iter(range(1000))
+        self.state._now = lambda: _FIXED_NOW + dt.timedelta(minutes=next(minutes))
+        self.series_path = self.state._recordings_base_resolved().parent / "protocol" / "meditation" / "series.json"
+
+    def finish(self, payload, seconds, first_frame=5.0, downtime=0.0):
+        output_dir = Path(payload["output_dir"])
+        (output_dir / "progress.json").write_text(json.dumps({"first_frame_elapsed_seconds": first_frame}))
+        (output_dir / "summary.json").write_text(
+            json.dumps({"duration_seconds": (first_frame or 0.0) + seconds, "downtime_seconds": downtime})
+        )
+        self.procs[-1][1].returncode = 0
+        return output_dir
+
+    def test_first_session_starts_the_series_with_the_h10(self):
+        payload, status = self.state.start_meditation_series(self.FIRST)
+        self.assertEqual(int(status), 200)
+        command, _proc = self.procs[0]
+        self.assertIn("--with-polar", command)  # whatever the checkbox says
+        self.assertEqual(command[command.index("--preset") + 1], "p21")
+        series = json.loads(self.series_path.read_text())
+        self.assertEqual(
+            (series["conditions"], series["blocks"], series["block_minutes"], series["settle_seconds"]),
+            (["focus", "open"], 4, 0.5, 30.0),
+        )
+        output_dir = Path(payload["output_dir"])
+        self.assertEqual(json.loads((output_dir / "blocks.json").read_text())["series"], series["id"])
+        # A rating rewrites blocks.json and must keep the tag.
+        self.state.save_meditation_rating({"block_index": 0, "depth": 5})
+        self.assertEqual(json.loads((output_dir / "blocks.json").read_text())["series"], series["id"])
+        status = self.state.meditation_series()
+        self.assertEqual((status["counted"], status["target"]), (0, 8))
+        self.assertEqual([session["state"] for session in status["sessions"]], ["recording"])
+
+    def test_later_sessions_keep_the_layout_and_take_a_new_settle(self):
+        self.finish(self.state.start_meditation_series(self.FIRST)[0], 150)
+        payload, status = self.state.start_meditation_series(
+            {"conditions": ["breath", "body"], "blocks": 8, "block_minutes": 3, "settle_seconds": 90}
+        )
+        self.assertEqual(int(status), 200)
+        plan = payload["meditation"]["plan"]
+        self.assertEqual((plan["conditions"], len(plan["blocks"]), plan["settle_seconds"]), (["focus", "open"], 4, 90.0))
+        self.assertEqual(plan["blocks"][0]["end_s"] - plan["blocks"][0]["start_s"], 30.0)
+        self.assertEqual(json.loads(self.series_path.read_text())["settle_seconds"], 90.0)
+        self.finish(payload, 210)
+        # Without a settle the series keeps the last one.
+        payload, _status = self.state.start_meditation_series({})
+        self.assertEqual(payload["meditation"]["plan"]["settle_seconds"], 90.0)
+
+    def test_a_session_counts_once_it_ran_past_its_last_block(self):
+        # The plan's last block ends at 30 + 4 x 30 = 150 s from the first frame.
+        self.finish(self.state.start_meditation_series(self.FIRST)[0], 150 + 60)  # ran to the end
+        self.finish(self.state.start_meditation_series({})[0], 150 - 3)  # stopped right at "All blocks done"
+        self.finish(self.state.start_meditation_series({})[0], 210, downtime=30)  # a short dropout
+        self.finish(self.state.start_meditation_series({})[0], 100)  # stopped in block 3
+        self.finish(self.state.start_meditation_series({})[0], 210, downtime=120)  # reconnecting for 2 of 2.5 min
+        self.finish(self.state.start_meditation_series({})[0], 600, first_frame=None)  # the headband never sent a frame
+        self.state.start_meditation_series({})
+        self.procs[-1][1].returncode = 1  # the recorder died, no summary
+
+        status = self.state.meditation_series()
+        self.assertEqual(status["counted"], 3)
+        sessions = status["sessions"]  # oldest first
+        self.assertEqual(
+            [session["state"] for session in sessions],
+            ["counted", "counted", "counted", "short", "short", "no_data", "unfinished"],
+        )
+        self.assertEqual((sessions[3]["covered_seconds"], sessions[3]["needed_seconds"]), (100.0, 150.0))
+        self.assertEqual(sessions[4]["covered_seconds"], 90.0)
+
+    def test_other_meditations_do_not_count(self):
+        self.finish(self.state.start_meditation_series(self.FIRST)[0], 210)
+        self.finish(self.state.start_meditation(dict(self.FIRST, with_polar=True))[0], 210)
+        status = self.state.meditation_series()
+        self.assertEqual((status["counted"], len(status["sessions"])), (1, 1))
+
+    def test_first_session_without_a_layout_takes_the_form_defaults(self):
+        _payload, status = self.state.start_meditation_series({"conditions": ["focus", "open"]})
+        self.assertEqual(int(status), 200)
+        series = json.loads(self.series_path.read_text())
+        self.assertEqual((series["blocks"], series["block_minutes"], series["settle_seconds"]), (4, 8.0, 60.0))
+
+    def test_bad_first_settings_start_nothing(self):
+        _payload, status = self.state.start_meditation_series(dict(self.FIRST, blocks=6))
+        self.assertEqual(int(status), 400)
+        self.assertEqual(self.procs, [])
+        self.assertFalse(self.series_path.exists())
+        self.assertIsNone(self.state.meditation_series()["series"])
+
+    def test_series_endpoints(self):
+        thread = threading.Thread(target=self.server.serve_forever)
+        thread.start()
+        self.addCleanup(thread.join, 2)
+        self.addCleanup(self.server.shutdown)
+        host, port = self.server.server_address
+
+        def call(path="", body=None):
+            request = urllib.request.Request(
+                f"http://{host}:{port}/api/meditation/series{path}",
+                data=None if body is None else json.dumps(body).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(request, timeout=2) as response:
+                return json.loads(response.read())
+
+        self.assertEqual(call(), {"counted": 0, "series": None, "sessions": [], "target": 8})
+        started = call("/start", self.FIRST)
+        self.assertEqual(started["meditation"]["plan"]["series"], call()["series"]["id"])
+        self.assertEqual([session["state"] for session in call()["sessions"]], ["recording"])
+        self.assertIsNone(call("/new", {})["series"])
+
+    def test_new_series_sets_the_old_one_aside(self):
+        old_dir = self.finish(self.state.start_meditation_series(self.FIRST)[0], 210)
+        old_id = json.loads(self.series_path.read_text())["id"]
+
+        status = self.state.new_meditation_series()
+        self.assertEqual((status["series"], status["counted"], status["sessions"]), (None, 0, []))
+        self.assertTrue((self.series_path.parent / f"series_{old_id}.json").is_file())
+        self.assertEqual(json.loads((old_dir / "blocks.json").read_text())["series"], old_id)
+
+        payload, _status = self.state.start_meditation_series(dict(self.FIRST, conditions=["breath", "body"]))
+        series = json.loads(self.series_path.read_text())
+        self.assertNotEqual(series["id"], old_id)
+        self.assertEqual(payload["meditation"]["plan"]["conditions"], ["breath", "body"])
+        self.assertEqual([session["name"] for session in self.state.meditation_series()["sessions"]], [Path(payload["output_dir"]).name])
+
+
 class TestLocalMuseAppRecentRecordings(TestLocalMuseAppReport):
     def make_recording(self, kind, name, summary=None, blocks=False, polar=False):
         folder = self.state._recordings_base_resolved() / kind / name

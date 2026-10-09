@@ -15,6 +15,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from dataclasses import dataclass, field, replace
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -59,6 +60,14 @@ RECORDING_KINDS: Dict[str, Tuple[str, float, bool]] = {
 # channel (32-47 dB above its neighbours on the 2026-10-09 line check, gone on
 # p21), so these record without the optics.
 EEG_ONLY_PRESET = "p21"
+# A meditation series keeps its practices and block layout, so its sessions pool
+# in aggregate-meditation. Only the settle-in may change between sessions: it is
+# read off the EMG timeline of the reports. Kept with the other protocol data.
+SERIES_SCHEMA_VERSION = 1
+# A series session counts once it has headband data up to its last block's end,
+# give or take one 10 s epoch: the panel's countdown can run up to 3 s ahead of
+# the recorder, so a stop right at "All blocks done" may land just short of it.
+SERIES_END_SLACK_SECONDS = 10.0
 
 
 class JobUnavailable(Exception):
@@ -143,6 +152,34 @@ def _read_json_tolerant(path: Path) -> Mapping[str, Any]:
         return json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, ValueError, OSError):
         return {}
+
+
+def _folder_start(output_dir: Path) -> Optional[str]:
+    """Recording folders are named after their start time."""
+    try:
+        return dt.datetime.strptime(output_dir.name[:15], "%Y%m%d_%H%M%S").isoformat()
+    except ValueError:
+        return None
+
+
+def _meditation_plan(body: Mapping[str, Any]):
+    """A counterbalanced plan from the meditation form; ValueError/TypeError on bad input."""
+    import random as _random
+
+    from muse_tmr.reports.meditation_analysis import build_meditation_plan, check_drift_cancelling
+
+    conditions = [str(item).strip() for item in body.get("conditions") or []]
+    blocks = int(body.get("blocks", 4))
+    block_minutes = float(body.get("block_minutes", 8))
+    settle_seconds = float(body.get("settle_seconds", 60))
+    seed = body.get("seed")
+    seed = int(seed) if seed not in (None, "") else _random.randrange(1_000_000)
+    if not 4 <= blocks <= 12 or not 0.5 <= block_minutes <= 60 or not 0 <= settle_seconds <= 600:
+        raise ValueError("blocks 4, 8 or 12, block minutes 0.5-60, settle seconds 0-600")
+    check_drift_cancelling(blocks)
+    return build_meditation_plan(
+        conditions, blocks=blocks, block_minutes=block_minutes, settle_seconds=settle_seconds, seed=seed
+    )
 
 
 RECORDING_HEARTBEAT_LIVE_SECONDS = 120.0
@@ -1003,14 +1040,10 @@ class LocalMuseAppState:
         live = self._is_live(output_dir)
         meditation = (output_dir / "blocks.json").is_file()
         calibration = (output_dir / "calibration" / "cues.jsonl").is_file()
-        try:
-            started = dt.datetime.strptime(output_dir.name[:15], "%Y%m%d_%H%M%S").isoformat()
-        except ValueError:
-            started = None
         return {
             "kind": output_dir.parent.name,
             "name": output_dir.name,
-            "started_at": started,
+            "started_at": _folder_start(output_dir),
             "live": live,
             "duration_seconds": summary.get("duration_seconds", progress.get("elapsed_seconds")),
             "stop_reason": summary.get("stop_reason") or ("recording" if live else None),
@@ -1050,33 +1083,19 @@ class LocalMuseAppState:
 
     def start_meditation(self, body: Mapping[str, Any]) -> Tuple[Mapping[str, Any], HTTPStatus]:
         """Build an A/B plan, start a session recording that covers it, store blocks.json."""
-        import random as _random
-
-        from muse_tmr.reports.meditation_analysis import (
-            build_meditation_plan,
-            check_drift_cancelling,
-            write_meditation_blocks,
-        )
-
         try:
-            conditions = [str(item).strip() for item in body.get("conditions") or []]
-            blocks = int(body.get("blocks", 4))
-            block_minutes = float(body.get("block_minutes", 8))
-            settle_seconds = float(body.get("settle_seconds", 60))
-            seed = body.get("seed")
-            seed = int(seed) if seed not in (None, "") else _random.randrange(1_000_000)
-            if not 4 <= blocks <= 12 or not 0.5 <= block_minutes <= 60 or not 0 <= settle_seconds <= 600:
-                raise ValueError("blocks 4, 8 or 12, block minutes 0.5-60, settle seconds 0-600")
-            check_drift_cancelling(blocks)
-            plan = build_meditation_plan(
-                conditions, blocks=blocks, block_minutes=block_minutes, settle_seconds=settle_seconds, seed=seed
-            )
+            plan = _meditation_plan(body)
         except (TypeError, ValueError) as exc:
             return {"error": str(exc)}, HTTPStatus.BAD_REQUEST
+        return self._start_meditation_plan(plan, with_polar=bool(body.get("with_polar")))
+
+    def _start_meditation_plan(self, plan, *, with_polar: bool) -> Tuple[Mapping[str, Any], HTTPStatus]:
+        from muse_tmr.reports.meditation_analysis import write_meditation_blocks
+
         # A minute of slack for connecting and the last epoch.
         duration = plan.blocks[-1].end_s + 60.0
         payload, status = self.start_recording(
-            "session", with_polar=bool(body.get("with_polar")), duration_seconds=duration, meditation=True
+            "session", with_polar=with_polar, duration_seconds=duration, meditation=True
         )
         if status != HTTPStatus.OK:
             return payload, status
@@ -1127,6 +1146,118 @@ class LocalMuseAppState:
             "first_frame_elapsed_seconds": progress.get("first_frame_elapsed_seconds"),
             "analysis": self._meditation_analysis_status(output_dir),
         }
+
+    # --- meditation series ---------------------------------------------------
+
+    def meditation_series(self) -> Dict[str, Any]:
+        """The current series, its sessions oldest first, and how many count."""
+        from muse_tmr.reports.meditation_analysis import MIN_SESSIONS_FOR_INFERENCE
+
+        series = self._load_series()
+        sessions = self._series_sessions(series["id"]) if series else []
+        return {
+            "series": series,
+            "sessions": sessions,
+            "counted": sum(1 for session in sessions if session["state"] == "counted"),
+            "target": MIN_SESSIONS_FOR_INFERENCE,
+        }
+
+    def start_meditation_series(self, body: Mapping[str, Any]) -> Tuple[Mapping[str, Any], HTTPStatus]:
+        """The next session of the series, or the first one of a new series.
+
+        The first session sets the practices, block count and block length; later
+        ones keep them and take only the settle-in from the request. Always
+        records the H10, whatever the checkbox says.
+        """
+        series = self._load_series()
+        settings = dict(body)
+        if series is not None:
+            settings.update({key: series.get(key) for key in ("conditions", "blocks", "block_minutes")})
+            if settings.get("settle_seconds") in (None, ""):
+                settings["settle_seconds"] = series.get("settle_seconds")
+        try:
+            plan = _meditation_plan(settings)
+        except (TypeError, ValueError) as exc:
+            return {"error": str(exc)}, HTTPStatus.BAD_REQUEST
+        if series is None:
+            now = self._now()
+            first = plan.blocks[0]
+            series = {
+                "schema_version": SERIES_SCHEMA_VERSION,
+                "id": f"{now:%Y%m%d_%H%M%S}_{uuid.uuid4().hex[:6]}",
+                "created_at": now.isoformat(timespec="seconds"),
+                "conditions": list(plan.conditions),
+                "blocks": len(plan.blocks),
+                "block_minutes": (first.end_s - first.start_s) / 60.0,
+            }
+        series["settle_seconds"] = plan.settle_seconds
+        payload, status = self._start_meditation_plan(replace(plan, series=series["id"]), with_polar=True)
+        if status == HTTPStatus.OK:
+            self._write_series(series)
+        return payload, status
+
+    def new_meditation_series(self) -> Dict[str, Any]:
+        """Set the current series aside; its sessions stay as they are and the
+        next series start makes a new one."""
+        series = self._load_series()
+        if series is not None:
+            path = self._series_path()
+            path.replace(path.with_name(f"series_{series['id']}.json"))
+        return self.meditation_series()
+
+    def _series_path(self) -> Path:
+        return self._recordings_base_resolved().parent / "protocol" / "meditation" / "series.json"
+
+    def _load_series(self) -> Optional[Dict[str, Any]]:
+        series = _read_json_tolerant(self._series_path())
+        return dict(series) if isinstance(series, dict) and series.get("id") else None
+
+    def _write_series(self, series: Mapping[str, Any]) -> None:
+        path = self._series_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(series, indent=2) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
+
+    def _series_sessions(self, series_id: str) -> List[Dict[str, Any]]:
+        session_dir = self._recordings_base_resolved() / "session"
+        if not session_dir.is_dir():
+            return []
+        sessions = []
+        for output_dir in sorted(session_dir.iterdir(), key=lambda path: path.name):
+            plan = _read_json_tolerant(output_dir / "blocks.json")
+            if isinstance(plan, dict) and plan.get("series") == series_id:
+                sessions.append(self._series_session(output_dir, plan))
+        return sessions
+
+    def _series_session(self, output_dir: Path, plan: Mapping[str, Any]) -> Dict[str, Any]:
+        """state: recording | counted | short (stopped early or lost the headband) |
+        no_data (no Muse frame ever came) | unfinished (no summary)."""
+        needed = max((float(block.get("end_s") or 0.0) for block in plan.get("blocks") or ()), default=0.0)
+        session: Dict[str, Any] = {
+            "name": output_dir.name,
+            "started_at": _folder_start(output_dir),
+            "needed_seconds": needed,
+            "covered_seconds": None,
+        }
+        summary = _read_json_tolerant(output_dir / "summary.json")
+        if self._is_live(output_dir):
+            session["state"] = "recording"
+        elif not summary:
+            session["state"] = "unfinished"
+        else:
+            # Block times count from the first Muse frame, the recorder's duration from its
+            # start. Its downtime is the time spent reconnecting, without the 45 s of silence
+            # before each reconnect, so after a dropout this still overstates the data a bit.
+            first_frame = _read_json_tolerant(output_dir / "progress.json").get("first_frame_elapsed_seconds")
+            if first_frame is None:
+                session["state"] = "no_data"
+            else:
+                downtime = float(summary.get("downtime_seconds") or 0.0)
+                covered = float(summary.get("duration_seconds") or 0.0) - float(first_frame) - downtime
+                session["covered_seconds"] = covered
+                session["state"] = "counted" if covered >= needed - SERIES_END_SLACK_SECONDS else "short"
+        return session
 
     # --- calibration run -----------------------------------------------------
 
@@ -1547,6 +1678,9 @@ class LocalMuseAppHandler(BaseHTTPRequestHandler):
         if path == "/api/calibration/protocol":
             self._write_json(self.server.app_state.calibration_protocol())
             return
+        if path == "/api/meditation/series":
+            self._write_json(self.server.app_state.meditation_series())
+            return
         if path == "/api/muse/diagnostics":
             self._write_json(self.server.app_state.diagnostics())
             return
@@ -1592,6 +1726,13 @@ class LocalMuseAppHandler(BaseHTTPRequestHandler):
         if self.path == "/api/meditation/rating":
             payload, status = self.server.app_state.save_meditation_rating(self._read_json_body())
             self._write_json(payload, status=status)
+            return
+        if self.path == "/api/meditation/series/start":
+            payload, status = self.server.app_state.start_meditation_series(self._read_json_body())
+            self._write_json(payload, status=status)
+            return
+        if self.path == "/api/meditation/series/new":
+            self._write_json(self.server.app_state.new_meditation_series())
             return
         if self.path in ("/api/recordings/report", "/api/recordings/analyze", "/api/recordings/calibration-report"):
             body = self._read_json_body()

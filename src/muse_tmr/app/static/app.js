@@ -23,6 +23,8 @@ const meditationBlocks = document.querySelector("#meditation-blocks");
 const analyzeMeditationButton = document.querySelector("#analyze-meditation-button");
 const openMeditationReport = document.querySelector("#open-meditation-report");
 const meditationAnalysisText = document.querySelector("#meditation-analysis-text");
+const startSeriesButton = document.querySelector("#start-series-button");
+const seriesForm = document.querySelector("#series-form");
 const startCalibrationButton = document.querySelector("#start-calibration-button");
 const calibrationForm = document.querySelector("#calibration-form");
 const calibrationSteps = document.querySelector("#calibration-steps");
@@ -149,6 +151,7 @@ function renderUiState(payload) {
   renderGate(payload.gate || {});
   renderDiagnostics(latestDiagnostics);
   renderRecording(latestRecording);
+  reloadSeriesAfterRecording(latestRecording);
   renderAppTitle();
 }
 
@@ -205,9 +208,11 @@ function renderActions() {
   startSessionButton.hidden = !canRecord;
   startNightButton.hidden = !canRecord;
   startMeditationButton.hidden = !(canRecord && isAmused);
+  startSeriesButton.hidden = !(canRecord && isAmused);
   startCalibrationButton.hidden = !(canRecord && isAmused);
   if (!canRecord) {
     meditationForm.hidden = true;
+    seriesForm.hidden = true;
     calibrationForm.hidden = true;
   }
   polarOption.hidden = !(canRecord && isAmused);
@@ -220,6 +225,7 @@ function renderActions() {
   startSessionButton.disabled = !recordEnabled;
   startNightButton.disabled = !recordEnabled;
   startMeditationButton.disabled = !recordEnabled;
+  startSeriesButton.disabled = !recordEnabled;
   startCalibrationButton.disabled = !recordEnabled;
 
   connectButton.classList.toggle("primary", connection !== "connected");
@@ -899,6 +905,162 @@ analyzeMeditationButton.addEventListener("click", async () => {
   }
 });
 
+// --- meditation series --------------------------------------------------------
+
+const seriesCount = document.querySelector("#series-count");
+const seriesTarget = document.querySelector("#series-target");
+const seriesSessions = document.querySelector("#series-sessions");
+const seriesStart = document.querySelector("#series-start");
+const seriesNew = document.querySelector("#series-new");
+const seriesChime = document.querySelector("#series-chime");
+const seriesError = document.querySelector("#series-error");
+const seriesConditionA = document.querySelector("#series-condition-a");
+const seriesConditionB = document.querySelector("#series-condition-b");
+const seriesBlocks = document.querySelector("#series-blocks");
+const seriesBlockMinutes = document.querySelector("#series-block-minutes");
+const seriesSettle = document.querySelector("#series-settle");
+let seriesStatus = null;
+let seriesSawRecording = false;
+
+async function loadSeries() {
+  try {
+    seriesStatus = await requestJson("/api/meditation/series");
+  } catch (error) {
+    seriesStatus = null;
+  }
+  renderSeries();
+}
+
+// The count changes when a recording ends.
+function reloadSeriesAfterRecording(recording) {
+  const active = Boolean(recording.active);
+  if (seriesSawRecording && !active) {
+    loadSeries();
+  }
+  seriesSawRecording = active;
+}
+
+function renderSeries() {
+  const status = seriesStatus || {};
+  const series = status.series;
+  const counted = status.counted || 0;
+  const target = status.target || 8;
+  const tally = counted < target ? `${counted}/${target}` : String(counted);
+  startSeriesButton.textContent = series ? `Meditation series ${tally}…` : "Meditation series…";
+  seriesTarget.textContent = String(target);
+  seriesCount.textContent = !series
+    ? "no sessions yet"
+    : counted < target
+    ? `${counted} of ${target} sessions`
+    : `${counted} sessions, enough for p-values`;
+  // The first session sets the practices and the block layout; later ones keep them.
+  [seriesConditionA, seriesConditionB, seriesBlocks, seriesBlockMinutes].forEach((input) => {
+    input.disabled = Boolean(series);
+  });
+  if (series) {
+    seriesConditionA.value = series.conditions[0];
+    seriesConditionB.value = series.conditions[1];
+    seriesBlocks.value = series.blocks;
+    seriesBlockMinutes.value = series.block_minutes;
+  }
+  const sessions = status.sessions || [];
+  seriesSessions.innerHTML = "";
+  seriesSessions.hidden = sessions.length === 0;
+  let number = 0;
+  sessions.forEach((session) => {
+    const item = document.createElement("li");
+    const started = formatStart(session.started_at, session.name);
+    if (session.state === "counted") {
+      number += 1;
+      item.className = "done";
+      item.textContent = `Session ${number} · ${started}`;
+    } else {
+      item.className = "upcoming";
+      item.textContent = `${started} · ${seriesSessionText(session)}`;
+    }
+    seriesSessions.appendChild(item);
+  });
+  seriesStart.textContent = `Start session ${counted + 1}`;
+  seriesNew.hidden = !series;
+}
+
+function seriesSessionText(session) {
+  if (session.state === "recording") {
+    return "recording now";
+  }
+  if (session.state === "short") {
+    return `headband data for ${minutesClock(session.covered_seconds)} of ${minutesClock(session.needed_seconds)}, not counted`;
+  }
+  if (session.state === "no_data") {
+    return "no headband data, not counted";
+  }
+  return "the recorder did not finish, not counted";
+}
+
+startSeriesButton.addEventListener("click", async () => {
+  seriesForm.hidden = !seriesForm.hidden;
+  if (seriesForm.hidden) {
+    return;
+  }
+  seriesChime.checked = chimeEnabled();
+  seriesError.hidden = true;
+  await loadSeries();
+  const series = seriesStatus && seriesStatus.series;
+  if (series && series.settle_seconds != null) {
+    seriesSettle.value = series.settle_seconds;
+  }
+});
+
+document.querySelector("#series-cancel").addEventListener("click", () => {
+  seriesForm.hidden = true;
+});
+
+seriesNew.addEventListener("click", async () => {
+  const counted = (seriesStatus && seriesStatus.counted) || 0;
+  if (!window.confirm(`Start a new series? The ${counted} counted session(s) stay on disk but stop counting here.`)) {
+    return;
+  }
+  try {
+    seriesStatus = await requestJson("/api/meditation/series/new", { method: "POST" });
+  } catch (error) {
+    seriesError.hidden = false;
+    seriesError.textContent = `Could not start a new series: ${error.message}`;
+  }
+  renderSeries();
+});
+
+seriesForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    window.localStorage.setItem("meditationChime", seriesChime.checked ? "1" : "0");
+  } catch (error) {
+    // the setting just won't be remembered
+  }
+  if (seriesChime.checked) {
+    ensureAudio();
+  }
+  const response = await fetch("/api/meditation/series/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      conditions: [seriesConditionA.value, seriesConditionB.value],
+      blocks: Number(seriesBlocks.value),
+      block_minutes: Number(seriesBlockMinutes.value),
+      settle_seconds: Number(seriesSettle.value)
+    })
+  });
+  if (response.ok) {
+    seriesForm.hidden = true;
+    seriesError.hidden = true;
+  } else {
+    const payload = await response.json().catch(() => ({}));
+    seriesError.hidden = false;
+    seriesError.textContent = payload.error || `${response.status} ${response.statusText}`;
+  }
+  await refreshUiState();
+  await loadSeries();
+});
+
 // --- calibration run -----------------------------------------------------------
 
 function minutesClock(seconds) {
@@ -1100,6 +1262,7 @@ window.setInterval(loadHistory, 5000);
 
 refreshUiState();
 window.setInterval(refreshUiState, 1000);
+loadSeries();
 
 function updateContactHistory(channel, fill) {
   const now = Date.now() / 1000;

@@ -59,6 +59,8 @@ MIN_AGGREGATE_SCHEMA_VERSION = 5
 # that metric is just missing. Every other setting defines a pooled metric.
 POOLABLE_SETTING_DIFFERENCES = frozenset({"lyapunov_enabled"})
 MEDITATION_AGGREGATE_SCHEMA_VERSION = 1
+# Fewer sessions get descriptives only, no p-value or interval.
+MIN_SESSIONS_FOR_INFERENCE = 8
 TIME_BASE = "seconds_from_recording_start"
 PRIMARY_METRIC = "lzc"
 PRIMARY_GROUP = "all"
@@ -155,6 +157,8 @@ class MeditationBlocks:
     order: Tuple[str, ...] = ()
     conditions: Tuple[str, ...] = ()
     seed: Optional[int] = None
+    # Id of the app's meditation series this session belongs to, if any.
+    series: Optional[str] = None
     schema_version: int = MEDITATION_BLOCKS_SCHEMA_VERSION
     time_base: str = TIME_BASE
 
@@ -194,6 +198,8 @@ class MeditationBlocks:
         }
         if self.seed is not None:
             payload["seed"] = self.seed
+        if self.series is not None:
+            payload["series"] = self.series
         return payload
 
     @classmethod
@@ -204,6 +210,7 @@ class MeditationBlocks:
             order=tuple(str(item) for item in data.get("order", ())),
             conditions=tuple(str(item) for item in data.get("conditions", ())),
             seed=int(data["seed"]) if data.get("seed") is not None else None,
+            series=str(data["series"]) if data.get("series") else None,
             schema_version=int(data.get("schema_version", MEDITATION_BLOCKS_SCHEMA_VERSION)),
             time_base=str(data.get("time_base", TIME_BASE)),
         )
@@ -1014,7 +1021,7 @@ def aggregate_meditation_summaries(
     summaries: Sequence[Mapping[str, object]],
     *,
     labels: Optional[Sequence[str]] = None,
-    min_sessions_for_inference: int = 8,
+    min_sessions_for_inference: int = MIN_SESSIONS_FOR_INFERENCE,
     permutations: int = 10000,
     bootstrap: int = 10000,
     seed: int = 0,
@@ -1041,6 +1048,15 @@ def aggregate_meditation_summaries(
     differing = [label for label, definition in zip(labels, definitions) if definition != definitions[0]]
     if differing:
         raise ValueError(f"feature settings (config.complexity) differ from {labels[0]} in: {', '.join(differing)}")
+    # A new series in the app may reuse the practice names with other blocks, and
+    # its start is where the old sessions stopped counting.
+    series = [str((summary.get("blocks_file") or {}).get("series") or "") for summary in summaries]
+    other_series = [label for label, value in zip(labels, series) if value != series[0]]
+    if other_series:
+        raise ValueError(
+            f"sessions from another meditation series (blocks_file.series) than {labels[0]}: "
+            f"{', '.join(other_series)}; aggregate one series at a time"
+        )
     reference = tuple(summaries[0]["conditions"])
     # One slot per session, so differences[i] always belongs to sessions[i];
     # a session without a contrast (e.g. no Polar data) stays NaN / null.
@@ -1100,6 +1116,7 @@ def aggregate_meditation_summaries(
         "conditions": list(reference),
         "contrast": f"{reference[0]} - {reference[1]}",
         "sessions": labels,
+        "series": series[0] or None,
         "n_sessions": n_sessions,
         "min_sessions_for_inference": min_sessions_for_inference,
         "primary_metric": {

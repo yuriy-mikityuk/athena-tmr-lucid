@@ -40,8 +40,11 @@ EEG, 10 s epochs, no correction across metrics.
 
    The setup app can run steps 2-4 for you ("Meditation…" when the headband is
    connected): plan, block timer with a soft tone at each change, ratings after
-   each block, and the analysis with a link to its report. See
-   `docs/contact_setup_local_app.md`. The steps below are the same by hand.
+   each block, and the analysis with a link to its report. For the sessions that
+   go into step 5, "Meditation series…" keeps the practices and block layout the
+   same every time, always records the H10 and counts the sessions that ran through
+   their last block. See `docs/contact_setup_local_app.md`. The steps below are the
+   same by hand.
 
 2. Per session, generate a counterbalanced plan:
 
@@ -92,7 +95,9 @@ EEG, 10 s epochs, no correction across metrics.
    session. Epochs are autocorrelated and would inflate significance. With fewer
    than 8 sessions it prints descriptives and a warning and reports no p-values or
    intervals. With 8 or more: two-sided sign-flip permutation test (exact up to
-   16 sessions) and a bootstrap 95% CI.
+   16 sessions) and a bootstrap 95% CI. Sessions from different app series, or a
+   series and standalone sessions, are refused (`blocks_file.series`): pass the
+   summaries of one series.
 
 **Primary metric, declared up front: the raw all-channel mean LZC contrast on
 clean epochs.** Everything else, including the all-epochs variant and the

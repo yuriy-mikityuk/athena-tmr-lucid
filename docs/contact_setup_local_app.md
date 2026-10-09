@@ -101,6 +101,27 @@ sensory-fading selectors that save straight into `blocks.json`. When the recordi
 "Analyze meditation" runs `analyze-meditation` in the background and links its
 `report.html`. The Polar H10 checkbox applies here too.
 
+## Meditation series
+
+"Meditation series…" is for the sessions that get pooled by `aggregate-meditation`,
+which needs the same two practices in every session and reports p-values only from 8
+sessions. The first session of a series sets the practices, block count and block
+length, and they stay locked after that. The settle-in can still change between
+sessions, since it is read off the EMG timeline of the reports. Every series session
+records on `p21` with the H10, whatever the checkbox says, and draws its own ABBA or
+BAAB order.
+
+The series lives in `data/protocol/meditation/series.json`, and each session's
+`blocks.json` carries its id in `series`. A session counts once it has headband data up
+to the end of its last block: the recorded time from the first Muse frame, minus the
+time the recorder spent reconnecting, give or take one 10 s epoch. The recording runs a
+minute past the last block, so a short dropout still counts. The form lists the
+sessions, numbers the counted ones and says why the others did not count: stopped early
+or lost the headband, no headband data at all, or the recorder did not finish.
+`aggregate-meditation` refuses to pool sessions from different series. The button shows the
+count, e.g. "Meditation series 3/8…". "New series" renames the file to
+`series_<id>.json`; the old sessions stay on disk but stop counting.
+
 ## Reports
 
 When a recording ends, the box under the buttons offers "Build report". It runs

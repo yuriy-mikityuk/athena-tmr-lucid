@@ -489,6 +489,11 @@ button:disabled {
   font: inherit;
 }
 
+.series-sessions {
+  list-style: none;
+  padding-left: 0;
+}
+
 .history-panel {
   margin-top: 16px;
   padding-top: 12px;

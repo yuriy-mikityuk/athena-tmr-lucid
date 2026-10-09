@@ -3,6 +3,7 @@ import json
 import math
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -86,7 +87,10 @@ class MeditationPlanTest(unittest.TestCase):
             payload = json.loads(path.read_text())
             self.assertEqual(payload["time_base"], "seconds_from_recording_start")
             self.assertEqual(payload["blocks"][0]["depth"], None)
+            self.assertNotIn("series", payload)
             self.assertEqual(load_meditation_blocks(path), plan)
+            tagged = replace(plan, series="20261010_190000_ab12cd")
+            self.assertEqual(load_meditation_blocks(write_meditation_blocks(tagged, path)), tagged)
 
     def test_rejects_bad_plans(self):
         with self.assertRaises(ValueError):
@@ -566,6 +570,19 @@ class AggregateMeditationTest(unittest.TestCase):
         }
         with self.assertRaisesRegex(ValueError, "differ from s1 in: s5"):
             aggregate_meditation_summaries([default, line_kept])
+
+    def test_sessions_from_different_series_are_rejected(self):
+        def tagged(summary, series):
+            return {**summary, "blocks_file": {"series": series}}
+
+        first = tagged(self.summary(("focus", "open"), 0.1, "s1"), "a")
+        other = tagged(self.summary(("focus", "open"), 0.2, "s2"), "b")
+        standalone = self.summary(("focus", "open"), 0.3, "s3")
+        with self.assertRaisesRegex(ValueError, "than s1: s2, s3"):
+            aggregate_meditation_summaries([first, other, standalone])
+        result = aggregate_meditation_summaries([first, tagged(self.summary(("focus", "open"), 0.2, "s2"), "a")])
+        self.assertEqual(result["series"], "a")
+        self.assertIsNone(aggregate_meditation_summaries([standalone])["series"])
 
     def test_residualized_contrasts_pool_only_within_one_emg_indicator(self):
         summaries = [self.summary(("focus", "open"), 0.1 * (index + 1), f"s{index + 1}") for index in range(3)]
