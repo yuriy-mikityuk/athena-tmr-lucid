@@ -107,7 +107,8 @@ def write_raw_session(
     True time is host wall-clock. The sensor clock runs from the Polar default
     2019 epoch with a drift; every notification arrives after a random positive
     BLE delay. During no_contact=(start_s, end_s) the HR notifications say the
-    electrodes are off the skin and carry random RR. Returns the ground truth.
+    electrodes are off the skin and carry random RR, and the ECG swings rail to
+    rail with negative spikes. Returns the ground truth.
     """
     import base64
     import json
@@ -124,6 +125,10 @@ def write_raw_session(
 
     beats = beat_times(seconds, rng, breathing_hz=breathing_hz)
     t_ecg, ecg = ecg_signal(beats, seconds, rng, breathing_hz=breathing_hz)
+    if no_contact is not None:
+        off = np.flatnonzero((t_ecg >= no_contact[0]) & (t_ecg < no_contact[1]))
+        ecg[off] = np.clip(rng.normal(0.0, 9000.0, off.size), -19630.0, 19630.0)
+        ecg[off[::30]] = -19630.0
     t_acc, xyz = chest_acc(seconds, rng, acc_breaths_per_min or breaths_per_min)
 
     def sensor_ns(true_s):

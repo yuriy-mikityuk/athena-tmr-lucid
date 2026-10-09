@@ -94,10 +94,15 @@ class LoadPolarSessionTest(unittest.TestCase):
                 self.assertFalse(np.any((times > low + 1.5) & (times < high - 1.5)))
                 self.assertTrue(np.any(times < low) and np.any(times > high))
             self.assertEqual(len(session.quality["no_contact_spans"]), 1)
+            self.assertAlmostEqual(session.quality["no_contact_seconds"], high - low, delta=1.5)
             self.assertGreater(session.quality["no_contact_dropped_rr"], 40)
-            self.assertGreater(session.quality["no_contact_dropped_r_peaks"], 40)
             self.assertLess(session.rr["rr_ms"].max(), 1300.0)
             self.assertGreater((session.rr["aligned_to"] == "ecg_r_peak").mean(), 0.95)
+            # The rail-to-rail noise must not set the detector's polarity for the clean ECG.
+            peaks = session.r_peaks["time"].to_numpy()
+            beats = [beat for beat in truth["beats_wall"][1:-1] if beat < low - 1.0 or beat > high + 1.0]
+            errors = np.array([peaks[np.argmin(np.abs(peaks - beat))] - beat for beat in beats])
+            self.assertLess(np.abs(errors).max() * 1000.0, 10.0)
 
             # A window across the hole uses its longest part with contact, not a splice.
             features = extract_cardio_resp_features(session, truth["wall0"] + 20, truth["wall0"] + 230)
@@ -107,6 +112,16 @@ class LoadPolarSessionTest(unittest.TestCase):
             inside = extract_cardio_resp_features(session, low + 2, high - 2)
             self.assertEqual(inside["window_seconds"], 0.0)
             self.assertTrue(math.isnan(inside["rmssd_ms"]) and math.isnan(inside["edr_rate_bpm"]))
+
+    def test_contact_never_regained_drops_everything_after(self):
+        rng = np.random.default_rng(10)
+        with tempfile.TemporaryDirectory() as tmp:
+            truth = write_raw_session(tmp, 240, rng, no_contact=(180.0, 999.0))
+            session = load_polar_session(Path(tmp))
+            low = truth["wall0"] + 180.0 - NO_CONTACT_LEAD_SECONDS
+            self.assertGreater(session.no_contact[0][1], truth["wall0"] + 240.0)
+            for frame in (session.rr, session.r_peaks):
+                self.assertFalse(np.any(frame["time"].to_numpy() > low + 1.5))
 
     def test_without_ecg_rr_keeps_receive_time_estimate(self):
         rng = np.random.default_rng(5)

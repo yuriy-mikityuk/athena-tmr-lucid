@@ -15,7 +15,8 @@ Muse replay timestamps are host wall-clock, so Polar data is mapped there too:
    estimate, uncertain by up to about a second.
 
 With the electrodes off the skin the H10 keeps sending ECG and even RR, all
-noise. RR beats and R-peaks around the spans it reports no contact are dropped.
+noise. RR beats around the spans it reports no contact are dropped, and R-peaks
+are searched only in the ECG outside them.
 
 Chest acceleration stays its own table; it is not head IMU and never goes into
 MuseFrame.imu.
@@ -129,9 +130,9 @@ def fit_clock_mapping(sensor_s: Sequence[float], host_s: Sequence[float]) -> Clo
     )
 
 
-# On the 2026-10-09 calibration run the contact flag went false ~10 s after
-# the last real beat, and beats in the ~8 s after it came back were noise.
-NO_CONTACT_LEAD_SECONDS = 12.0
+# On the 2026-10-09 calibration run the ECG turned to rail-to-rail noise ~13 s
+# before the contact flag went false and stayed noise ~7 s after it came back.
+NO_CONTACT_LEAD_SECONDS = 15.0
 NO_CONTACT_TAIL_SECONDS = 10.0
 
 
@@ -139,11 +140,13 @@ def no_contact_spans(
     hr: pd.DataFrame,
     lead_s: float = NO_CONTACT_LEAD_SECONDS,
     tail_s: float = NO_CONTACT_TAIL_SECONDS,
+    end_of_data: Optional[float] = None,
 ) -> List[Tuple[float, float]]:
     """Wall-clock spans around HR notifications that reported no skin contact.
 
     A span runs from lead_s before the first such notification to tail_s after
     the next one that does not say so; None (contact not reported) ends it too.
+    A span still open at the last notification runs to end_of_data.
     """
     if hr.empty or "contact" not in hr:
         return []
@@ -157,7 +160,8 @@ def no_contact_spans(
             spans.append((float(start - lead_s), float(time + tail_s)))
             start = None
     if start is not None:
-        spans.append((float(start - lead_s), float(hr["time"].iloc[-1]) + tail_s))
+        last = float(hr["time"].iloc[-1])
+        spans.append((float(start - lead_s), max(last, end_of_data if end_of_data is not None else last) + tail_s))
     merged: List[Tuple[float, float]] = []
     for low, high in spans:
         if merged and low <= merged[-1][1]:
@@ -165,6 +169,35 @@ def no_contact_spans(
         else:
             merged.append((low, high))
     return merged
+
+
+def r_peaks_with_contact(
+    ecg: pd.DataFrame,
+    rate: float,
+    spans: Sequence[Tuple[float, float]],
+    config: CardioRespConfig,
+) -> pd.DataFrame:
+    """R-peaks found separately in each stretch of ECG outside the no-contact spans.
+
+    Off the skin the H10 ECG swings rail to rail; left in, it would pick the
+    detector's polarity and threshold for the whole recording.
+    """
+    times = ecg["time"].to_numpy(dtype=float)
+    values = ecg["uv"].to_numpy(dtype=float)
+    usable = np.ones(times.size, dtype=bool)
+    for low, high in spans:
+        usable &= ~((times >= low) & (times <= high))
+    edges = np.flatnonzero(np.diff(np.concatenate(([0], usable.astype(np.int8), [0]))))
+    found_times, found_amplitudes = [], []
+    for first, stop in zip(edges[::2], edges[1::2]):
+        if stop - first <= int(10 * config.ecg_rate_hz):
+            continue
+        positions, amplitudes = detect_r_peaks(values[first:stop], fs=rate, config=config)
+        found_times.append(np.interp(positions, np.arange(stop - first), times[first:stop]))
+        found_amplitudes.append(amplitudes)
+    if not found_times:
+        return pd.DataFrame({"time": [], "amplitude": []})
+    return pd.DataFrame({"time": np.concatenate(found_times), "amplitude": np.concatenate(found_amplitudes)})
 
 
 def _outside(frame: pd.DataFrame, spans: Sequence[Tuple[float, float]]) -> pd.DataFrame:
@@ -228,18 +261,15 @@ def load_polar_session(
         }
     )
 
+    device_rr = _device_beats(hr_rows, mono_to_wall)
+    ends = [float(frame["time"].max()) for frame in (ecg, acc, hr, device_rr) if len(frame)]
+    spans = no_contact_spans(hr, end_of_data=max(ends) if ends else None)
+
     r_peaks = pd.DataFrame({"time": [], "amplitude": []})
     if len(ecg) > int(10 * config.ecg_rate_hz):
         rate = ecg_sample_rate(ecg_rows) or config.ecg_rate_hz
-        positions, amplitudes = detect_r_peaks(ecg["uv"].to_numpy(), fs=rate, config=config)
-        sample_times = ecg["time"].to_numpy()
-        index = np.arange(sample_times.size)
-        r_peaks = pd.DataFrame({"time": np.interp(positions, index, sample_times), "amplitude": amplitudes})
+        r_peaks = r_peaks_with_contact(ecg, rate, spans, config)
 
-    spans = no_contact_spans(hr)
-    detected_peaks = len(r_peaks)
-    r_peaks = _outside(r_peaks, spans)
-    device_rr = _device_beats(hr_rows, mono_to_wall)
     device_beats = len(device_rr)
     device_rr = _outside(device_rr, spans)
     rr, rr_alignment = align_rr_to_ecg(device_rr, r_peaks["time"].to_numpy())
@@ -253,8 +283,8 @@ def load_polar_session(
         "rr_beats": int(len(rr)),
         "r_peaks": int(len(r_peaks)),
         "no_contact_spans": [[low, high] for low, high in spans],
+        "no_contact_seconds": float(sum(high - low for low, high in spans)),
         "no_contact_dropped_rr": int(device_beats - len(device_rr)),
-        "no_contact_dropped_r_peaks": int(detected_peaks - len(r_peaks)),
     }
     if summary_path.exists():
         summary = json.loads(summary_path.read_text(encoding="utf-8"))
