@@ -154,7 +154,9 @@ def run_line_check(
 ) -> List[Dict[str, object]]:
     """One short recording per preset, in order; ``record(directory, preset)``
     runs the recorder to the end and returns its exit code."""
+    finish = getattr(speaker, "wait", lambda: None)
     speaker.speak(LINE_CHECK_INTRO_SAY)
+    finish()  # the next cue would cut the instructions short
     results: List[Dict[str, object]] = []
     for number, (directory, preset) in enumerate(zip(directories, presets), start=1):
         speaker.speak(LINE_CHECK_SEGMENT_SAY.format(number=number))
@@ -162,6 +164,7 @@ def run_line_check(
         code = record(Path(directory), preset)
         results.append({"index": number, "preset": preset, "recording": str(directory), "returncode": code})
     speaker.speak(LINE_CHECK_DONE_SAY)
+    finish()
     return results
 
 
@@ -241,6 +244,10 @@ class SaySpeaker:
     def close(self) -> None:
         self._wait_previous(10.0)
 
+    def wait(self, timeout: float = 30.0) -> None:
+        """Let the current utterance finish (up to timeout) before what comes next."""
+        self._wait_previous(timeout)
+
     def _wait_previous(self, timeout: float) -> None:
         process = self._process
         if process is None or process.poll() is not None:
@@ -259,6 +266,9 @@ class SilentSpeaker:
 
     def speak(self, text: str) -> None:
         self.spoken.append(text)
+
+    def wait(self, timeout: float = 30.0) -> None:
+        pass
 
     def close(self) -> None:
         pass

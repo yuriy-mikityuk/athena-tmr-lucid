@@ -24,6 +24,8 @@ WINDOW_SECONDS = 10.0
 # Line bin over the 58-62 / 66-70 Hz median in a 10 s spectrum. On p1034 it was
 # 23-45 dB; plain EEG noise stays within a few dB.
 PRESENT_DB = 10.0
+# A segment counts only with at least a minute of windows; each is two minutes.
+MIN_WINDOWS = 6
 CHANNELS = ("AF7", "AF8", "TP9", "TP10")
 
 
@@ -79,20 +81,35 @@ async def measure_recording(recording_dir: Path) -> Dict[str, Dict[str, float]]:
 def summarize(segments: Sequence[Mapping[str, object]]) -> Dict[str, object]:
     """Segments carry index, preset, recording and channels (from line_levels).
 
-    The verdict: "optics" when every p1034 segment has the line and no p21 one
-    does, "not_optics" when a p21 segment has it, otherwise "unclear".
+    The verdict: "not_optics" when a measured p21 segment has the line;
+    "optics" when every segment was measured, every p1034 one has the line and
+    no p21 one does; otherwise "unclear".
     """
     rows = []
     for segment in segments:
-        heights = [_num(level.get("height_db")) for level in (segment.get("channels") or {}).values()]
+        levels = (segment.get("channels") or {}).values()
+        heights = [_num(level.get("height_db")) for level in levels if _num(level.get("windows")) >= MIN_WINDOWS]
         heights = [value for value in heights if math.isfinite(value)]
         median_height = float(np.median(heights)) if heights else math.nan
-        rows.append({**segment, "median_height_db": median_height, "line_present": median_height >= PRESENT_DB})
-    with_optics = [row for row in rows if row.get("preset") == "p1034" and math.isfinite(row["median_height_db"])]
-    without = [row for row in rows if row.get("preset") == "p21" and math.isfinite(row["median_height_db"])]
-    if without and any(row["line_present"] for row in without):
+        measured = bool(heights)
+        rows.append(
+            {
+                **segment,
+                "median_height_db": median_height,
+                "measured": measured,
+                "line_present": measured and median_height >= PRESENT_DB,
+            }
+        )
+    with_optics = [row for row in rows if row.get("preset") == "p1034"]
+    without = [row for row in rows if row.get("preset") == "p21"]
+    if any(row["line_present"] for row in without):
         verdict = "not_optics"
-    elif with_optics and without and all(row["line_present"] for row in with_optics):
+    elif (
+        with_optics
+        and without
+        and all(row["measured"] for row in rows)
+        and all(row["line_present"] for row in with_optics)
+    ):
         verdict = "optics"
     else:
         verdict = "unclear"
@@ -102,7 +119,7 @@ def summarize(segments: Sequence[Mapping[str, object]]) -> Dict[str, object]:
 VERDICT_TEXT = {
     "optics": "The line is there with the optics on (p1034) and gone without them (p21): the optics put it there.",
     "not_optics": "The line is there without the optics too (p21), so they are not (or not the only) source.",
-    "unclear": "No clear answer: a segment is missing or the line was absent with the optics on too.",
+    "unclear": "No clear answer: a segment is missing or too short, or the line was absent with the optics on too.",
 }
 
 

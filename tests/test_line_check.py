@@ -37,8 +37,15 @@ class LineLevelsTest(unittest.TestCase):
         self.assertLess(levels["TP9"]["height_db"], 6.0)
 
     def test_verdicts(self):
-        line = {"AF7": {"amplitude_uv": 20.0, "height_db": 35.0}, "AF8": {"amplitude_uv": 15.0, "height_db": 30.0}}
-        none = {"AF7": {"amplitude_uv": 0.2, "height_db": 2.0}, "AF8": {"amplitude_uv": 0.3, "height_db": 3.0}}
+        line = {
+            "AF7": {"amplitude_uv": 20.0, "height_db": 35.0, "windows": 12},
+            "AF8": {"amplitude_uv": 15.0, "height_db": 30.0, "windows": 12},
+        }
+        none = {
+            "AF7": {"amplitude_uv": 0.2, "height_db": 2.0, "windows": 12},
+            "AF8": {"amplitude_uv": 0.3, "height_db": 3.0, "windows": 12},
+        }
+        short = {"AF7": {"amplitude_uv": 0.2, "height_db": 2.0, "windows": 3}}
 
         def run(*channels):
             return summarize(
@@ -48,8 +55,11 @@ class LineLevelsTest(unittest.TestCase):
         self.assertEqual(run(line, none, line, none)["verdict"], "optics")
         self.assertEqual(run(line, line, line, none)["verdict"], "not_optics")
         self.assertEqual(run(none, none, none, none)["verdict"], "unclear")
-        # A segment that failed to record leaves its preset unanswered.
+        # Every segment has to be there: one failed or too short leaves it open.
         self.assertEqual(run(line, {}, line, {})["verdict"], "unclear")
+        self.assertEqual(run(line, none, line, {})["verdict"], "unclear")
+        self.assertEqual(run(line, none, {}, none)["verdict"], "unclear")
+        self.assertEqual(run(line, none, line, short)["verdict"], "unclear")
         page = render_section(run(line, none, line, none))
         self.assertIn("the optics put it there", page)
         self.assertIn("20.0 µV / 35 dB", page)
@@ -58,7 +68,11 @@ class LineLevelsTest(unittest.TestCase):
 class LineCheckRunTest(unittest.TestCase):
     def test_four_recordings_in_order_with_cues(self):
         spoken, recorded = [], []
-        speaker = type("Speaker", (), {"speak": lambda self, text: spoken.append(text)})()
+        speaker = type(
+            "Speaker",
+            (),
+            {"speak": lambda self, text: spoken.append(text), "wait": lambda self: spoken.append("<wait>")},
+        )()
 
         def record(directory, preset):
             recorded.append((directory.name, preset))
@@ -67,9 +81,10 @@ class LineCheckRunTest(unittest.TestCase):
         results = run_line_check([Path(f"/tmp/s{i}") for i in range(4)], speaker, record)
         self.assertEqual([preset for _name, preset in recorded], list(LINE_CHECK_PRESETS))
         self.assertEqual([result["returncode"] for result in results], [0, 3, 0, 3])
-        self.assertEqual(spoken[0], LINE_CHECK_INTRO_SAY)
-        self.assertEqual(spoken[-1], LINE_CHECK_DONE_SAY)
-        self.assertEqual(len(spoken), 6)
+        # The intro and the closing cue are let finish before anything else is said.
+        self.assertEqual(spoken[:2], [LINE_CHECK_INTRO_SAY, "<wait>"])
+        self.assertEqual(spoken[-2:], [LINE_CHECK_DONE_SAY, "<wait>"])
+        self.assertEqual(len(spoken), 8)
 
     def test_record_command_carries_the_preset(self):
         command = _calibration_record_command(Path("/tmp/x"), "p21", 120.0, with_polar=False, polar_address="AA")
@@ -91,8 +106,8 @@ class BatteryPullTest(unittest.TestCase):
         self.assertEqual(changed[0].say, BATTERY_PULL_SAY)
 
     def test_calibration_report_shows_a_line_check(self):
-        line = {"AF7": {"amplitude_uv": 20.0, "height_db": 35.0}}
-        none = {"AF7": {"amplitude_uv": 0.2, "height_db": 2.0}}
+        line = {"AF7": {"amplitude_uv": 20.0, "height_db": 35.0, "windows": 12}}
+        none = {"AF7": {"amplitude_uv": 0.2, "height_db": 2.0, "windows": 12}}
         summary = {
             "recording": "x",
             "line_check": summarize(
