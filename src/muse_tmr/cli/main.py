@@ -694,8 +694,9 @@ def build_parser() -> argparse.ArgumentParser:
     calibration_run_parser.add_argument(
         "--preset",
         choices=("p1034", "p21"),
-        default="p1034",
-        help="Headband preset for the calibration recording. p21 has no optics (default: p1034).",
+        default="p21",
+        help="Headband preset for the calibration recording. p21 has no optics, whose 64 Hz line "
+        "gets into the EEG on p1034 (default: p21).",
     )
     calibration_run_parser.add_argument(
         "--battery-pull",

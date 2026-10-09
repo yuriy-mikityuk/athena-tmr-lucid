@@ -54,7 +54,9 @@ muse-tmr calibration-run --line-check --preset p21 --battery-pull
 
 The line present in both `p1034` pieces and gone in `p21`: the optics put it there,
 and meditation can be recorded on `p21` with heart rate and breathing from the H10.
-The line on `p21` too: the source is elsewhere, look around the room.
+The line on `p21` too: the source is elsewhere, look around the room. The check on
+2026-10-09 gave the first answer, so the app records meditation and calibration on
+`p21`, and `calibration-run` defaults to it.
 
 ## Protocol
 

@@ -63,7 +63,8 @@ EEG, 10 s epochs, no correction across metrics.
    is not analysed) is the fix. Times are seconds from the first recorded frame,
    which is what the app's recording timer shows. Eyes closed in both conditions.
 
-3. Start a `session` recording in the app (or `muse-tmr record --allow-short`),
+3. Start the meditation in the app, which records on `p21` without the optics (or
+   `muse-tmr record --preset p21 --allow-short`),
    follow the printed block times, and after each block fill in `depth` and
    `sensory_fading` (0-10) in the blocks file. It is personal data: keep it under
    `data/protocol/` (gitignored), never commit it.
