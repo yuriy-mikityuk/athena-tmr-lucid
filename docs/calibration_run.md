@@ -31,6 +31,31 @@ Ctrl-C stops the voice and the recording cleanly; the steps finished so far are 
 `calibration-guide <recording>` is the voice part alone, which the app runs next to its
 own recording.
 
+### Second run: where the 64 Hz line comes from
+
+The line sits at the optics sample rate (see `docs/meditation_metrics.md`). One terminal
+session, about 33 min, the Muse and the H10 on throughout:
+
+```bash
+muse-tmr calibration-run --line-check --preset p21 --battery-pull
+```
+
+- `--line-check` first records 2 min each of `p1034`, `p21`, `p1034`, `p21` (four
+  short recordings, the headband reconnects in between, eyes closed). Alternating
+  keeps the line's own fading out of the comparison. It prints the line per segment
+  and channel (fitted amplitude, height over 58-62/66-70 Hz) and a verdict, and writes
+  `calibration/line_check.json`, which the calibration report shows on top. The four
+  recordings sit next to the calibration one as `<name>_line1_p1034` and so on.
+- `--preset p21` records the calibration itself without optics, so its numbers are
+  checked on fresh data without the line.
+- `--battery-pull` changes the H10 minute: unclip it, take the battery out for ~10 s
+  (a coin opens the cover), put it back. The link really drops and the sensor clock
+  restarts, which the first run did not test.
+
+The line present in both `p1034` pieces and gone in `p21`: the optics put it there,
+and meditation can be recorded on `p21` with heart rate and breathing from the H10.
+The line on `p21` too: the source is elsewhere, look around the room.
+
 ## Protocol
 
 Minutes from the first Muse frame:

@@ -33,12 +33,14 @@ from muse_tmr.features.complexity_features import ComplexityConfig
 from muse_tmr.features.epochs import EpochBuilder, EpochConfig
 from muse_tmr.protocol.calibration import (
     CALIBRATION_DIRNAME,
+    LINE_CHECK_FILENAME,
     PROTOCOL,
     TENSION_PAIRS,
     load_cues,
     pair_blocks,
     segments_from_cues,
 )
+from muse_tmr.reports.line_check import render_section as render_line_check_section
 from muse_tmr.reports.meditation_analysis import (
     EpochRecord,
     MeditationAnalysis,
@@ -178,7 +180,7 @@ async def build_calibration_report(
     session = ReplaySession(ReplayConfig(input_path=recording_dir, speed=0.0))
     await session.connect()
     try:
-        return await build_calibration_report_from_frames(
+        report = await build_calibration_report_from_frames(
             session.stream(),
             segments,
             polar=polar,
@@ -190,6 +192,11 @@ async def build_calibration_report(
         )
     finally:
         await session.stop()
+    try:
+        report.summary["line_check"] = json.loads((calibration / LINE_CHECK_FILENAME).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pass  # no line check before this run
+    return report
 
 
 # --- EEG ---------------------------------------------------------------------
@@ -461,6 +468,7 @@ def render_calibration_report(summary: Mapping[str, object]) -> str:
     name = str(summary.get("recording") or "").rstrip("/").split("/")[-1] or "calibration"
     sections = [
         _header(name, summary),
+        render_line_check_section(summary["line_check"]) if summary.get("line_check") else "",
         _tension_section(summary.get("pairs") or {}),
         _timeline_section(summary.get("timeline") or [], summary.get("segments") or []),
         _breathing_section(

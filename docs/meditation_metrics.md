@@ -183,8 +183,13 @@ but the line sits at 63.93-63.95 Hz in sample terms in all three sessions, so it
 phase drifts against the sample clock. The per-position means within packets are
 under 1 µV against a line of up to ~40 µV, and there is no mirrored alpha around 64 Hz, so
 the positions differ neither in offset nor in gain. It is analog interference with
-its own clock: the headband's optics (they run near 64 Hz) or something in the
-room. Two minutes on `p21`, which has no optics, would tell them apart.
+its own clock, and that clock looks like the optics'. Counted from the packet
+counters (lost and repeated packets accounted for), the optics stream runs at
+63.92 Hz in EEG-sample terms in all three sessions (about 64.2 Hz on the host
+clock, as does the line), exactly where the line is. The optical levels stay flat
+while the line fades fourfold, so the fading is in the pickup, the electrodes
+settling, not in the LEDs. `calibration-run --line-check` alternates `p1034` and
+`p21` (no optics) to confirm it (see `docs/calibration_run.md`).
 
 It moves more than the EMG indicator. What the 0.5-40 Hz band-pass leaves of it
 moved SampEn by -0.25, LZC by -0.05 and Hjorth mobility by -0.12 on AF7 in the
