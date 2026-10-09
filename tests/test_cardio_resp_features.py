@@ -75,6 +75,23 @@ class RespirationTest(unittest.TestCase):
             self.assertAlmostEqual(result["rate_spectral_bpm"], breaths, delta=0.5)
             self.assertAlmostEqual(result["rate_breath_bpm"], breaths, delta=0.5)
 
+    def test_slow_breathing_with_a_pause_is_not_double_counted(self):
+        # Paced 6/min as recorded: 4 s inhale, quick 2.4 s exhale, then the chest
+        # rests with a small hump until the next inhale.
+        rng = np.random.default_rng(3)
+        t = np.arange(0.0, 180.0, 1 / 50.0)
+        phase = np.mod(t, 10.0)
+        wave = np.select(
+            [phase < 4.0, phase < 6.4],
+            [phase / 4.0, 1.0 - (phase - 4.0) / 2.4],
+            0.12 * np.sin(np.pi * (phase - 6.4) / 3.6),
+        )
+        xyz = np.array([20.0, -40.0, 990.0]) + np.outer(15.0 * wave, [0.2, 0.9, 0.4]) + rng.normal(0, 0.3, (t.size, 3))
+        result = respiration_from_acc(t, xyz)
+        self.assertAlmostEqual(result["rate_spectral_bpm"], 6.0, delta=0.3)
+        self.assertAlmostEqual(result["rate_breath_bpm"], 6.0, delta=0.3)
+        self.assertEqual(result["quality"], "ok")
+
     def test_still_chest_is_reliable_and_posture_changes_are_not(self):
         rng = np.random.default_rng(12)
         t, xyz = chest_acc(180, rng, 10.0)

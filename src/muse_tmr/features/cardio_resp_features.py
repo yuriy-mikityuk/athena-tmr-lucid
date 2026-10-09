@@ -36,6 +36,9 @@ class CardioRespConfig:
     respiration_resample_hz: float = 10.0
     respiration_min_seconds: float = 30.0
     min_breath_seconds: float = 1.2
+    # In units of the signal's std. Paced 6/min leaves humps up to ~0.5 std in
+    # the pause after a quick exhale; real breaths start around 0.8.
+    min_breath_prominence_std: float = 0.5
     # Breathing moves the chest by ~10-20 mG; a 10 s window whose slow (<0.7 Hz)
     # acceleration shifts by more than this is a posture change or movement.
     posture_change_mg: float = 150.0
@@ -288,7 +291,7 @@ def _respiration_rates(signal: np.ndarray, fs: float, config: CardioRespConfig) 
     peaks, _ = find_peaks(
         signal,
         distance=max(1, int(config.min_breath_seconds * fs)),
-        prominence=0.3 * float(np.std(signal)),
+        prominence=config.min_breath_prominence_std * float(np.std(signal)),
     )
     rate_breath = 60.0 * fs / float(np.median(np.diff(peaks))) if peaks.size >= 3 else math.nan
     return {"rate_spectral_bpm": rate_spectral, "rate_breath_bpm": rate_breath, "breaths": float(peaks.size)}
