@@ -95,7 +95,9 @@ all noise; only the HR notification's contact bit says so. On the calibration ru
 that bit went false about 10 s after the last real beat, and beats in the ~8 s after
 it came back were still noise (390-3800 ms). So RR beats and ECG R-peaks from 12 s
 before a no-contact span to 10 s after it are dropped. `quality` reports the spans
-and how many beats and peaks went.
+and how many beats and peaks went. Splining or differencing across that hole would
+invent data, so `extract_cardio_resp_features` takes the longest part of the window
+with contact: `window_seconds` is that part and `no_contact_seconds` what was cut.
 
 Expected error: on synthetic data with 50 ppm drift and random BLE delays the
 mapped times are within a few ms of the truth over 8 h. A constant minimum BLE

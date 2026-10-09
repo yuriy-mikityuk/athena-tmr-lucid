@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import asdict, dataclass
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 from scipy.integrate import trapezoid
@@ -309,10 +309,19 @@ def extract_cardio_resp_features(
     """Features for one window (epoch or block) of a loaded Polar session.
 
     ``session`` is a ``muse_tmr.data.polar_session.PolarSession``; times are
-    host wall-clock seconds, the same base as Muse replay.
+    host wall-clock seconds, the same base as Muse replay. Beats are dropped
+    where the H10 had no skin contact, and splining or differencing across that
+    hole would invent data, so everything comes from the longest part of the
+    window with contact; ``window_seconds`` is that part.
     """
     config = config or CardioRespConfig()
-    features: Dict[str, float] = {"window_seconds": float(end_time - start_time)}
+    parts = contact_parts(start_time, end_time, getattr(session, "no_contact", None) or ())
+    no_contact_seconds = float(end_time - start_time) - sum(high - low for low, high in parts)
+    start_time, end_time = max(parts, key=lambda part: part[1] - part[0], default=(start_time, start_time))
+    features: Dict[str, float] = {
+        "window_seconds": float(end_time - start_time),
+        "no_contact_seconds": no_contact_seconds,
+    }
 
     rr = _between(session.rr, start_time, end_time)
     rr_values = rr["rr_ms"].to_numpy(dtype=float) if len(rr) else np.array([])
@@ -358,6 +367,27 @@ def extract_cardio_resp_features(
 
 
 # --- helpers -----------------------------------------------------------------
+
+
+def contact_parts(
+    start_time: float,
+    end_time: float,
+    no_contact: Sequence[Tuple[float, float]],
+) -> List[Tuple[float, float]]:
+    """[start, end] with the no-contact spans cut out, in time order."""
+    parts = [(float(start_time), float(end_time))] if end_time > start_time else []
+    for low, high in no_contact:
+        kept = []
+        for part_start, part_end in parts:
+            if high <= part_start or low >= part_end:
+                kept.append((part_start, part_end))
+                continue
+            if low > part_start:
+                kept.append((part_start, float(low)))
+            if high < part_end:
+                kept.append((float(high), part_end))
+        parts = kept
+    return parts
 
 
 def _between(frame, start_time: float, end_time: float):

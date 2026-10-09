@@ -960,6 +960,8 @@ def aggregate_meditation_summaries(
     if labels is None:
         labels = [str(item.get("recording") or index) for index, item in enumerate(summaries)]
     labels = list(labels)
+    if len(labels) != len(summaries):
+        raise ValueError(f"{len(labels)} labels for {len(summaries)} summaries")
     stale = [
         label
         for label, summary in zip(labels, summaries)

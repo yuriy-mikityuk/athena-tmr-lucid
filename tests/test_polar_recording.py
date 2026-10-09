@@ -99,6 +99,15 @@ class LoadPolarSessionTest(unittest.TestCase):
             self.assertLess(session.rr["rr_ms"].max(), 1300.0)
             self.assertGreater((session.rr["aligned_to"] == "ecg_r_peak").mean(), 0.95)
 
+            # A window across the hole uses its longest part with contact, not a splice.
+            features = extract_cardio_resp_features(session, truth["wall0"] + 20, truth["wall0"] + 230)
+            self.assertAlmostEqual(features["window_seconds"], 230 - (high - truth["wall0"]), delta=1.0)
+            self.assertAlmostEqual(features["no_contact_seconds"], high - low, delta=1.0)
+            self.assertTrue(math.isfinite(features["rmssd_ms"]))
+            inside = extract_cardio_resp_features(session, low + 2, high - 2)
+            self.assertEqual(inside["window_seconds"], 0.0)
+            self.assertTrue(math.isnan(inside["rmssd_ms"]) and math.isnan(inside["edr_rate_bpm"]))
+
     def test_without_ecg_rr_keeps_receive_time_estimate(self):
         rng = np.random.default_rng(5)
         with tempfile.TemporaryDirectory() as tmp:

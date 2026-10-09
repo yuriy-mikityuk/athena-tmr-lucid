@@ -479,6 +479,9 @@ class AggregateMeditationTest(unittest.TestCase):
         del unversioned["schema_version"]
         with self.assertRaisesRegex(ValueError, "rebuild them with analyze-meditation: s2, s3"):
             aggregate_meditation_summaries([self.summary(("focus", "open"), 0.1, "s1"), old, unversioned])
+        # Every summary is checked, not only the labelled ones.
+        with self.assertRaisesRegex(ValueError, "1 labels for 2 summaries"):
+            aggregate_meditation_summaries([self.summary(("focus", "open"), 0.1, "s1"), old], labels=["s1"])
 
     def test_mismatched_conditions_are_rejected(self):
         with self.assertRaises(ValueError):

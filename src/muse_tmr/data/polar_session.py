@@ -186,6 +186,8 @@ class PolarSession:
     r_peaks: pd.DataFrame  # time, amplitude
     alignment: Dict[str, object] = field(default_factory=dict)
     quality: Dict[str, object] = field(default_factory=dict)
+    # Wall-clock spans whose beats were dropped for lost skin contact.
+    no_contact: List[Tuple[float, float]] = field(default_factory=list)
 
 
 def load_polar_session(
@@ -264,7 +266,9 @@ def load_polar_session(
                 "decode_gaps": (summary.get("decode") or {}).get("gaps"),
             }
         )
-    return PolarSession(ecg=ecg, acc=acc, hr=hr, rr=rr, r_peaks=r_peaks, alignment=alignment, quality=quality)
+    return PolarSession(
+        ecg=ecg, acc=acc, hr=hr, rr=rr, r_peaks=r_peaks, alignment=alignment, quality=quality, no_contact=spans
+    )
 
 
 def ecg_sample_rate(ecg_rows: Sequence[dict]) -> Optional[float]:
