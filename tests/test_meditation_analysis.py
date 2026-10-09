@@ -262,6 +262,17 @@ class MeditationWithPolarTest(unittest.TestCase):
         self.assertTrue(cardio["available"])
         self.assertTrue(cardio["breathing_confounded"])
         self.assertAlmostEqual(cardio["breathing_difference_bpm"], -9.0, delta=1.0)
+        # The synthetic ECG keeps breathing at 12/min in both conditions, so EDR
+        # sees no difference while both ACC estimates see -9: reported as disagreement.
+        methods = cardio["breathing_methods"]
+        self.assertEqual(set(methods), {"acc_spectral", "acc_breath", "edr"})
+        self.assertAlmostEqual(methods["acc_spectral"]["difference"], -9.0, delta=1.0)
+        self.assertAlmostEqual(methods["acc_breath"]["difference"], -9.0, delta=1.0)
+        self.assertAlmostEqual(methods["edr"]["difference"], 0.0, delta=1.0)
+        self.assertTrue(cardio["breathing_methods_disagree"])
+        self.assertGreater(cardio["breathing_methods_spread_bpm"], 7.0)
+        self.assertTrue(any("estimates disagree" in item for item in summary["limitations"]))
+        self.assertEqual(set(summary["emg"]["group_difference_db"]["clean"]), {"all", "frontal", "temporal"})
         self.assertEqual(cardio["hf_band_invalid_blocks"], 2)
         rows = analysis.blocks[analysis.blocks["variant"] == "all"].set_index("block_index")
         for block in plan.blocks:
@@ -337,12 +348,24 @@ class MeditationReportTest(unittest.TestCase):
                 {"metric": "lzc", "group": "all", "variant": "clean", "a_mean": 0.5, "b_mean": 0.4, "difference": 0.1}
             ],
             "emg": {},
-            "cardio": {"available": True, "breathing_difference_bpm": None, "breathing_unreliable_blocks": [1]},
+            "cardio": {
+                "available": True,
+                "breathing_difference_bpm": None,
+                "breathing_unreliable_blocks": [1],
+                "breathing_methods": {
+                    "acc_spectral": {"difference": 1.1},
+                    "acc_breath": {"difference": -0.4},
+                    "edr": {"difference": 3.2},
+                },
+                "breathing_methods_spread_bpm": 3.6,
+                "breathing_methods_disagree": True,
+            },
             "limitations": ["n = 1"],
         }
         rows = [
             {"variant": variant, "block_index": index, "condition": condition, "start_s": 60, "end_s": 540,
-             "epochs": 40, "lzc_all": 0.5 - index * 0.1, "cardio_resp_rate_bpm": 6.0, "cardio_resp_reliable": float(index == 0)}
+             "epochs": 40, "lzc_all": 0.5 - index * 0.1, "cardio_resp_rate_bpm": 6.0,
+             "cardio_resp_rate_breath_bpm": 5.5, "cardio_edr_rate_bpm": 3.8, "cardio_resp_reliable": float(index == 0)}
             for index, condition in enumerate(summary["conditions"])
             for variant in ("all", "clean")
         ]
@@ -352,6 +375,26 @@ class MeditationReportTest(unittest.TestCase):
         self.assertIn("open &amp; wide", page)
         self.assertIn("Breathing was not compared", page)
         self.assertIn("block(s) 1", page)
+        self.assertIn("ECG-derived +3.2", page)
+        self.assertIn("disagree by 3.6", page)
+        self.assertIn("<td>2.2</td>", page)  # per-block spread 6.0 - 3.8
+
+    def test_emg_by_channel_group(self):
+        from muse_tmr.reports.meditation_report import render_meditation_report
+
+        summary = {
+            "conditions": ["relaxed", "jaw"],
+            "counts": {},
+            "contrasts": [],
+            "emg": {
+                "indicator": "emg_power_55_95",
+                "condition_difference": {"clean": {"ratio": 0.2}},
+                "group_difference_db": {"clean": {"all": -7.0, "frontal": -1.5, "temporal": -12.25}},
+            },
+        }
+        page = render_meditation_report(summary, [])
+        self.assertIn("AF7/AF8 (forehead) -1.5 dB", page)
+        self.assertIn("TP9/TP10 (jaw) -12.2 dB", page)
 
 
 class AggregateMeditationTest(unittest.TestCase):
