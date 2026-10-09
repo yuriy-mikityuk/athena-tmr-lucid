@@ -637,7 +637,7 @@ def build_parser() -> argparse.ArgumentParser:
     meditation_plan_parser.add_argument(
         "--conditions", required=True, help="Two comma-separated condition labels, e.g. focus,open."
     )
-    meditation_plan_parser.add_argument("--blocks", type=int, default=4)
+    meditation_plan_parser.add_argument("--blocks", type=int, default=4, help="4, 8 or 12 (whole ABBA groups).")
     meditation_plan_parser.add_argument("--block-minutes", type=float, default=8.0)
     meditation_plan_parser.add_argument("--settle-seconds", type=float, default=60.0)
     meditation_plan_parser.add_argument("--seed", type=int, required=True)
@@ -1156,8 +1156,17 @@ async def _replay(args: argparse.Namespace) -> int:
 
 
 def _meditation_plan(args: argparse.Namespace) -> int:
-    from muse_tmr.reports.meditation_analysis import build_meditation_plan, write_meditation_blocks
+    from muse_tmr.reports.meditation_analysis import (
+        build_meditation_plan,
+        check_drift_cancelling,
+        write_meditation_blocks,
+    )
 
+    try:
+        check_drift_cancelling(args.blocks)
+    except ValueError as exc:
+        print(f"meditation-plan: {exc}", file=sys.stderr)
+        return 2
     plan = build_meditation_plan(
         [condition for condition in args.conditions.split(",")],
         blocks=args.blocks,

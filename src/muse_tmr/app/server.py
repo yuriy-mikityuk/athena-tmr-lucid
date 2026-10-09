@@ -1035,7 +1035,11 @@ class LocalMuseAppState:
         """Build an A/B plan, start a session recording that covers it, store blocks.json."""
         import random as _random
 
-        from muse_tmr.reports.meditation_analysis import build_meditation_plan, write_meditation_blocks
+        from muse_tmr.reports.meditation_analysis import (
+            build_meditation_plan,
+            check_drift_cancelling,
+            write_meditation_blocks,
+        )
 
         try:
             conditions = [str(item).strip() for item in body.get("conditions") or []]
@@ -1044,8 +1048,9 @@ class LocalMuseAppState:
             settle_seconds = float(body.get("settle_seconds", 60))
             seed = body.get("seed")
             seed = int(seed) if seed not in (None, "") else _random.randrange(1_000_000)
-            if not 2 <= blocks <= 12 or not 0.5 <= block_minutes <= 60 or not 0 <= settle_seconds <= 600:
-                raise ValueError("blocks 2-12, block minutes 0.5-60, settle seconds 0-600")
+            if not 4 <= blocks <= 12 or not 0.5 <= block_minutes <= 60 or not 0 <= settle_seconds <= 600:
+                raise ValueError("blocks 4, 8 or 12, block minutes 0.5-60, settle seconds 0-600")
+            check_drift_cancelling(blocks)
             plan = build_meditation_plan(
                 conditions, blocks=blocks, block_minutes=block_minutes, settle_seconds=settle_seconds, seed=seed
             )

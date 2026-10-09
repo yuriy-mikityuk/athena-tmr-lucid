@@ -16,6 +16,7 @@ from muse_tmr.reports.meditation_analysis import (
     assign_block,
     bootstrap_ci,
     build_meditation_plan,
+    check_drift_cancelling,
     load_meditation_blocks,
     sign_flip_p_value,
     write_meditation_blocks,
@@ -69,6 +70,11 @@ class MeditationPlanTest(unittest.TestCase):
                     drift[block.condition].append(((block.start_s + block.end_s) / 2) ** power)
                 difference = sum(drift["focus"]) / len(drift["focus"]) - sum(drift["open"]) / len(drift["open"])
                 self.assertAlmostEqual(difference, 0.0, delta=1e-6 * max(drift["focus"]), msg=(blocks, power, plan.order))
+        for blocks in (2, 6, 10):
+            with self.assertRaises(ValueError):
+                check_drift_cancelling(blocks)
+        for blocks in (4, 8, 12):
+            check_drift_cancelling(blocks)
         eight = build_meditation_plan(["a", "b"], blocks=8, seed=3).order
         self.assertIn("".join(eight), ("abbabaab", "baababba"))
 
