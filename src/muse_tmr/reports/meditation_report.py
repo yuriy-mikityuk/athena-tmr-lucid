@@ -26,9 +26,15 @@ PAPER_METRICS = (
     ("dfa_beta", "DFA beta envelope"),
     ("dfa_low_gamma", "DFA low-gamma envelope"),
 )
+BREATHING_COLUMNS = (
+    ("cardio_resp_rate_bpm", "ACC spectral /min"),
+    ("cardio_resp_rate_breath_bpm", "ACC breath-by-breath /min"),
+    ("cardio_edr_rate_bpm", "ECG-derived /min"),
+)
+BREATHING_METHOD_LABELS = {"acc_spectral": "ACC spectral", "acc_breath": "ACC breath-by-breath", "edr": "ECG-derived"}
 CARDIO_COLUMNS = (
-    ("cardio_resp_rate_bpm", "Breathing /min"),
-    ("cardio_resp_rate_breath_bpm", "Breath-by-breath /min"),
+    *BREATHING_COLUMNS,
+    ("breathing_spread", "Spread /min"),
     ("cardio_mean_hr_bpm", "HR"),
     ("cardio_rmssd_ms", "RMSSD ms"),
     ("cardio_rsa_power_ms2", "RSA ms²"),
@@ -135,11 +141,20 @@ def _emg_section(emg: Mapping[str, object], condition_a: str, condition_b: str) 
                 _fmt(rho, 2, signed=True),
             ]
         )
+    groups = (emg.get("group_difference_db") or {}).get("clean") or {}
+    by_group = ""
+    if groups:
+        by_group = (
+            " By channel group, A − B: "
+            f"all {_fmt(groups.get('all'), 1, signed=True)} dB, "
+            f"AF7/AF8 (forehead) {_fmt(groups.get('frontal'), 1, signed=True)} dB, "
+            f"TP9/TP10 (jaw) {_fmt(groups.get('temporal'), 1, signed=True)} dB."
+        )
     return (
         "<section><h2>Muscle (EMG) check</h2>"
         f"<p>{verdict} Indicator <code>{_e(str(emg.get('indicator', '')))}</code> "
         f"({_e(str(emg.get('indicator_reason', '')))}). {_e(condition_a)} vs {_e(condition_b)}: "
-        f"{_fmt(difference.get('ratio'), 2)}× the EMG power on clean epochs.</p>"
+        f"{_fmt(difference.get('ratio'), 2)}× the EMG power on clean epochs.{by_group}</p>"
         + _table(["Metric (all channels, clean)", "Raw A−B", "After removing EMG", "ρ with EMG"], rows)
         + "</section>"
     )
@@ -159,6 +174,23 @@ def _cardio_section(cardio: Mapping[str, object], all_rows) -> str:
         verdict = f"<span class=ok>Breathing differs by {_fmt(difference, 1, signed=True)} /min</span>, within the threshold."
     if unreliable:
         verdict += f" Not trusted (movement or disagreeing estimates): block(s) {', '.join(str(index) for index in unreliable)}."
+    methods = cardio.get("breathing_methods") or {}
+    method_line = ""
+    if any(math.isfinite(_num(item.get("difference"))) for item in methods.values()):
+        listed = ", ".join(
+            f"{BREATHING_METHOD_LABELS.get(method, method)} {_fmt(item.get('difference'), 1, signed=True)}"
+            for method, item in methods.items()
+        )
+        method_line = (
+            f"<p>A − B by method: {listed} /min. The flag uses their median; none of them is checked "
+            "against a known breathing rate yet."
+        )
+        if cardio.get("breathing_methods_disagree"):
+            method_line += (
+                f" <span class=warn>The methods disagree by {_fmt(cardio.get('breathing_methods_spread_bpm'), 1)} /min</span>, "
+                "so the breathing check is uncertain."
+            )
+        method_line += "</p>"
     header = ["Block", "Condition"] + [label for _column, label in CARDIO_COLUMNS]
     rows = []
     for row in all_rows:
@@ -167,10 +199,17 @@ def _cardio_section(cardio: Mapping[str, object], all_rows) -> str:
             value = row.get(column)
             if column == "cardio_resp_reliable":
                 cells.append("yes" if _num(value) == 1.0 else "no")
+            elif column == "breathing_spread":
+                rates = [_num(row.get(name)) for name, _ in BREATHING_COLUMNS]
+                rates = [rate for rate in rates if math.isfinite(rate)]
+                cells.append(_fmt(max(rates) - min(rates), 1) if len(rates) >= 2 else "–")
             else:
                 cells.append(_fmt(value, 1))
         rows.append(cells)
-    return "<section><h2>Breathing and HRV (Polar H10)</h2>" f"<p>{verdict}</p>" + _table(header, rows) + "</section>"
+    return (
+        "<section><h2>Breathing and HRV (Polar H10)</h2>"
+        f"<p>{verdict}</p>{method_line}" + _table(header, rows) + "</section>"
+    )
 
 
 def _paper_metrics_section(contrasts, condition_a: str, condition_b: str) -> str:

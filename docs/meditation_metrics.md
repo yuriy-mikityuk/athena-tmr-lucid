@@ -142,6 +142,9 @@ always carries an `emg` section:
 - `residualized_contrasts`: each metric's A - B after regressing it on the log10
   indicator within the session (OLS on epochs). A contrast that disappears after
   residualizing is probably muscle.
+- `group_difference_db`: the same A - B in dB for all channels, AF7/AF8
+  (forehead, frontalis) and TP9/TP10 (jaw, temporalis). The report shows it
+  next to the ratio.
 - Compare `aperiodic_exponent_2_20` with `_2_40`: flattening only in 2-40 Hz
   points to EMG.
 
@@ -172,9 +175,20 @@ left out of the breathing contrasts, and `summary.json` lists them under
 `cardio.breathing_unreliable_blocks`. On the first live H10 session both halves failed
 this check (moving around, disagreeing estimates), which is exactly what it is for.
 
-`cardio.breathing_confounded` is set when the two conditions differ in trusted breathing
-rate by more than 1 breath/min: slower breathing was one of the paper's findings for
-jhana, and it can also shift EEG and HRV, so treat it as a confound for the EEG contrasts.
+There are three breathing-rate estimates and nothing yet says which one to trust: the
+ACC spectral peak, the ACC breath-by-breath median, and EDR from R-amplitude. On the
+first live session they gave 8.6, 8.2 and 3.8/min for the same block, and EDR stayed at
+3.7-3.8/min in both halves, close to the 0.05 Hz lower band edge (possibly slow
+R-amplitude drift rather than breathing). So `cardio.breathing_methods` keeps the A - B
+of each method, and the report shows all three per block with their spread.
+`cardio.breathing_difference_bpm` is the median of the three method differences, and
+`breathing_methods_disagree` is set when they are more than 1/min apart. Summaries with
+`schema_version` 1 still hold the ACC spectral difference alone in that field; the
+contrasts that `aggregate-meditation` reads are the same in both versions.
+
+`cardio.breathing_confounded` is set when that median difference is above 1 breath/min:
+slower breathing was one of the paper's findings for jhana, and it can also shift EEG
+and HRV, so treat it as a confound for the EEG contrasts.
 
 ## Limitations
 

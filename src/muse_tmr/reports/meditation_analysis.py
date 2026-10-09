@@ -42,7 +42,9 @@ from muse_tmr.features.eeg_features import _collect_epoch_eeg
 from muse_tmr.features.epochs import EpochBuilder, EpochConfig, SleepEpoch
 
 MEDITATION_BLOCKS_SCHEMA_VERSION = 1
-MEDITATION_SUMMARY_SCHEMA_VERSION = 1
+# 2: cardio.breathing_difference_bpm (and breathing_confounded) became the median of
+# three estimates; in 1 it was the ACC spectral rate alone.
+MEDITATION_SUMMARY_SCHEMA_VERSION = 2
 MEDITATION_AGGREGATE_SCHEMA_VERSION = 1
 TIME_BASE = "seconds_from_recording_start"
 PRIMARY_METRIC = "lzc"
@@ -82,6 +84,13 @@ CARDIO_METRICS = (
 )
 # Contrasted only over blocks whose breathing estimate is reliable.
 CARDIO_BREATHING_METRICS = frozenset({"resp_rate_bpm", "resp_rate_breath_bpm", "edr_rate_bpm", "rsa_power_ms2", "hf_band_valid"})
+# Three breathing-rate estimates with no reference to prefer one: chest ACC
+# spectral peak, chest ACC breath-by-breath, and ECG-derived (R-amplitude).
+BREATHING_METHODS = (
+    ("acc_spectral", "cardio_resp_rate_bpm"),
+    ("acc_breath", "cardio_resp_rate_breath_bpm"),
+    ("edr", "cardio_edr_rate_bpm"),
+)
 
 
 # --- blocks file -------------------------------------------------------------
@@ -540,11 +549,22 @@ def _cardio_section(
             section["error"] = polar_error
             section["limitations"] = [f"Polar data present but could not be loaded: {polar_error}"]
         return section
-    breathing = next(
-        (item for item in contrasts if item["metric"] == "cardio_resp_rate_bpm" and item["group"] == "chest"),
-        None,
-    )
-    difference = float(breathing["difference"]) if breathing else math.nan
+    chest = {item["metric"]: item for item in contrasts if item["group"] == "chest"}
+    methods = {}
+    for method, column in BREATHING_METHODS:
+        item = chest.get(column) or {}
+        methods[method] = {
+            "metric": column,
+            "a_mean": float(item.get("a_mean", math.nan)),
+            "b_mean": float(item.get("b_mean", math.nan)),
+            "difference": float(item.get("difference", math.nan)),
+        }
+    differences = [item["difference"] for item in methods.values() if math.isfinite(item["difference"])]
+    # Until a paced-breathing reference says which estimate to trust, the flag
+    # uses the median of the three and the spread is reported next to it.
+    difference = float(np.median(differences)) if differences else math.nan
+    spread = float(max(differences) - min(differences)) if len(differences) >= 2 else math.nan
+    methods_disagree = math.isfinite(spread) and spread > config.breathing_confound_bpm
     confounded = math.isfinite(difference) and abs(difference) > config.breathing_confound_bpm
     all_rows = block_table[block_table["variant"] == "all"]
     reliable = all_rows["cardio_resp_reliable"] == 1.0
@@ -559,8 +579,19 @@ def _cardio_section(
         )
     if confounded:
         limitations.append(
-            f"Conditions differ in breathing rate by {difference:+.1f} breaths/min (Polar H10); "
-            "slower breathing can itself shift EEG and HRV, so read the EEG contrasts with that in mind."
+            f"Conditions differ in breathing rate by {difference:+.1f} breaths/min (Polar H10, median of "
+            "three estimates); slower breathing can itself shift EEG and HRV, so read the EEG contrasts "
+            "with that in mind."
+        )
+    if methods_disagree:
+        listed = ", ".join(
+            f"{_BREATHING_METHOD_LABELS[method]} {item['difference']:+.1f}"
+            for method, item in methods.items()
+            if math.isfinite(item["difference"])
+        )
+        limitations.append(
+            f"The breathing estimates disagree on the A - B difference ({listed} /min); without a "
+            "reference none of them can be preferred, so treat the breathing check as uncertain."
         )
     if invalid_hf:
         limitations.append(
@@ -572,6 +603,10 @@ def _cardio_section(
         "available": True,
         "source": "polar_h10",
         "breathing_difference_bpm": difference,
+        "breathing_difference_method": "median_of_methods",
+        "breathing_methods": methods,
+        "breathing_methods_spread_bpm": spread,
+        "breathing_methods_disagree": methods_disagree,
         "breathing_confound_threshold_bpm": config.breathing_confound_bpm,
         "breathing_confounded": confounded,
         "breathing_unreliable_blocks": unreliable_blocks,
@@ -584,6 +619,9 @@ def _cardio_section(
         },
         "limitations": limitations,
     }
+
+
+_BREATHING_METHOD_LABELS = {"acc_spectral": "ACC spectral", "acc_breath": "ACC breath-by-breath", "edr": "ECG-derived"}
 
 
 def _clean_runs(
@@ -728,6 +766,15 @@ def _emg_section(
         and abs(item["difference_log10"]) > config.emg_confound_log10_threshold
         for item in differences.values()
     )
+    # Jaw tension reaches TP9/TP10 through the temporalis, forehead tension
+    # AF7/AF8 through the frontalis, so the groups are reported separately.
+    group_difference_db = {}
+    for variant in VARIANTS:
+        rows = block_table[block_table["variant"] == variant]
+        group_difference_db[variant] = {}
+        for group in CHANNEL_GROUPS:
+            contrast = _contrast(rows, f"{indicator}_{group}", indicator, group, variant, condition_a, condition_b)
+            group_difference_db[variant][group] = 10.0 * contrast["difference"]
 
     correlations = []
     residualized = []
@@ -758,6 +805,7 @@ def _emg_section(
         "confound_threshold_log10": config.emg_confound_log10_threshold,
         "emg_confounded": confounded,
         "condition_difference": differences,
+        "group_difference_db": group_difference_db,
         "correlations": correlations,
         "residualized_contrasts": residualized,
     }
