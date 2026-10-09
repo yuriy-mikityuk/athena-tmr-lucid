@@ -182,7 +182,9 @@ first live session they gave 8.6, 8.2 and 3.8/min for the same block, and EDR st
 R-amplitude drift rather than breathing). So `cardio.breathing_methods` keeps the A - B
 of each method, and the report shows all three per block with their spread.
 `cardio.breathing_difference_bpm` is the median of the three method differences, and
-`breathing_methods_disagree` is set when they are more than 1/min apart.
+`breathing_methods_disagree` is set when they are more than 1/min apart. Summaries with
+`schema_version` 1 still hold the ACC spectral difference alone in that field; the
+contrasts that `aggregate-meditation` reads are the same in both versions.
 
 `cardio.breathing_confounded` is set when that median difference is above 1 breath/min:
 slower breathing was one of the paper's findings for jhana, and it can also shift EEG

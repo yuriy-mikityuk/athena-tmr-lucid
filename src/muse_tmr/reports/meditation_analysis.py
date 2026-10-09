@@ -42,7 +42,9 @@ from muse_tmr.features.eeg_features import _collect_epoch_eeg
 from muse_tmr.features.epochs import EpochBuilder, EpochConfig, SleepEpoch
 
 MEDITATION_BLOCKS_SCHEMA_VERSION = 1
-MEDITATION_SUMMARY_SCHEMA_VERSION = 1
+# 2: cardio.breathing_difference_bpm (and breathing_confounded) became the median of
+# three estimates; in 1 it was the ACC spectral rate alone.
+MEDITATION_SUMMARY_SCHEMA_VERSION = 2
 MEDITATION_AGGREGATE_SCHEMA_VERSION = 1
 TIME_BASE = "seconds_from_recording_start"
 PRIMARY_METRIC = "lzc"
@@ -601,6 +603,7 @@ def _cardio_section(
         "available": True,
         "source": "polar_h10",
         "breathing_difference_bpm": difference,
+        "breathing_difference_method": "median_of_methods",
         "breathing_methods": methods,
         "breathing_methods_spread_bpm": spread,
         "breathing_methods_disagree": methods_disagree,
