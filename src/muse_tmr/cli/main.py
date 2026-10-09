@@ -1427,6 +1427,7 @@ def _run_line_check(args: argparse.Namespace, output_dir: Path, speaker) -> Dict
         run_line_check,
     )
     from muse_tmr.reports.line_check import VERDICT_TEXT, measure_recording, summarize
+    from muse_tmr.reports.meditation_analysis import json_safe
 
     def record(directory: Path, preset: str) -> int:
         command = _calibration_record_command(
@@ -1466,7 +1467,7 @@ def _run_line_check(args: argparse.Namespace, output_dir: Path, speaker) -> Dict
     print(VERDICT_TEXT[summary["verdict"]])
     target = output_dir / CALIBRATION_DIRNAME / LINE_CHECK_FILENAME
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    target.write_text(json.dumps(json_safe(summary), indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return summary
 
 
