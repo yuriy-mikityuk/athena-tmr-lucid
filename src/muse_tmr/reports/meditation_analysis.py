@@ -59,6 +59,8 @@ MIN_AGGREGATE_SCHEMA_VERSION = 5
 # that metric is just missing. Every other setting defines a pooled metric.
 POOLABLE_SETTING_DIFFERENCES = frozenset({"lyapunov_enabled"})
 MEDITATION_AGGREGATE_SCHEMA_VERSION = 1
+# Fewer sessions get descriptives only, no p-value or interval.
+MIN_SESSIONS_FOR_INFERENCE = 8
 TIME_BASE = "seconds_from_recording_start"
 PRIMARY_METRIC = "lzc"
 PRIMARY_GROUP = "all"
@@ -155,6 +157,8 @@ class MeditationBlocks:
     order: Tuple[str, ...] = ()
     conditions: Tuple[str, ...] = ()
     seed: Optional[int] = None
+    # Id of the app's meditation series this session belongs to, if any.
+    series: Optional[str] = None
     schema_version: int = MEDITATION_BLOCKS_SCHEMA_VERSION
     time_base: str = TIME_BASE
 
@@ -194,6 +198,8 @@ class MeditationBlocks:
         }
         if self.seed is not None:
             payload["seed"] = self.seed
+        if self.series is not None:
+            payload["series"] = self.series
         return payload
 
     @classmethod
@@ -204,6 +210,7 @@ class MeditationBlocks:
             order=tuple(str(item) for item in data.get("order", ())),
             conditions=tuple(str(item) for item in data.get("conditions", ())),
             seed=int(data["seed"]) if data.get("seed") is not None else None,
+            series=str(data["series"]) if data.get("series") else None,
             schema_version=int(data.get("schema_version", MEDITATION_BLOCKS_SCHEMA_VERSION)),
             time_base=str(data.get("time_base", TIME_BASE)),
         )
@@ -1014,7 +1021,7 @@ def aggregate_meditation_summaries(
     summaries: Sequence[Mapping[str, object]],
     *,
     labels: Optional[Sequence[str]] = None,
-    min_sessions_for_inference: int = 8,
+    min_sessions_for_inference: int = MIN_SESSIONS_FOR_INFERENCE,
     permutations: int = 10000,
     bootstrap: int = 10000,
     seed: int = 0,

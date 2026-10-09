@@ -93,6 +93,7 @@
           <button type="button" id="start-session-button" class="primary" hidden>Start session</button>
           <button type="button" id="start-night-button" class="primary" hidden>Start night session</button>
           <button type="button" id="start-meditation-button" hidden>Meditation…</button>
+          <button type="button" id="start-series-button" hidden>Meditation series…</button>
           <button type="button" id="start-calibration-button" hidden>Calibration run…</button>
           <button type="button" id="stop-recording-button" hidden>Stop recording</button>
           <button type="button" id="disconnect-button" hidden>Disconnect</button>
@@ -118,6 +119,25 @@
           <div class="form-actions">
             <button type="submit" class="primary">Start meditation</button>
             <button type="button" id="med-cancel">Cancel</button>
+          </div>
+        </form>
+        <form class="meditation-form" id="series-form" hidden>
+          <h2>Meditation series · <span id="series-count">no sessions yet</span></h2>
+          <p class="muted">Same two practices, block count and block length every session; the order (ABBA or BAAB) is drawn each time. Records on p21 with the Polar H10, so put on the chest strap. A session counts once it has run past its last block; p-values start at <span id="series-target">8</span>. The settle-in can change between sessions: make it longer if the report's EMG timeline still falls during the first block.</p>
+          <div class="form-grid">
+            <label>Practice A<input id="series-condition-a" value="focus" required maxlength="40"></label>
+            <label>Practice B<input id="series-condition-b" value="open" required maxlength="40"></label>
+            <label>Blocks<input id="series-blocks" type="number" min="4" max="12" step="4" value="4" required></label>
+            <label>Minutes per block<input id="series-block-minutes" type="number" min="0.5" max="60" step="0.5" value="8" required></label>
+            <label>Settle-in seconds<input id="series-settle" type="number" min="0" max="600" step="5" value="60" required></label>
+          </div>
+          <label class="record-option"><input type="checkbox" id="series-chime" checked> Soft tone at every block change</label>
+          <ul class="meditation-blocks series-sessions" id="series-sessions"></ul>
+          <p class="form-error" id="series-error" role="alert" hidden></p>
+          <div class="form-actions">
+            <button type="submit" class="primary" id="series-start">Start session 1</button>
+            <button type="button" id="series-cancel">Cancel</button>
+            <button type="button" id="series-new" hidden>New series</button>
           </div>
         </form>
         <form class="meditation-form" id="calibration-form" hidden>

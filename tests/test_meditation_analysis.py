@@ -3,6 +3,7 @@ import json
 import math
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -86,7 +87,10 @@ class MeditationPlanTest(unittest.TestCase):
             payload = json.loads(path.read_text())
             self.assertEqual(payload["time_base"], "seconds_from_recording_start")
             self.assertEqual(payload["blocks"][0]["depth"], None)
+            self.assertNotIn("series", payload)
             self.assertEqual(load_meditation_blocks(path), plan)
+            tagged = replace(plan, series="20261010_190000_ab12cd")
+            self.assertEqual(load_meditation_blocks(write_meditation_blocks(tagged, path)), tagged)
 
     def test_rejects_bad_plans(self):
         with self.assertRaises(ValueError):
