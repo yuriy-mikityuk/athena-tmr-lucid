@@ -1048,6 +1048,15 @@ def aggregate_meditation_summaries(
     differing = [label for label, definition in zip(labels, definitions) if definition != definitions[0]]
     if differing:
         raise ValueError(f"feature settings (config.complexity) differ from {labels[0]} in: {', '.join(differing)}")
+    # A new series in the app may reuse the practice names with other blocks, and
+    # its start is where the old sessions stopped counting.
+    series = [str((summary.get("blocks_file") or {}).get("series") or "") for summary in summaries]
+    other_series = [label for label, value in zip(labels, series) if value != series[0]]
+    if other_series:
+        raise ValueError(
+            f"sessions from another meditation series (blocks_file.series) than {labels[0]}: "
+            f"{', '.join(other_series)}; aggregate one series at a time"
+        )
     reference = tuple(summaries[0]["conditions"])
     # One slot per session, so differences[i] always belongs to sessions[i];
     # a session without a contrast (e.g. no Polar data) stays NaN / null.
@@ -1107,6 +1116,7 @@ def aggregate_meditation_summaries(
         "conditions": list(reference),
         "contrast": f"{reference[0]} - {reference[1]}",
         "sessions": labels,
+        "series": series[0] or None,
         "n_sessions": n_sessions,
         "min_sessions_for_inference": min_sessions_for_inference,
         "primary_metric": {

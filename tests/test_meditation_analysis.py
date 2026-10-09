@@ -571,6 +571,19 @@ class AggregateMeditationTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "differ from s1 in: s5"):
             aggregate_meditation_summaries([default, line_kept])
 
+    def test_sessions_from_different_series_are_rejected(self):
+        def tagged(summary, series):
+            return {**summary, "blocks_file": {"series": series}}
+
+        first = tagged(self.summary(("focus", "open"), 0.1, "s1"), "a")
+        other = tagged(self.summary(("focus", "open"), 0.2, "s2"), "b")
+        standalone = self.summary(("focus", "open"), 0.3, "s3")
+        with self.assertRaisesRegex(ValueError, "than s1: s2, s3"):
+            aggregate_meditation_summaries([first, other, standalone])
+        result = aggregate_meditation_summaries([first, tagged(self.summary(("focus", "open"), 0.2, "s2"), "a")])
+        self.assertEqual(result["series"], "a")
+        self.assertIsNone(aggregate_meditation_summaries([standalone])["series"])
+
     def test_residualized_contrasts_pool_only_within_one_emg_indicator(self):
         summaries = [self.summary(("focus", "open"), 0.1 * (index + 1), f"s{index + 1}") for index in range(3)]
         for summary, indicator in zip(summaries, ("emg_power_55_95", "emg_power_30_45", "emg_power_55_95")):

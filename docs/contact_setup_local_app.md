@@ -112,10 +112,13 @@ records on `p21` with the H10, whatever the checkbox says, and draws its own ABB
 BAAB order.
 
 The series lives in `data/protocol/meditation/series.json`, and each session's
-`blocks.json` carries its id in `series`. A session counts once the recording reached
-the end of its last block (counted from the first Muse frame, give or take one 10 s
-epoch). The form lists the sessions, numbers the counted ones and says why the others
-did not count: stopped early, no headband data at all, or the recorder did not finish. The button shows the
+`blocks.json` carries its id in `series`. A session counts once it has headband data up
+to the end of its last block: the recorded time from the first Muse frame, minus the
+time the recorder spent reconnecting, give or take one 10 s epoch. The recording runs a
+minute past the last block, so a short dropout still counts. The form lists the
+sessions, numbers the counted ones and says why the others did not count: stopped early
+or lost the headband, no headband data at all, or the recorder did not finish.
+`aggregate-meditation` refuses to pool sessions from different series. The button shows the
 count, e.g. "Meditation series 3/8…". "New series" renames the file to
 `series_<id>.json`; the old sessions stay on disk but stop counting.
 

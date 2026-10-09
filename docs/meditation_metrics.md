@@ -95,7 +95,9 @@ EEG, 10 s epochs, no correction across metrics.
    session. Epochs are autocorrelated and would inflate significance. With fewer
    than 8 sessions it prints descriptives and a warning and reports no p-values or
    intervals. With 8 or more: two-sided sign-flip permutation test (exact up to
-   16 sessions) and a bootstrap 95% CI.
+   16 sessions) and a bootstrap 95% CI. Sessions from different app series, or a
+   series and standalone sessions, are refused (`blocks_file.series`): pass the
+   summaries of one series.
 
 **Primary metric, declared up front: the raw all-channel mean LZC contrast on
 clean epochs.** Everything else, including the all-epochs variant and the

@@ -1030,10 +1030,12 @@ class TestLocalMuseAppMeditationSeries(TestLocalMuseAppReport):
         self.state._now = lambda: _FIXED_NOW + dt.timedelta(minutes=next(minutes))
         self.series_path = self.state._recordings_base_resolved().parent / "protocol" / "meditation" / "series.json"
 
-    def finish(self, payload, seconds, first_frame=5.0):
+    def finish(self, payload, seconds, first_frame=5.0, downtime=0.0):
         output_dir = Path(payload["output_dir"])
         (output_dir / "progress.json").write_text(json.dumps({"first_frame_elapsed_seconds": first_frame}))
-        (output_dir / "summary.json").write_text(json.dumps({"duration_seconds": (first_frame or 0.0) + seconds}))
+        (output_dir / "summary.json").write_text(
+            json.dumps({"duration_seconds": (first_frame or 0.0) + seconds, "downtime_seconds": downtime})
+        )
         self.procs[-1][1].returncode = 0
         return output_dir
 
@@ -1076,18 +1078,22 @@ class TestLocalMuseAppMeditationSeries(TestLocalMuseAppReport):
         # The plan's last block ends at 30 + 4 x 30 = 150 s from the first frame.
         self.finish(self.state.start_meditation_series(self.FIRST)[0], 150 + 60)  # ran to the end
         self.finish(self.state.start_meditation_series({})[0], 150 - 3)  # stopped right at "All blocks done"
+        self.finish(self.state.start_meditation_series({})[0], 210, downtime=30)  # a short dropout
         self.finish(self.state.start_meditation_series({})[0], 100)  # stopped in block 3
+        self.finish(self.state.start_meditation_series({})[0], 210, downtime=120)  # reconnecting for 2 of 2.5 min
         self.finish(self.state.start_meditation_series({})[0], 600, first_frame=None)  # the headband never sent a frame
         self.state.start_meditation_series({})
         self.procs[-1][1].returncode = 1  # the recorder died, no summary
 
         status = self.state.meditation_series()
-        self.assertEqual(status["counted"], 2)
+        self.assertEqual(status["counted"], 3)
         sessions = status["sessions"]  # oldest first
         self.assertEqual(
-            [session["state"] for session in sessions], ["counted", "counted", "short", "no_data", "unfinished"]
+            [session["state"] for session in sessions],
+            ["counted", "counted", "counted", "short", "short", "no_data", "unfinished"],
         )
-        self.assertEqual((sessions[2]["covered_seconds"], sessions[2]["needed_seconds"]), (100.0, 150.0))
+        self.assertEqual((sessions[3]["covered_seconds"], sessions[3]["needed_seconds"]), (100.0, 150.0))
+        self.assertEqual(sessions[4]["covered_seconds"], 90.0)
 
     def test_other_meditations_do_not_count(self):
         self.finish(self.state.start_meditation_series(self.FIRST)[0], 210)

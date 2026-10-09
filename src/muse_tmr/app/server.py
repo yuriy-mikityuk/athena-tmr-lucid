@@ -64,9 +64,9 @@ EEG_ONLY_PRESET = "p21"
 # in aggregate-meditation. Only the settle-in may change between sessions: it is
 # read off the EMG timeline of the reports. Kept with the other protocol data.
 SERIES_SCHEMA_VERSION = 1
-# A series session counts once the recording reached its last block's end, give
-# or take one 10 s epoch: the panel's countdown can run up to 3 s ahead of the
-# recorder, so a stop right at "All blocks done" may land just short of it.
+# A series session counts once it has headband data up to its last block's end,
+# give or take one 10 s epoch: the panel's countdown can run up to 3 s ahead of
+# the recorder, so a stop right at "All blocks done" may land just short of it.
 SERIES_END_SLACK_SECONDS = 10.0
 
 
@@ -1231,7 +1231,7 @@ class LocalMuseAppState:
         return sessions
 
     def _series_session(self, output_dir: Path, plan: Mapping[str, Any]) -> Dict[str, Any]:
-        """state: recording | counted | short (stopped before the last block ended) |
+        """state: recording | counted | short (stopped early or lost the headband) |
         no_data (no Muse frame ever came) | unfinished (no summary)."""
         needed = max((float(block.get("end_s") or 0.0) for block in plan.get("blocks") or ()), default=0.0)
         session: Dict[str, Any] = {
@@ -1246,12 +1246,15 @@ class LocalMuseAppState:
         elif not summary:
             session["state"] = "unfinished"
         else:
-            # Block times count from the first Muse frame, the recorder's duration from its start.
+            # Block times count from the first Muse frame, the recorder's duration from its
+            # start. Its downtime is the time spent reconnecting, without the 45 s of silence
+            # before each reconnect, so after a dropout this still overstates the data a bit.
             first_frame = _read_json_tolerant(output_dir / "progress.json").get("first_frame_elapsed_seconds")
             if first_frame is None:
                 session["state"] = "no_data"
             else:
-                covered = float(summary.get("duration_seconds") or 0.0) - float(first_frame)
+                downtime = float(summary.get("downtime_seconds") or 0.0)
+                covered = float(summary.get("duration_seconds") or 0.0) - float(first_frame) - downtime
                 session["covered_seconds"] = covered
                 session["state"] = "counted" if covered >= needed - SERIES_END_SLACK_SECONDS else "short"
         return session
