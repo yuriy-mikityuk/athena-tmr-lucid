@@ -100,13 +100,15 @@ def acc_frame_delta(timestamp_ns, samples, resolution=16, block=8):
 
 def write_raw_session(
     session_dir, seconds, rng, *, breaths_per_min=12.0, drift_ppm=50.0, with_ecg=True, reset_at_s=None, gap_s=5.0,
-    wall0=1_790_000_000.0, acc_breaths_per_min=None,
+    wall0=1_790_000_000.0, acc_breaths_per_min=None, no_contact=None,
 ):
     """Write polar/raw_notifications.jsonl (+ clock anchors) for a synthetic session.
 
     True time is host wall-clock. The sensor clock runs from the Polar default
     2019 epoch with a drift; every notification arrives after a random positive
-    BLE delay. Returns the ground truth.
+    BLE delay. During no_contact=(start_s, end_s) the HR notifications say the
+    electrodes are off the skin and carry random RR, and the ECG swings rail to
+    rail with negative spikes. Returns the ground truth.
     """
     import base64
     import json
@@ -123,6 +125,10 @@ def write_raw_session(
 
     beats = beat_times(seconds, rng, breathing_hz=breathing_hz)
     t_ecg, ecg = ecg_signal(beats, seconds, rng, breathing_hz=breathing_hz)
+    if no_contact is not None:
+        off = np.flatnonzero((t_ecg >= no_contact[0]) & (t_ecg < no_contact[1]))
+        ecg[off] = np.clip(rng.normal(0.0, 9000.0, off.size), -19630.0, 19630.0)
+        ecg[off[::30]] = -19630.0
     t_acc, xyz = chest_acc(seconds, rng, acc_breaths_per_min or breaths_per_min)
 
     def sensor_ns(true_s):
@@ -169,7 +175,10 @@ def write_raw_session(
         while index < beats.size and beats[index] <= second:
             batch.append(rr_true[index - 1])
             index += 1
-        add(second, "rx", HEART_RATE_MEASUREMENT, hr_measurement(60, batch, contact=True), "hr")
+        off = no_contact is not None and no_contact[0] <= second < no_contact[1]
+        if off:
+            batch = [float(rng.uniform(300.0, 2000.0))]
+        add(second, "rx", HEART_RATE_MEASUREMENT, hr_measurement(60, batch, contact=not off), "hr")
         second += 1.0
 
     records.sort(key=lambda record: record["mono"])

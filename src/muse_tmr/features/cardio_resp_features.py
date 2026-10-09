@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import asdict, dataclass
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 from scipy.integrate import trapezoid
@@ -36,12 +36,18 @@ class CardioRespConfig:
     respiration_resample_hz: float = 10.0
     respiration_min_seconds: float = 30.0
     min_breath_seconds: float = 1.2
+    # In units of the signal's std. Paced 6/min leaves humps up to ~0.5 std in
+    # the pause after a quick exhale; real breaths start around 0.8.
+    min_breath_prominence_std: float = 0.5
     # Breathing moves the chest by ~10-20 mG; a 10 s window whose slow (<0.7 Hz)
     # acceleration shifts by more than this is a posture change or movement.
     posture_change_mg: float = 150.0
     posture_change_max_pct: float = 10.0
     # Spectral and breath-by-breath rates further apart than this: not trusted.
     respiration_agreement_bpm: float = 2.0
+    # Features come from one stretch with skin contact; shorter than this share
+    # of the window, it would stand in for the whole window, so none are given.
+    min_contact_fraction: float = 0.5
     rr_resample_hz: float = 4.0
     lf_band_hz: Tuple[float, float] = (0.04, 0.15)
     hf_band_hz: Tuple[float, float] = (0.15, 0.4)
@@ -288,7 +294,7 @@ def _respiration_rates(signal: np.ndarray, fs: float, config: CardioRespConfig) 
     peaks, _ = find_peaks(
         signal,
         distance=max(1, int(config.min_breath_seconds * fs)),
-        prominence=0.3 * float(np.std(signal)),
+        prominence=config.min_breath_prominence_std * float(np.std(signal)),
     )
     rate_breath = 60.0 * fs / float(np.median(np.diff(peaks))) if peaks.size >= 3 else math.nan
     return {"rate_spectral_bpm": rate_spectral, "rate_breath_bpm": rate_breath, "breaths": float(peaks.size)}
@@ -306,10 +312,23 @@ def extract_cardio_resp_features(
     """Features for one window (epoch or block) of a loaded Polar session.
 
     ``session`` is a ``muse_tmr.data.polar_session.PolarSession``; times are
-    host wall-clock seconds, the same base as Muse replay.
+    host wall-clock seconds, the same base as Muse replay. Beats are dropped
+    where the H10 had no skin contact, and splining or differencing across that
+    hole would invent data, so everything comes from the longest part of the
+    window with contact; ``window_seconds`` is that part. When that part is
+    shorter than ``min_contact_fraction`` of the window there are no features.
     """
     config = config or CardioRespConfig()
-    features: Dict[str, float] = {"window_seconds": float(end_time - start_time)}
+    parts = contact_parts(start_time, end_time, getattr(session, "no_contact", None) or ())
+    no_contact_seconds = float(end_time - start_time) - sum(high - low for low, high in parts)
+    used = max(parts, key=lambda part: part[1] - part[0], default=(start_time, start_time))
+    if used[1] - used[0] < config.min_contact_fraction * (end_time - start_time):
+        used = (start_time, start_time)
+    start_time, end_time = used
+    features: Dict[str, float] = {
+        "window_seconds": float(end_time - start_time),
+        "no_contact_seconds": no_contact_seconds,
+    }
 
     rr = _between(session.rr, start_time, end_time)
     rr_values = rr["rr_ms"].to_numpy(dtype=float) if len(rr) else np.array([])
@@ -355,6 +374,27 @@ def extract_cardio_resp_features(
 
 
 # --- helpers -----------------------------------------------------------------
+
+
+def contact_parts(
+    start_time: float,
+    end_time: float,
+    no_contact: Sequence[Tuple[float, float]],
+) -> List[Tuple[float, float]]:
+    """[start, end] with the no-contact spans cut out, in time order."""
+    parts = [(float(start_time), float(end_time))] if end_time > start_time else []
+    for low, high in no_contact:
+        kept = []
+        for part_start, part_end in parts:
+            if high <= part_start or low >= part_end:
+                kept.append((part_start, part_end))
+                continue
+            if low > part_start:
+                kept.append((part_start, float(low)))
+            if high < part_end:
+                kept.append((float(high), part_end))
+        parts = kept
+    return parts
 
 
 def _between(frame, start_time: float, end_time: float):

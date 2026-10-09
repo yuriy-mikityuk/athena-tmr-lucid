@@ -9,6 +9,7 @@ import numpy as np
 
 from muse_tmr.features.complexity_features import ComplexityConfig
 from muse_tmr.reports.meditation_analysis import (
+    MEDITATION_SUMMARY_SCHEMA_VERSION,
     MeditationAnalysisConfig,
     MeditationBlocks,
     aggregate_meditation_summaries,
@@ -290,7 +291,7 @@ class MeditationWithPolarTest(unittest.TestCase):
         self.assertAlmostEqual(methods["acc_breath"]["difference"], -9.0, delta=1.0)
         self.assertAlmostEqual(methods["edr"]["difference"], 0.0, delta=1.0)
         self.assertTrue(cardio["breathing_methods_disagree"])
-        self.assertEqual(summary["schema_version"], 2)
+        self.assertEqual(summary["schema_version"], 3)
         self.assertEqual(cardio["breathing_difference_method"], "median_of_methods")
         self.assertGreater(cardio["breathing_methods_spread_bpm"], 7.0)
         self.assertTrue(any("estimates disagree" in item for item in summary["limitations"]))
@@ -422,6 +423,7 @@ class MeditationReportTest(unittest.TestCase):
 class AggregateMeditationTest(unittest.TestCase):
     def summary(self, conditions, lzc_difference, recording):
         return {
+            "schema_version": MEDITATION_SUMMARY_SCHEMA_VERSION,
             "recording": recording,
             "conditions": list(conditions),
             "contrasts": [
@@ -470,6 +472,41 @@ class AggregateMeditationTest(unittest.TestCase):
         low, high = lzc["ci95"]
         self.assertLess(low, lzc["mean_difference"])
         self.assertGreater(high, lzc["mean_difference"])
+
+    def test_summaries_with_the_old_emg_indicator_are_rejected(self):
+        old = {**self.summary(("focus", "open"), 0.2, "s2"), "schema_version": 2}
+        unversioned = self.summary(("focus", "open"), 0.3, "s3")
+        del unversioned["schema_version"]
+        with self.assertRaisesRegex(ValueError, "rebuild them with analyze-meditation: s2, s3"):
+            aggregate_meditation_summaries([self.summary(("focus", "open"), 0.1, "s1"), old, unversioned])
+        # Every summary is checked, not only the labelled ones.
+        with self.assertRaisesRegex(ValueError, "1 labels for 2 summaries"):
+            aggregate_meditation_summaries([self.summary(("focus", "open"), 0.1, "s1"), old], labels=["s1"])
+
+    def test_sessions_with_different_emg_settings_are_rejected(self):
+        default = {**self.summary(("focus", "open"), 0.1, "s1"), "config": {"complexity": ComplexityConfig().to_dict()}}
+        unbridged = {
+            **self.summary(("focus", "open"), 0.2, "s2"),
+            "config": {"complexity": ComplexityConfig(emg_exclude_hz=()).to_dict()},
+        }
+        other_floor = {
+            **self.summary(("focus", "open"), 0.3, "s3"),
+            "config": {"complexity": ComplexityConfig(emg_floor_band_hz=(100.0, 120.0)).to_dict()},
+        }
+        with self.assertRaisesRegex(ValueError, "differ from s1 in: s2, s3"):
+            aggregate_meditation_summaries([default, unbridged, other_floor])
+        aggregate_meditation_summaries([default, json.loads(json.dumps(default))])  # tuples vs JSON lists
+
+    def test_residualized_contrasts_pool_only_within_one_emg_indicator(self):
+        summaries = [self.summary(("focus", "open"), 0.1 * (index + 1), f"s{index + 1}") for index in range(3)]
+        for summary, indicator in zip(summaries, ("emg_power_55_95", "emg_power_30_45", "emg_power_55_95")):
+            summary["emg"]["indicator"] = indicator
+        result = aggregate_meditation_summaries(summaries)
+        self.assertEqual(self.row(result)["n_sessions"], 3)
+        residual = {row["emg_indicator"]: row for row in result["rows"] if row["kind"] == "emg_residualized"}
+        self.assertEqual(residual["emg_power_55_95"]["n_sessions"], 2)
+        self.assertEqual(residual["emg_power_30_45"]["n_sessions"], 1)
+        self.assertTrue(math.isnan(residual["emg_power_55_95"]["differences"][1]))
 
     def test_mismatched_conditions_are_rejected(self):
         with self.assertRaises(ValueError):

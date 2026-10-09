@@ -86,12 +86,19 @@ the first 10 s of each step are skipped (tension starts right after the instruct
 - **Breathing against a known pace**: the three estimates and their error on the paced
   steps, skipping the first 10 s after the first cue.
 - **Inhale vs exhale**: chest ACC and heart rate averaged over the paced cycles from the
-  "inhale" cue. Oriented by the cues, the share of the cycle from ACC trough to peak
-  should match the inhale share (0.4 in both paced steps). Heart rate rises on the
-  inhale, so the last column checks whether HR alone picks the same ACC direction; if
-  it does, inhale and exhale can be told apart without cues.
+  "inhale" cue. Oriented by the cues, ACC rises through the inhale, so its peak should
+  sit at the exhale cue. The trough says little: after a quick passive exhale the chest
+  rests until the next inhale (on the first run the peak came 0.3 s and 0.1 s after the
+  exhale cue, while trough-to-peak was 0.76 and 0.64 of the cycle for a paced 0.4).
+  Heart rate rises on the inhale, so the last column checks whether HR alone picks the
+  same ACC direction; if it does, inhale and exhale can be told apart without cues. On
+  the first run it did at 6/min (13.5 bpm swing) and not at 12/min (1.2 bpm, lagging
+  by about half a cycle).
 - **H10 unclip**: when skin contact was lost and came back, Bluetooth disconnects and
-  reconnects, the longest ECG gap, and the ECG rate in the last minute.
+  reconnects, the longest ECG gap, and the ECG rate in the last minute. On the first
+  run the ECG never stopped and the link stayed up; only the contact flag showed it,
+  ~25 s after the cue, and the H10 kept sending RR made of noise. Those beats are now
+  dropped (see `docs/polar_h10.md`).
 
 ## Limitations
 
@@ -99,5 +106,5 @@ the first 10 s of each step are skipped (tension starts right after the instruct
   this face, it does not validate it in general.
 - Tension levels are self-produced and only roughly graded ("slight" vs 1 s clenches).
 - Paced breathing is followed by ear; the first cycles and late reactions blur the
-  inhale share a little.
+  peak timing a little.
 - The voice is Russian; another `--voice` works, but the instructions stay Russian.

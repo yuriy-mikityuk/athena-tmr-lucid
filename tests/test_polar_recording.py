@@ -7,9 +7,16 @@ import unittest
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 from muse_tmr.data.polar_recorder import PolarRecorder, PolarRecordingConfig, decode_polar_session
-from muse_tmr.data.polar_session import fit_clock_mapping, load_polar_session
+from muse_tmr.data.polar_session import (
+    NO_CONTACT_LEAD_SECONDS,
+    NO_CONTACT_TAIL_SECONDS,
+    fit_clock_mapping,
+    load_polar_session,
+    no_contact_spans,
+)
 from muse_tmr.data.recorder import CompanionProcess, OvernightRecorder, RecordingConfig
 from muse_tmr.features.cardio_resp_features import extract_cardio_resp_features
 from muse_tmr.sources.polar_h10 import (
@@ -76,6 +83,62 @@ class LoadPolarSessionTest(unittest.TestCase):
             beats = [beat for beat in truth["beats_wall"][1:-1] if abs(beat - truth["wall0"] - 117.5) > 4.0]
             errors = np.array([peaks[np.argmin(np.abs(peaks - beat))] - beat for beat in beats])
             self.assertLess(np.abs(errors).max() * 1000.0, 10.0)
+
+    def test_beats_around_lost_contact_are_dropped(self):
+        rng = np.random.default_rng(9)
+        with tempfile.TemporaryDirectory() as tmp:
+            truth = write_raw_session(tmp, 240, rng, no_contact=(100.0, 140.0))
+            session = load_polar_session(Path(tmp))
+            low = truth["wall0"] + 100.0 - NO_CONTACT_LEAD_SECONDS
+            high = truth["wall0"] + 140.0 + NO_CONTACT_TAIL_SECONDS
+            for frame in (session.rr, session.r_peaks):
+                times = frame["time"].to_numpy()
+                self.assertFalse(np.any((times > low + 1.5) & (times < high - 1.5)))
+                self.assertTrue(np.any(times < low) and np.any(times > high))
+            self.assertEqual(len(session.quality["no_contact_spans"]), 1)
+            self.assertAlmostEqual(session.quality["no_contact_seconds"], high - low, delta=1.5)
+            self.assertGreater(session.quality["no_contact_dropped_rr"], 40)
+            self.assertLess(session.rr["rr_ms"].max(), 1300.0)
+            self.assertGreater((session.rr["aligned_to"] == "ecg_r_peak").mean(), 0.95)
+            # The rail-to-rail noise must not set the detector's polarity for the clean ECG.
+            peaks = session.r_peaks["time"].to_numpy()
+            beats = [beat for beat in truth["beats_wall"][1:-1] if beat < low - 1.0 or beat > high + 1.0]
+            errors = np.array([peaks[np.argmin(np.abs(peaks - beat))] - beat for beat in beats])
+            self.assertLess(np.abs(errors).max() * 1000.0, 10.0)
+
+            # A window across the hole uses its longest part with contact, not a splice.
+            features = extract_cardio_resp_features(session, truth["wall0"] + 70, truth["wall0"] + 240)
+            self.assertAlmostEqual(features["window_seconds"], 240 - (high - truth["wall0"]), delta=1.0)
+            self.assertAlmostEqual(features["no_contact_seconds"], high - low, delta=1.0)
+            self.assertTrue(math.isfinite(features["rmssd_ms"]))
+            # 70% of this one has contact, but its longest stretch is under half of it.
+            split = extract_cardio_resp_features(session, truth["wall0"] + 20, truth["wall0"] + 230)
+            self.assertEqual(split["window_seconds"], 0.0)
+            self.assertTrue(math.isnan(split["rmssd_ms"]))
+            inside = extract_cardio_resp_features(session, low + 2, high - 2)
+            self.assertEqual(inside["window_seconds"], 0.0)
+            self.assertTrue(math.isnan(inside["rmssd_ms"]) and math.isnan(inside["edr_rate_bpm"]))
+            # Mostly off the skin: a 35 s fragment does not stand in for the window.
+            mostly_off = extract_cardio_resp_features(session, low - 35, high + 5)
+            self.assertEqual(mostly_off["window_seconds"], 0.0)
+            self.assertAlmostEqual(mostly_off["no_contact_seconds"], high - low, delta=0.5)
+            self.assertTrue(math.isnan(mostly_off["resp_rate_bpm"]) and math.isnan(mostly_off["mean_hr_bpm"]))
+
+    def test_unknown_contact_does_not_end_a_loss(self):
+        hr = pd.DataFrame({"time": [0.0, 1.0, 2.0, 3.0, 4.0, 5.0], "contact": [True, False, None, None, True, None]})
+        self.assertEqual(no_contact_spans(hr, lead_s=0.5, tail_s=0.5), [(0.5, 4.5)])
+        open_end = pd.DataFrame({"time": [0.0, 1.0, 2.0], "contact": [True, False, None]})
+        self.assertEqual(no_contact_spans(hr=open_end, lead_s=0.5, tail_s=0.5, end_of_data=9.0), [(0.5, 9.5)])
+
+    def test_contact_never_regained_drops_everything_after(self):
+        rng = np.random.default_rng(10)
+        with tempfile.TemporaryDirectory() as tmp:
+            truth = write_raw_session(tmp, 240, rng, no_contact=(180.0, 999.0))
+            session = load_polar_session(Path(tmp))
+            low = truth["wall0"] + 180.0 - NO_CONTACT_LEAD_SECONDS
+            self.assertGreater(session.no_contact[0][1], truth["wall0"] + 240.0)
+            for frame in (session.rr, session.r_peaks):
+                self.assertFalse(np.any(frame["time"].to_numpy() > low + 1.5))
 
     def test_without_ecg_rr_keeps_receive_time_estimate(self):
         rng = np.random.default_rng(5)

@@ -90,6 +90,20 @@ host wall-clock too.
    notification arrived a median 2 s (up to ~3 s) after its last beat, so
    these estimates are that far off.
 
+With the electrodes off the skin the H10 keeps streaming ECG and even sends RR,
+all noise; only the HR notification's contact bit says so. On the calibration run
+the ECG swung rail to rail (±19.6 mV) from about 13 s before that bit went false to
+about 7 s after it came back, and the RR in between were noise (390-3800 ms). So
+spans run from 15 s before the first no-contact notification to 10 s after contact
+returns, or to the end of the data if it never does. RR beats inside are dropped,
+and R-peaks are searched separately in each stretch of ECG outside them, because
+that noise would otherwise pick the detector's polarity for the whole recording.
+`quality` reports the spans, their total seconds and the dropped beats. Splining or
+differencing across the hole would invent data, so `extract_cardio_resp_features`
+takes the longest part of the window with contact: `window_seconds` is that part
+and `no_contact_seconds` what was cut. When that part is shorter than half the
+window (`min_contact_fraction`) there are no features at all.
+
 Expected error: on synthetic data with 50 ppm drift and random BLE delays the
 mapped times are within a few ms of the truth over 8 h. A constant minimum BLE
 latency (a few ms, one connection interval) cannot be told apart from a clock
