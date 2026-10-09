@@ -131,11 +131,28 @@ class MeditationAnalysisEndToEndTest(unittest.TestCase):
         def signal_for(condition, seconds, rng):
             return condition_signal("busy" if condition == "settle" else condition, seconds, rng)
 
-        analysis = self.analyze(plan, signal_for)
+        import muse_tmr.reports.meditation_analysis as module
+
+        full_runs = []
+        original = module.extract_complexity_features
+
+        def counting(*args, **kwargs):
+            full_runs.append(1)
+            return original(*args, **kwargs)
+
+        module.extract_complexity_features = counting
+        try:
+            analysis = self.analyze(plan, signal_for)
+        finally:
+            module.extract_complexity_features = original
         timeline = analysis.summary["timeline"]
-        # Settle, trimmed block starts and the padding at the end are all there.
+        # Settle, trimmed block starts and the padding at the end are all there,
+        # with only the EMG computed for them.
         self.assertEqual(timeline[0]["start_s"], 0.0)
+        self.assertEqual(timeline[0]["end_s"], 10.0)
         self.assertIsNone(timeline[0]["block_index"])
+        self.assertIsNone(timeline[0]["artifact"])
+        self.assertEqual(len(full_runs), analysis.summary["counts"]["epochs_in_blocks"])
         self.assertGreaterEqual(timeline[-1]["start_s"] + 10.0, plan.blocks[-1].end_s)
         self.assertEqual({row["block_index"] for row in timeline} - {None}, {block.index for block in plan.blocks})
         self.assertTrue(all(math.isfinite(row["emg_55_95_frontal_db"]) for row in timeline))
@@ -145,6 +162,23 @@ class MeditationAnalysisEndToEndTest(unittest.TestCase):
         self.assertIn("Muscle (EMG) over the session", page)
         condition_a = analysis.summary["conditions"][0]
         self.assertEqual(page.count('class="band"'), sum(block.condition == condition_a for block in plan.blocks))
+
+    def test_timeline_traces_use_epoch_midpoints_and_break_at_gaps(self):
+        from muse_tmr.reports.meditation_report import trace_segments
+
+        rows = [
+            {"start_s": 0.0, "end_s": 30.0, "v": 1.0},
+            {"start_s": 30.0, "end_s": 60.0, "v": 2.0},
+            {"start_s": 60.0, "end_s": 90.0, "v": float("nan")},
+            {"start_s": 90.0, "end_s": 120.0, "v": 3.0},
+            {"start_s": 120.0, "end_s": 150.0, "v": 4.0},
+            {"start_s": 180.0, "end_s": 210.0, "v": 5.0},  # the epoch before it is missing
+        ]
+        self.assertEqual(
+            trace_segments(rows, "v"),
+            [[(15.0, 1.0), (45.0, 2.0)], [(105.0, 3.0), (135.0, 4.0)], [(195.0, 5.0)]],
+        )
+        self.assertEqual(trace_segments([{"start_s": 0.0, "v": 1.0}], "v"), [[(5.0, 1.0)]])
 
     def test_conditions_that_differ_by_construction_give_expected_signs(self):
         plan = build_meditation_plan(["busy", "calm"], blocks=4, block_minutes=2, settle_seconds=20, seed=2)

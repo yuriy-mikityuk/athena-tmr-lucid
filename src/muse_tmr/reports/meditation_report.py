@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import html
 import math
-from typing import Dict, List, Mapping, Optional, Sequence
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 # Metrics compared in Mago et al. 2025, shown as a fixed, exploratory set.
 PAPER_METRICS = (
@@ -186,18 +186,25 @@ def _emg_timeline_section(summary: Mapping[str, object], condition_a: str) -> st
     )
 
 
+# Rows written before end_s was recorded were all 10 s epochs.
+_DEFAULT_EPOCH_SECONDS = 10.0
+
+
 def emg_timeline_svg(rows: Sequence[Mapping[str, object]], spans: Sequence[Mapping[str, object]], label: str) -> str:
-    """55-95 Hz dB per epoch for AF7/AF8 and TP9/TP10; spans get a label on top, shaded ones a band."""
+    """55-95 Hz dB per epoch for AF7/AF8 and TP9/TP10; spans get a label on top, shaded ones a band.
+
+    Points sit at epoch midpoints; a missing value or a missing epoch breaks the line.
+    """
     keys = (("emg_55_95_frontal_db", "af"), ("emg_55_95_temporal_db", "tp"))
-    points = [row for row in rows if any(math.isfinite(_num(row.get(key))) for key, _css in keys)]
-    if len(points) < 2:
+    traces = {key: trace_segments(rows, key) for key, _css in keys}
+    values = [value for segments in traces.values() for segment in segments for _middle, value in segment]
+    if len(values) < 2:
         return ""
     width, height, left, top, bottom = 860, 220, 44, 26, 24
     end_s = max(
-        max(float(row["start_s"]) for row in points) + 10.0,
+        max(_epoch_end(row) for row in rows),
         max((float(span["end_s"]) for span in spans), default=0.0),
     )
-    values = [_num(row.get(key)) for row in points for key, _css in keys if math.isfinite(_num(row.get(key)))]
     low, high = min(values) - 1.0, max(values) + 1.0
 
     def x(seconds: float) -> float:
@@ -216,10 +223,13 @@ def emg_timeline_svg(rows: Sequence[Mapping[str, object]], spans: Sequence[Mappi
             )
         shapes.append(f'<text x="{(x0 + x1) / 2:.1f}" y="{top - 8}" class="lbl" text-anchor="middle">{_e(str(span["label"]))}</text>')
     for key, css in keys:
-        path = " ".join(
-            f"{x(float(row['start_s']) + 5.0):.1f},{y(_num(row[key])):.1f}" for row in points if math.isfinite(_num(row.get(key)))
-        )
-        shapes.append(f'<polyline points="{path}" class="line {css}"/>')
+        for segment in traces[key]:
+            if len(segment) == 1:
+                (middle, value), = segment
+                shapes.append(f'<circle cx="{x(middle):.1f}" cy="{y(value):.1f}" r="1.8" class="dot {css}"/>')
+                continue
+            path = " ".join(f"{x(middle):.1f},{y(value):.1f}" for middle, value in segment)
+            shapes.append(f'<polyline points="{path}" class="line {css}"/>')
     step = 2 if end_s <= 40 * 60 else 5
     for minute in range(0, int(end_s // 60) + 1, step):
         shapes.append(f'<text x="{x(minute * 60):.1f}" y="{height - 6}" class="lbl" text-anchor="middle">{minute}</text>')
@@ -231,8 +241,33 @@ def emg_timeline_svg(rows: Sequence[Mapping[str, object]], spans: Sequence[Mappi
         + "</svg>"
         "<style>.timeline{width:100%;height:auto}.timeline .band{fill:var(--line);opacity:.6}"
         ".timeline .line{fill:none;stroke-width:1.8}.timeline .af{stroke:var(--a)}.timeline .tp{stroke:var(--b)}"
+        ".timeline .dot.af{fill:var(--a)}.timeline .dot.tp{fill:var(--b)}"
         ".timeline .lbl{fill:var(--muted);font-size:11px}span.af{color:var(--a);font-weight:600}span.tp{color:var(--b);font-weight:600}</style>"
     )
+
+
+def trace_segments(rows: Sequence[Mapping[str, object]], key: str) -> List[List[Tuple[float, float]]]:
+    """Runs of (epoch midpoint s, value); a missing value or a missing epoch ends a run."""
+    segments: List[List[Tuple[float, float]]] = []
+    current: List[Tuple[float, float]] = []
+    previous_end: Optional[float] = None
+    for row in sorted(rows, key=lambda item: float(item["start_s"])):
+        start, end = float(row["start_s"]), _epoch_end(row)
+        value = _num(row.get(key))
+        if current and (not math.isfinite(value) or start > previous_end + 1e-6):
+            segments.append(current)
+            current = []
+        if math.isfinite(value):
+            current.append(((start + end) / 2.0, value))
+        previous_end = end
+    if current:
+        segments.append(current)
+    return segments
+
+
+def _epoch_end(row: Mapping[str, object]) -> float:
+    end = _num(row.get("end_s"))
+    return end if math.isfinite(end) else float(row["start_s"]) + _DEFAULT_EPOCH_SECONDS
 
 
 def _cardio_section(cardio: Mapping[str, object], all_rows) -> str:

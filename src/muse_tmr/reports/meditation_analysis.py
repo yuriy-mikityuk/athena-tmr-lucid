@@ -36,6 +36,7 @@ from muse_tmr.features.complexity_features import (
     ComplexityConfig,
     block_dfa,
     dfa_metric_names,
+    emg_power_55_95,
     extract_complexity_features,
 )
 from muse_tmr.features.eeg_features import _collect_epoch_eeg
@@ -388,10 +389,12 @@ async def analyze_meditation_frames(
         start_s = epoch.start_time - origin
         end_s = start_s + config.epoch_seconds
         block = assign_block(start_s, end_s, blocks, config.trim_block_start_seconds)
-        record = _epoch_record(epoch, block or NO_BLOCK, start_s, end_s, config)
+        if block is None:
+            timeline.append(_emg_only_timeline_row(epoch, start_s, end_s, config.complexity))
+            continue
+        record = _epoch_record(epoch, block, start_s, end_s, config)
         timeline.append(emg_timeline_row(record))
-        if block is not None:
-            records.append(record)
+        records.append(record)
     return build_meditation_analysis(
         records,
         blocks,
@@ -464,10 +467,30 @@ def emg_timeline_row(record: EpochRecord) -> Dict[str, object]:
     features = record.features
     return {
         "start_s": record.start_s,
+        "end_s": record.end_s,
         "block_index": record.block.index if record.block.index >= 0 else None,
         "artifact": bool(features.get("is_artifact")),
         "emg_55_95_frontal_db": _power_db(features.get("emg_power_55_95_frontal")),
         "emg_55_95_temporal_db": _power_db(features.get("emg_power_55_95_temporal")),
+    }
+
+
+def _emg_only_timeline_row(epoch: SleepEpoch, start_s: float, end_s: float, config: ComplexityConfig) -> Dict[str, object]:
+    """Timeline row for an epoch outside every block: the EMG power and nothing else."""
+    channels = _collect_epoch_eeg(epoch)
+
+    def group_db(members: Sequence[str]) -> float:
+        powers = [emg_power_55_95(channels[channel], config) for channel in members if channel in channels]
+        finite = [power for power in powers if math.isfinite(power)]
+        return _power_db(float(np.mean(finite))) if finite else math.nan
+
+    return {
+        "start_s": start_s,
+        "end_s": end_s,
+        "block_index": None,
+        "artifact": None,
+        "emg_55_95_frontal_db": group_db(config.frontal_channels),
+        "emg_55_95_temporal_db": group_db(config.temporal_channels),
     }
 
 

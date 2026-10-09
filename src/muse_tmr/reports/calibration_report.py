@@ -266,6 +266,7 @@ def _timeline(records: Sequence[EpochRecord], segments: Sequence[Mapping[str, ob
         rows.append(
             {
                 "start_s": record.start_s,
+                "end_s": record.end_s,
                 "segment": segment,
                 "artifact": bool(features.get("is_artifact")),
                 "emg_55_95_frontal_db": _db(features.get("emg_power_55_95_frontal")),

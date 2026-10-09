@@ -247,20 +247,12 @@ def extract_complexity_features(
 def channel_metrics(values: np.ndarray, config: ComplexityConfig) -> Dict[str, float]:
     """All per-epoch metrics for one channel's raw microvolt samples."""
     fs = config.sample_rate_hz
-    x = np.asarray(values, dtype=float)
-    x = x[np.isfinite(x)]
-    if x.size < config.min_channel_seconds * fs or float(np.std(x)) <= 0:
+    x = _prepared(values, config)
+    if x is None:
         return {metric: math.nan for metric in EPOCH_METRICS}
 
-    x = remove_lines(detrend(x), fs, config.line_hz, config.line_search_hz)
     filtered = bandpass(x, fs, config.complexity_band_hz, config.filter_order)
-    spectral_input = notch(x, fs, config.notch_hz, config.notch_quality)
-    freqs, psd = welch(
-        spectral_input,
-        fs=fs,
-        nperseg=min(x.size, int(round(config.welch_seconds * fs))),
-        scaling="density",
-    )
+    freqs, psd = _spectrum(x, config)
 
     metrics: Dict[str, float] = {
         "lzc": lempel_ziv_complexity(filtered),
@@ -314,6 +306,36 @@ def channel_metrics(values: np.ndarray, config: ComplexityConfig) -> Dict[str, f
     )
     # Keep keys in EPOCH_METRICS order and fill anything a custom config skipped.
     return {metric: float(metrics.get(metric, math.nan)) for metric in EPOCH_METRICS}
+
+
+def emg_power_55_95(values: np.ndarray, config: ComplexityConfig) -> float:
+    """emg_power_55_95 exactly as channel_metrics computes it, without the rest."""
+    x = _prepared(values, config)
+    if x is None:
+        return math.nan
+    freqs, psd = _spectrum(x, config)
+    emg_psd = bridge_lines(freqs, psd, config.emg_exclude_hz, config.emg_exclude_half_width_hz)
+    return band_power(freqs, emg_psd, *config.emg_high_band_hz)
+
+
+def _prepared(values: np.ndarray, config: ComplexityConfig) -> Optional[np.ndarray]:
+    """Finite samples, detrended and with the lines removed; None when too short or flat."""
+    fs = config.sample_rate_hz
+    x = np.asarray(values, dtype=float)
+    x = x[np.isfinite(x)]
+    if x.size < config.min_channel_seconds * fs or float(np.std(x)) <= 0:
+        return None
+    return remove_lines(detrend(x), fs, config.line_hz, config.line_search_hz)
+
+
+def _spectrum(x: np.ndarray, config: ComplexityConfig) -> Tuple[np.ndarray, np.ndarray]:
+    fs = config.sample_rate_hz
+    return welch(
+        notch(x, fs, config.notch_hz, config.notch_quality),
+        fs=fs,
+        nperseg=min(x.size, int(round(config.welch_seconds * fs))),
+        scaling="density",
+    )
 
 
 # --- preprocessing -----------------------------------------------------------
