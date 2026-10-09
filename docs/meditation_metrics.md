@@ -50,7 +50,10 @@ EEG, 10 s epochs, no correction across metrics.
      --settle-seconds 60 --seed 17
    ```
 
-   The order (ABAB or BABA) comes from the seed and is stored in the file. Times
+   The order is ABBA or BAAB (ABBABAAB or BAABABBA for 8 blocks), picked by the
+   seed and stored in the file. Plain ABAB puts A half a block earlier on
+   average, so slow drift (relaxing, drowsiness, electrodes settling) would land
+   in the contrast; this order cancels linear drift within every four blocks. Times
    are seconds from the first recorded frame, which is what the app's recording
    timer shows. Eyes closed in both conditions.
 
