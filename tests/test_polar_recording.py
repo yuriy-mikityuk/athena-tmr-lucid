@@ -107,10 +107,14 @@ class LoadPolarSessionTest(unittest.TestCase):
             self.assertLess(np.abs(errors).max() * 1000.0, 10.0)
 
             # A window across the hole uses its longest part with contact, not a splice.
-            features = extract_cardio_resp_features(session, truth["wall0"] + 20, truth["wall0"] + 230)
-            self.assertAlmostEqual(features["window_seconds"], 230 - (high - truth["wall0"]), delta=1.0)
+            features = extract_cardio_resp_features(session, truth["wall0"] + 70, truth["wall0"] + 240)
+            self.assertAlmostEqual(features["window_seconds"], 240 - (high - truth["wall0"]), delta=1.0)
             self.assertAlmostEqual(features["no_contact_seconds"], high - low, delta=1.0)
             self.assertTrue(math.isfinite(features["rmssd_ms"]))
+            # 70% of this one has contact, but its longest stretch is under half of it.
+            split = extract_cardio_resp_features(session, truth["wall0"] + 20, truth["wall0"] + 230)
+            self.assertEqual(split["window_seconds"], 0.0)
+            self.assertTrue(math.isnan(split["rmssd_ms"]))
             inside = extract_cardio_resp_features(session, low + 2, high - 2)
             self.assertEqual(inside["window_seconds"], 0.0)
             self.assertTrue(math.isnan(inside["rmssd_ms"]) and math.isnan(inside["edr_rate_bpm"]))
