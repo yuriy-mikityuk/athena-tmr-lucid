@@ -175,9 +175,11 @@ def _emg_timeline_section(summary: Mapping[str, object], condition_a: str) -> st
     plot = emg_timeline_svg(summary.get("timeline") or (), spans, "EMG power over the session")
     if not plot:
         return ""
+    epoch_seconds = _num((summary.get("config") or {}).get("epoch_seconds"))
+    per_epoch = f"per {_fmt(epoch_seconds, 0)} s epoch" if math.isfinite(epoch_seconds) else "per epoch"
     return (
         "<section><h2>Muscle (EMG) over the session</h2>"
-        "<p class=muted>55–95 Hz per 10 s epoch, dB: <span class=af>AF7/AF8</span> and <span class=tp>TP9/TP10</span>. "
+        f"<p class=muted>55–95 Hz {per_epoch}, dB: <span class=af>AF7/AF8</span> and <span class=tp>TP9/TP10</span>. "
         f"Shaded blocks are {_e(condition_a)}. The settle period and the trimmed block starts are shown but not "
         "analysed. ABBA cancels a linear drift, not a fast one at the start: if the level keeps falling through "
         "the first blocks, begin with a longer stretch of meditation that is not analysed.</p>"

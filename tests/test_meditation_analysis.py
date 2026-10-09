@@ -160,6 +160,7 @@ class MeditationAnalysisEndToEndTest(unittest.TestCase):
 
         page = render_meditation_report(analysis.summary, analysis.blocks.to_dict("records"))
         self.assertIn("Muscle (EMG) over the session", page)
+        self.assertIn("55–95 Hz per 10 s epoch", page)
         condition_a = analysis.summary["conditions"][0]
         self.assertEqual(page.count('class="band"'), sum(block.condition == condition_a for block in plan.blocks))
 
