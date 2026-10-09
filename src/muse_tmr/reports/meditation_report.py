@@ -58,6 +58,7 @@ def render_meditation_report(summary: Mapping[str, object], block_rows: Sequence
         _primary_section(primary, clean_rows, condition_a, condition_b),
         _ratings_section(summary, condition_a, condition_b),
         _emg_section(summary.get("emg") or {}, condition_a, condition_b),
+        _emg_timeline_section(summary, condition_a),
         _cardio_section(summary.get("cardio") or {}, all_rows),
         _paper_metrics_section(contrasts, condition_a, condition_b),
         _blocks_section(clean_rows, all_rows),
@@ -157,6 +158,80 @@ def _emg_section(emg: Mapping[str, object], condition_a: str, condition_b: str) 
         f"{_fmt(difference.get('ratio'), 2)}× the EMG power on clean epochs.{by_group}</p>"
         + _table(["Metric (all channels, clean)", "Raw A−B", "After removing EMG", "ρ with EMG"], rows)
         + "</section>"
+    )
+
+
+def _emg_timeline_section(summary: Mapping[str, object], condition_a: str) -> str:
+    blocks = (summary.get("blocks_file") or {}).get("blocks") or ()
+    spans = [
+        {
+            "start_s": block["start_s"],
+            "end_s": block["end_s"],
+            "label": block["condition"],
+            "shaded": block["condition"] == condition_a,
+        }
+        for block in blocks
+    ]
+    plot = emg_timeline_svg(summary.get("timeline") or (), spans, "EMG power over the session")
+    if not plot:
+        return ""
+    return (
+        "<section><h2>Muscle (EMG) over the session</h2>"
+        "<p class=muted>55–95 Hz per 10 s epoch, dB: <span class=af>AF7/AF8</span> and <span class=tp>TP9/TP10</span>. "
+        f"Shaded blocks are {_e(condition_a)}. The settle period and the trimmed block starts are shown but not "
+        "analysed. ABBA cancels a linear drift, not a fast one at the start: if the level keeps falling through "
+        "the first blocks, begin with a longer stretch of meditation that is not analysed.</p>"
+        + plot
+        + "</section>"
+    )
+
+
+def emg_timeline_svg(rows: Sequence[Mapping[str, object]], spans: Sequence[Mapping[str, object]], label: str) -> str:
+    """55-95 Hz dB per epoch for AF7/AF8 and TP9/TP10; spans get a label on top, shaded ones a band."""
+    keys = (("emg_55_95_frontal_db", "af"), ("emg_55_95_temporal_db", "tp"))
+    points = [row for row in rows if any(math.isfinite(_num(row.get(key))) for key, _css in keys)]
+    if len(points) < 2:
+        return ""
+    width, height, left, top, bottom = 860, 220, 44, 26, 24
+    end_s = max(
+        max(float(row["start_s"]) for row in points) + 10.0,
+        max((float(span["end_s"]) for span in spans), default=0.0),
+    )
+    values = [_num(row.get(key)) for row in points for key, _css in keys if math.isfinite(_num(row.get(key)))]
+    low, high = min(values) - 1.0, max(values) + 1.0
+
+    def x(seconds: float) -> float:
+        return left + seconds / end_s * (width - left - 4)
+
+    def y(value: float) -> float:
+        return top + (high - value) / (high - low) * (height - top - bottom)
+
+    shapes = []
+    for span in spans:
+        x0, x1 = x(float(span["start_s"])), x(float(span["end_s"]))
+        if span.get("shaded"):
+            shapes.append(
+                f'<rect x="{x0:.1f}" y="{top}" width="{max(1.0, x1 - x0):.1f}" height="{height - top - bottom}" '
+                f'class="band"><title>{_e(str(span.get("title") or span["label"]))}</title></rect>'
+            )
+        shapes.append(f'<text x="{(x0 + x1) / 2:.1f}" y="{top - 8}" class="lbl" text-anchor="middle">{_e(str(span["label"]))}</text>')
+    for key, css in keys:
+        path = " ".join(
+            f"{x(float(row['start_s']) + 5.0):.1f},{y(_num(row[key])):.1f}" for row in points if math.isfinite(_num(row.get(key)))
+        )
+        shapes.append(f'<polyline points="{path}" class="line {css}"/>')
+    step = 2 if end_s <= 40 * 60 else 5
+    for minute in range(0, int(end_s // 60) + 1, step):
+        shapes.append(f'<text x="{x(minute * 60):.1f}" y="{height - 6}" class="lbl" text-anchor="middle">{minute}</text>')
+    shapes.append(f'<text x="2" y="{y(high - 1):.1f}" class="lbl">{high - 1:.0f} dB</text>')
+    shapes.append(f'<text x="2" y="{y(low + 1):.1f}" class="lbl">{low + 1:.0f} dB</text>')
+    return (
+        f'<svg viewBox="0 0 {width} {height}" class="timeline" role="img" aria-label="{_e(label)}">'
+        + "".join(shapes)
+        + "</svg>"
+        "<style>.timeline{width:100%;height:auto}.timeline .band{fill:var(--line);opacity:.6}"
+        ".timeline .line{fill:none;stroke-width:1.8}.timeline .af{stroke:var(--a)}.timeline .tp{stroke:var(--b)}"
+        ".timeline .lbl{fill:var(--muted);font-size:11px}span.af{color:var(--a);font-weight:600}span.tp{color:var(--b);font-weight:600}</style>"
     )
 
 

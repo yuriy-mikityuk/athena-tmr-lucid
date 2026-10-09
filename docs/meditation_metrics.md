@@ -54,9 +54,14 @@ EEG, 10 s epochs, no correction across metrics.
    seed and stored in the file. Plain ABAB puts A half a block earlier on
    average, so slow drift (relaxing, drowsiness, electrodes settling) would land
    in the contrast; this order cancels linear drift within every four blocks, so
-   the block count must be 4, 8 or 12 (6 would leave a third of a block's drift). Times
-   are seconds from the first recorded frame, which is what the app's recording
-   timer shows. Eyes closed in both conditions.
+   the block count must be 4, 8 or 12 (6 would leave a third of a block's drift). It
+   does not cancel a fast drift at the start, which lands mostly on the first block:
+   on the first calibration run TP9/TP10 EMG fell about 5 dB over the first 10
+   minutes, and 1 dB of EMG goes with about 0.1 in the 1/f slope. The report's EMG
+   timeline shows the settle period too; if the level keeps falling through the
+   first blocks again, a longer `--settle-seconds` (about 10 min of meditation that
+   is not analysed) is the fix. Times are seconds from the first recorded frame,
+   which is what the app's recording timer shows. Eyes closed in both conditions.
 
 3. Start a `session` recording in the app (or `muse-tmr record --allow-short`),
    follow the printed block times, and after each block fill in `depth` and
@@ -70,8 +75,8 @@ EEG, 10 s epochs, no correction across metrics.
    ```
 
    Writes `epochs.csv`, `blocks.csv`, `summary.json` and a readable `report.html`
-   (primary result per block, EMG check, breathing/HRV, paper metrics, blocks,
-   limitations) to `data/reports/meditation/<name>/`. 40 min of synthetic 4-channel data with the
+   (primary result per block, EMG check, EMG over the session, breathing/HRV,
+   paper metrics, blocks, limitations) to `data/reports/meditation/<name>/`. 40 min of synthetic 4-channel data with the
    Lyapunov exponent on takes about 40 s on an M-series laptop; `--no-lyapunov`
    skips the slowest metric.
 
@@ -97,7 +102,8 @@ EMG-residualized contrasts, is labeled exploratory in the outputs.
 - 10 s non-overlapping epochs from `EpochBuilder`; partial epochs are dropped.
 - An epoch counts for a block only if it lies wholly inside it after trimming the
   first 30 s of the block (`--trim-block-start`). The settle period and anything
-  outside blocks are ignored.
+  outside blocks are left out of the analysis; they only show on the EMG timeline
+  (`summary.json` `timeline`).
 - Artifact flags (clipping, flatline, empty, nonfinite, low coverage) come from
   `eeg_features`, plus `eeg_missing_<ch>` / `eeg_short_<ch>` when one of the four
   channels is absent or shorter than 2 s, so a "clean" group mean never silently

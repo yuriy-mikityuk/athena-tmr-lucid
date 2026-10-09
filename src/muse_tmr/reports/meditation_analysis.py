@@ -141,6 +141,10 @@ class MeditationBlock:
         )
 
 
+# Epochs outside every block are kept only for the timeline, under this block.
+NO_BLOCK = MeditationBlock(index=-1, condition="", start_s=0.0, end_s=0.0)
+
+
 @dataclass(frozen=True)
 class MeditationBlocks:
     blocks: Tuple[MeditationBlock, ...]
@@ -375,6 +379,8 @@ async def analyze_meditation_frames(
         )
     )
     records: List[EpochRecord] = []
+    # Every epoch, settle and trimmed block starts included, for the EMG timeline.
+    timeline: List[Dict[str, object]] = []
     origin: Optional[float] = None
     async for epoch in builder.build(frames):
         if origin is None:
@@ -382,9 +388,10 @@ async def analyze_meditation_frames(
         start_s = epoch.start_time - origin
         end_s = start_s + config.epoch_seconds
         block = assign_block(start_s, end_s, blocks, config.trim_block_start_seconds)
-        if block is None:
-            continue
-        records.append(_epoch_record(epoch, block, start_s, end_s, config))
+        record = _epoch_record(epoch, block or NO_BLOCK, start_s, end_s, config)
+        timeline.append(emg_timeline_row(record))
+        if block is not None:
+            records.append(record)
     return build_meditation_analysis(
         records,
         blocks,
@@ -393,6 +400,7 @@ async def analyze_meditation_frames(
         polar=polar,
         origin_time=origin,
         polar_error=polar_error,
+        timeline=timeline,
     )
 
 
@@ -451,6 +459,23 @@ def _epoch_record(
     return EpochRecord(block=block, start_s=start_s, end_s=end_s, features=features, channels=channels)
 
 
+def emg_timeline_row(record: EpochRecord) -> Dict[str, object]:
+    """55-95 Hz power in dB for one epoch, frontal and temporal."""
+    features = record.features
+    return {
+        "start_s": record.start_s,
+        "block_index": record.block.index if record.block.index >= 0 else None,
+        "artifact": bool(features.get("is_artifact")),
+        "emg_55_95_frontal_db": _power_db(features.get("emg_power_55_95_frontal")),
+        "emg_55_95_temporal_db": _power_db(features.get("emg_power_55_95_temporal")),
+    }
+
+
+def _power_db(value) -> float:
+    number = _to_float(value)
+    return 10.0 * math.log10(number) if math.isfinite(number) and number > 0 else math.nan
+
+
 def build_meditation_analysis(
     records: Sequence[EpochRecord],
     blocks: MeditationBlocks,
@@ -460,7 +485,9 @@ def build_meditation_analysis(
     polar=None,
     origin_time: Optional[float] = None,
     polar_error: Optional[str] = None,
+    timeline: Optional[Sequence[Mapping[str, object]]] = None,
 ) -> MeditationAnalysis:
+    """``timeline`` holds every epoch of the recording; without it, just ``records``."""
     condition_a, condition_b = blocks.condition_pair()
     epochs = pd.DataFrame([record.features for record in records])
     if epochs.empty:
@@ -525,6 +552,7 @@ def build_meditation_analysis(
         "versions": _versions(),
         "blocks_file": blocks.to_dict(),
         "counts": counts,
+        "timeline": list(timeline) if timeline is not None else [emg_timeline_row(record) for record in records],
         "ratings": _ratings(blocks, condition_a, condition_b),
         "condition_means": _condition_means(
             block_table, epoch_columns + dfa_columns + cardio_columns, condition_a, condition_b

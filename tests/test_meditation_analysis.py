@@ -123,6 +123,29 @@ class MeditationAnalysisEndToEndTest(unittest.TestCase):
         config = config or MeditationAnalysisConfig(emg_indicator="emg_power_55_95", complexity=FAST)
         return asyncio.run(analyze_meditation_frames(aiter_frames(frames), plan, config, recording="synthetic"))
 
+    def test_emg_timeline_covers_the_whole_recording(self):
+        from muse_tmr.reports.meditation_report import render_meditation_report
+
+        plan = build_meditation_plan(["busy", "calm"], blocks=4, block_minutes=1, settle_seconds=30, seed=3)
+
+        def signal_for(condition, seconds, rng):
+            return condition_signal("busy" if condition == "settle" else condition, seconds, rng)
+
+        analysis = self.analyze(plan, signal_for)
+        timeline = analysis.summary["timeline"]
+        # Settle, trimmed block starts and the padding at the end are all there.
+        self.assertEqual(timeline[0]["start_s"], 0.0)
+        self.assertIsNone(timeline[0]["block_index"])
+        self.assertGreaterEqual(timeline[-1]["start_s"] + 10.0, plan.blocks[-1].end_s)
+        self.assertEqual({row["block_index"] for row in timeline} - {None}, {block.index for block in plan.blocks})
+        self.assertTrue(all(math.isfinite(row["emg_55_95_frontal_db"]) for row in timeline))
+        self.assertEqual(analysis.summary["counts"]["epochs_in_blocks"], sum(row["block_index"] is not None for row in timeline))
+
+        page = render_meditation_report(analysis.summary, analysis.blocks.to_dict("records"))
+        self.assertIn("Muscle (EMG) over the session", page)
+        condition_a = analysis.summary["conditions"][0]
+        self.assertEqual(page.count('class="band"'), sum(block.condition == condition_a for block in plan.blocks))
+
     def test_conditions_that_differ_by_construction_give_expected_signs(self):
         plan = build_meditation_plan(["busy", "calm"], blocks=4, block_minutes=2, settle_seconds=20, seed=2)
 
