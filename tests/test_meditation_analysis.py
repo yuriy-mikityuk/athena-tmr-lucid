@@ -290,7 +290,7 @@ class MeditationWithPolarTest(unittest.TestCase):
         self.assertAlmostEqual(methods["acc_breath"]["difference"], -9.0, delta=1.0)
         self.assertAlmostEqual(methods["edr"]["difference"], 0.0, delta=1.0)
         self.assertTrue(cardio["breathing_methods_disagree"])
-        self.assertEqual(summary["schema_version"], 2)
+        self.assertEqual(summary["schema_version"], 3)
         self.assertEqual(cardio["breathing_difference_method"], "median_of_methods")
         self.assertGreater(cardio["breathing_methods_spread_bpm"], 7.0)
         self.assertTrue(any("estimates disagree" in item for item in summary["limitations"]))

@@ -164,6 +164,20 @@ graded: slight jaw tension, slight forehead tension and clench pulses, each agai
 the relaxed minutes around it, with the dB change per channel group next to the LZC
 and 1/f shift.
 
+**The 64 Hz line.** The first calibration run showed most of that 23 dB was one
+line at exactly fs/4 = 64 Hz (in sample terms), 40-45 dB above its neighbours on
+every channel. It fades smoothly through a session (AF7 about 33 to 21 dB over
+23 min) and does not react to muscles, so with it in the band the indicator fell
+for 20 minutes and barely moved with clenching (+0.7 dB on AF). It is in the
+earlier 13 min session too, and it is why that session's "EMG" seemed to settle
+only by minute 8. `emg_power_55_95` and `emg_high_band_over_floor_db` now bridge
+64 ± 1.5 Hz with the neighbouring bins (`emg_exclude_hz`); ±1 Hz already removes
+it. Without the line 55-95 Hz is about 13 dB above 110-125 Hz at rest, clenching
+raises it 8-9 dB, slight forehead tension 1.6 dB on AF7/AF8 and slight jaw tension
+1.0 dB on TP9/TP10, while LZC moves 0.01-0.05 and the 2-40 Hz exponent flattens by
+roughly 0.1 per dB. Summaries from before this change (`schema_version` 1 and 2)
+carry the old indicator.
+
 ## Polar H10 breathing and HRV
 
 When the recording was made with `muse-tmr record --with-polar`, `analyze-meditation`
@@ -192,6 +206,10 @@ of each method, and the report shows all three per block with their spread.
 `breathing_methods_disagree` is set when they are more than 1/min apart. Summaries with
 `schema_version` 1 still hold the ACC spectral difference alone in that field; the
 contrasts that `aggregate-meditation` reads are the same in both versions.
+
+Breath-by-breath counting ignores humps under 0.5 std of the breathing component.
+At a paced 6/min the chest rests after a quick exhale and small humps there were
+counted as breaths (9.2/min) at the old 0.3 std; real breaths start around 0.8 std.
 
 `cardio.breathing_confounded` is set when that median difference is above 1 breath/min:
 slower breathing was one of the paper's findings for jhana, and it can also shift EEG

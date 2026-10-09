@@ -44,7 +44,9 @@ from muse_tmr.features.epochs import EpochBuilder, EpochConfig, SleepEpoch
 MEDITATION_BLOCKS_SCHEMA_VERSION = 1
 # 2: cardio.breathing_difference_bpm (and breathing_confounded) became the median of
 # three estimates; in 1 it was the ACC spectral rate alone.
-MEDITATION_SUMMARY_SCHEMA_VERSION = 2
+# 3: emg_power_55_95 bridges the 64 Hz device line, which was most of it before;
+# breath-by-breath counting ignores humps under 0.5 std.
+MEDITATION_SUMMARY_SCHEMA_VERSION = 3
 MEDITATION_AGGREGATE_SCHEMA_VERSION = 1
 TIME_BASE = "seconds_from_recording_start"
 PRIMARY_METRIC = "lzc"

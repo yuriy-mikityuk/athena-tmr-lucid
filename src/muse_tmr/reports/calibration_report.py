@@ -52,7 +52,9 @@ from muse_tmr.reports.meditation_analysis import (
 )
 from muse_tmr.reports.meditation_report import _PAGE, _e, _fmt, _num, _table
 
-CALIBRATION_REPORT_SCHEMA_VERSION = 1
+# 2: EMG without the 64 Hz device line; inhale check reports the ACC peak
+# against the exhale cue instead of the trough-to-peak share.
+CALIBRATION_REPORT_SCHEMA_VERSION = 2
 PAIR_LABELS = {"jaw": "Jaw, slight", "forehead": "Forehead, slight", "clench": "Clench pulses", "breathing": "6/min vs 12/min"}
 GROUP_LABELS = (("all", "all"), ("frontal", "AF7/AF8"), ("temporal", "TP9/TP10"))
 _UNSET = MeditationBlock(index=-1, condition="", start_s=0.0, end_s=0.0)
@@ -328,9 +330,11 @@ def inhale_exhale_check(
     """Average chest ACC and heart rate over the paced cycles, locked to the "inhale" cue.
 
     The ACC breathing component has an arbitrary sign. Oriented by the cues
-    (rising through the inhale), the share of the cycle from its trough to its
-    peak estimates the inhale fraction (0.4 for in 4 s / out 6 s). The check
-    without cues: does heart rate, which rises on the inhale, pick the same sign?
+    (rising through the inhale), its peak should sit at the exhale cue. The
+    trough is no use: after a quick passive exhale the chest rests until the
+    next inhale, so trough-to-peak overstates the inhale (0.76 of the cycle for
+    a paced 0.4 on the first real run). The check without cues: does heart
+    rate, which rises on the inhale, pick the same sign?
     """
     from muse_tmr.features.cardio_resp_features import acc_breathing_component, correct_rr
 
@@ -361,15 +365,13 @@ def inhale_exhale_check(
 
     cue_sign = 1.0 if np.interp(inhale_s, phase, acc_wave) >= acc_wave[0] else -1.0
     oriented = cue_sign * acc_wave
-    trough, peak = int(np.argmin(oriented)), int(np.argmax(oriented))
-    rise_fraction = ((peak - trough) % phase.size) / phase.size
+    peak = int(np.argmax(oriented))
     span = float(np.ptp(oriented)) or 1.0
     result.update(
         {
             "cycles": len(cycle_times),
-            "acc_rise_fraction": rise_fraction,
             "acc_peak_s": float(phase[peak]),
-            "acc_trough_s": float(phase[trough]),
+            "acc_peak_after_exhale_cue_s": _wrap(float(phase[peak]) - inhale_s, period_s),
             "acc_amplitude_mg": span,
             "acc_wave": [round(float(value), 4) for value in (oriented - oriented.min()) / span],
         }
@@ -389,6 +391,11 @@ def inhale_exhale_check(
             }
         )
     return result
+
+
+def _wrap(offset_s: float, period_s: float) -> float:
+    """Offset folded into [-period/2, period/2)."""
+    return (offset_s + period_s / 2.0) % period_s - period_s / 2.0
 
 
 # --- H10 unclip ------------------------------------------------------------------
@@ -621,9 +628,7 @@ def _inhale_section(breathing: Sequence[Mapping[str, object]]) -> str:
             [
                 _e(str(segment)),
                 str(check["cycles"]),
-                _fmt(check["expected_inhale_fraction"], 2),
-                _fmt(check.get("acc_rise_fraction"), 2),
-                _fmt(check.get("acc_peak_s"), 1),
+                _fmt(check.get("acc_peak_after_exhale_cue_s"), 1, signed=True),
                 _fmt(check.get("hr_peak_s"), 1),
                 _fmt(check.get("hr_swing_bpm"), 1),
                 _fmt(check.get("acc_hr_correlation"), 2, signed=True),
@@ -634,10 +639,10 @@ def _inhale_section(breathing: Sequence[Mapping[str, object]]) -> str:
     return (
         "<section><h2>Inhale vs exhale</h2>"
         "<p>Chest ACC and heart rate averaged over the paced cycles, from the “inhale” cue. "
-        "Oriented by the cues, the share of the cycle from ACC trough to peak should match the inhale share. "
+        "Oriented by the cues, ACC rises through the inhale, so its peak should sit at the exhale cue. "
         "The last column is the check without cues: heart rate rises on the inhale, so does it pick the same ACC direction?</p>"
         + _table(
-            ["Step", "Cycles", "Inhale share (paced)", "ACC rise share", "ACC peak s", "HR peak s", "HR swing bpm", "r(ACC, HR)", "HR picks inhale"],
+            ["Step", "Cycles", "ACC peak after exhale cue, s", "HR peak s", "HR swing bpm", "r(ACC, HR)", "HR picks inhale"],
             rows,
         )
         + "".join(plots)

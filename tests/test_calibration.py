@@ -199,13 +199,16 @@ class SpeakerTest(unittest.TestCase):
         self.assertEqual(SaySpeaker(voice=None, popen=popen).voice, None)
 
 
-def asymmetric_breathing_session(period_s, inhale_s, seconds=200.0, first_cue_s=5.0, rng=None):
-    """Chest ACC rising for inhale_s and falling for the rest; HR in phase."""
+def asymmetric_breathing_session(period_s, inhale_s, seconds=200.0, first_cue_s=5.0, rng=None, exhale_s=None):
+    """Chest ACC rising for inhale_s and falling for exhale_s (the rest of the cycle
+    by default), resting after that; HR in phase."""
     rng = rng or np.random.default_rng(0)
+    exhale_s = exhale_s or period_s - inhale_s
 
     def wave(t):
         phase = np.mod(t - first_cue_s, period_s)
-        return np.where(phase < inhale_s, phase / inhale_s, 1.0 - (phase - inhale_s) / (period_s - inhale_s))
+        falling = np.clip(1.0 - (phase - inhale_s) / exhale_s, 0.0, 1.0)
+        return np.where(phase < inhale_s, phase / inhale_s, falling)
 
     t = np.arange(0.0, seconds, 1 / 50.0)
     direction = np.array([0.3, -0.8, 0.5]) / np.linalg.norm([0.3, -0.8, 0.5])
@@ -223,15 +226,17 @@ def asymmetric_breathing_session(period_s, inhale_s, seconds=200.0, first_cue_s=
 
 
 class InhaleExhaleTest(unittest.TestCase):
-    def test_rise_share_and_hr_direction(self):
-        for period, inhale in ((10.0, 4.0), (5.0, 2.0)):
-            polar, cycles = asymmetric_breathing_session(period, inhale)
+    def test_acc_peak_at_the_exhale_cue_and_hr_direction(self):
+        # The second shape is the real one: a quick exhale, then the chest rests.
+        for period, inhale, exhale in ((10.0, 4.0, None), (5.0, 2.0, None), (10.0, 4.0, 2.4), (5.0, 2.0, 1.8)):
+            polar, cycles = asymmetric_breathing_session(period, inhale, exhale_s=exhale)
             check = inhale_exhale_check(polar, ORIGIN, cycles, period, inhale)
-            self.assertGreaterEqual(check["cycles"], 15, period)
+            label = (period, exhale)
+            self.assertGreaterEqual(check["cycles"], 15, label)
             self.assertAlmostEqual(check["expected_inhale_fraction"], 0.4)
-            self.assertAlmostEqual(check["acc_rise_fraction"], 0.4, delta=0.07, msg=period)
-            self.assertAlmostEqual(check["acc_peak_s"], inhale, delta=0.1 * period + 0.3, msg=period)
-            self.assertTrue(check["hr_picks_inhale_direction"], period)
+            self.assertAlmostEqual(check["acc_peak_after_exhale_cue_s"], 0.0, delta=0.05 * period + 0.2, msg=label)
+            self.assertAlmostEqual(check["acc_peak_s"], inhale, delta=0.05 * period + 0.2, msg=label)
+            self.assertTrue(check["hr_picks_inhale_direction"], label)
             self.assertGreater(check["hr_swing_bpm"], 2.0)
 
     def test_too_few_cycles(self):
