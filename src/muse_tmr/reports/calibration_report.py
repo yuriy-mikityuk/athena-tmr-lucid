@@ -52,9 +52,10 @@ from muse_tmr.reports.meditation_analysis import (
 )
 from muse_tmr.reports.meditation_report import _PAGE, _e, _fmt, _num, _table
 
-# 2: EMG without the 64 Hz device line; inhale check reports the ACC peak
-# against the exhale cue instead of the trough-to-peak share.
-CALIBRATION_REPORT_SCHEMA_VERSION = 2
+# 2: EMG without the 64 Hz line; inhale check reports the ACC peak against the
+# exhale cue instead of the trough-to-peak share.
+# 3: the line is removed before every metric, so LZC and the entropies change too.
+CALIBRATION_REPORT_SCHEMA_VERSION = 3
 PAIR_LABELS = {"jaw": "Jaw, slight", "forehead": "Forehead, slight", "clench": "Clench pulses", "breathing": "6/min vs 12/min"}
 GROUP_LABELS = (("all", "all"), ("frontal", "AF7/AF8"), ("temporal", "TP9/TP10"))
 _UNSET = MeditationBlock(index=-1, condition="", start_s=0.0, end_s=0.0)

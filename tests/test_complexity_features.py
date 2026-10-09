@@ -18,6 +18,7 @@ from muse_tmr.features.complexity_features import (
     lempel_ziv_complexity,
     lyapunov_rosenstein,
     permutation_entropy,
+    remove_lines,
     sample_entropy,
 )
 from muse_tmr.features.epochs import SleepEpoch
@@ -120,8 +121,42 @@ class ComplexityMetricTest(unittest.TestCase):
         with_line = channel_metrics(base + line, ComplexityConfig())
         self.assertAlmostEqual(with_line["emg_power_55_95"], plain["emg_power_55_95"], delta=0.05 * plain["emg_power_55_95"])
         self.assertAlmostEqual(with_line["emg_high_band_over_floor_db"], plain["emg_high_band_over_floor_db"], delta=0.3)
-        unbridged = channel_metrics(base + line, ComplexityConfig(emg_exclude_hz=()))
-        self.assertGreater(unbridged["emg_power_55_95"], 2.0 * plain["emg_power_55_95"])
+        # Removing the line or bridging over it is each enough; with neither it is
+        # most of the band.
+        for config in (ComplexityConfig(emg_exclude_hz=()), ComplexityConfig(line_hz=())):
+            one = channel_metrics(base + line, config)
+            self.assertAlmostEqual(one["emg_power_55_95"], plain["emg_power_55_95"], delta=0.05 * plain["emg_power_55_95"])
+        neither = channel_metrics(base + line, ComplexityConfig(line_hz=(), emg_exclude_hz=()))
+        self.assertGreater(neither["emg_power_55_95"], 2.0 * plain["emg_power_55_95"])
+
+    def test_line_near_64_hz_is_removed_before_the_metrics(self):
+        # Like AF7 early in the first calibration run: ~3 uV of EEG under a 38 uV
+        # line at 63.93 Hz in sample terms.
+        tolerance = {
+            "sample_entropy": 0.01,
+            "lzc": 0.015,
+            "permutation_entropy": 0.005,
+            "hjorth_mobility": 0.005,
+            "hjorth_complexity": 0.02,
+        }
+        config = ComplexityConfig(lyapunov_enabled=False)
+        for seed in range(3):
+            rng = np.random.default_rng(seed)
+            eeg = 3.0 * pink_noise(self.t.size, 1.0, rng) + 2.0 * np.sin(2 * np.pi * 10.0 * self.t)
+            line = 38.0 * np.sin(2 * np.pi * 63.93 * self.t + seed)
+            plain = channel_metrics(eeg, config)
+            removed = channel_metrics(eeg + line, config)
+            for key, delta in tolerance.items():
+                self.assertAlmostEqual(removed[key], plain[key], delta=delta, msg=(seed, key))
+        kept = channel_metrics(eeg + line, ComplexityConfig(lyapunov_enabled=False, line_hz=()))
+        self.assertLess(kept["sample_entropy"], plain["sample_entropy"] - 0.1)
+
+    def test_remove_lines_takes_out_a_line_and_little_else(self):
+        line = 38.0 * np.sin(2 * np.pi * 63.93 * self.t + 0.4)
+        residual = remove_lines(line, FS, (64.0,), 0.5)
+        self.assertLess(np.std(residual), 0.01 * np.std(line))
+        noise = self.rng.standard_normal(self.t.size)
+        self.assertAlmostEqual(np.var(remove_lines(noise, FS, (64.0,), 0.5)), np.var(noise), delta=0.005 * np.var(noise))
 
     def test_lyapunov_can_be_switched_off(self):
         metrics = channel_metrics(20.0 * self.noise, ComplexityConfig(lyapunov_enabled=False))
