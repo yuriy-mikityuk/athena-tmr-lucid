@@ -98,6 +98,7 @@ class RecordingHandle:
     stop_signalled_at_seconds: Optional[float] = None
     with_polar: bool = False
     meditation: bool = False  # blocks.json from a guided meditation lives in output_dir
+    calibration: bool = False  # a calibration-guide process speaks the protocol along it
 
 
 def _real_launcher(command: List[str], log_path: Path):
@@ -626,6 +627,7 @@ class LocalMuseAppState:
         with_polar: bool = False,
         duration_seconds: Optional[float] = None,
         meditation: bool = False,
+        calibration: bool = False,
     ) -> Tuple[Mapping[str, Any], HTTPStatus]:
         if kind not in RECORDING_KINDS:
             return {"error": "kind must be night or session"}, HTTPStatus.BAD_REQUEST
@@ -653,6 +655,7 @@ class LocalMuseAppState:
                 state="launching",
                 with_polar=bool(with_polar),
                 meditation=meditation,
+                calibration=calibration,
             )
             self._recording = handle
 
@@ -739,12 +742,13 @@ class LocalMuseAppState:
                 handle.state,
                 handle.with_polar,
                 handle.meditation,
+                handle.calibration,
             )
 
         if escalate_pid is not None:
             self._terminator(escalate_pid, signal.SIGKILL)
 
-        (kind, output_dir, log_path, pid, preset, duration, started, state, with_polar, meditation) = snapshot
+        (kind, output_dir, log_path, pid, preset, duration, started, state, with_polar, meditation, calibration) = snapshot
         progress = _read_json_tolerant(output_dir / "progress.json")
         summary = _read_json_tolerant(output_dir / "summary.json")
         summary_available = bool(summary)
@@ -783,6 +787,7 @@ class LocalMuseAppState:
             "report_command": _report_command(output_dir),
             "report": self.report_status(output_dir),
             "meditation": self._meditation_payload(output_dir, progress) if meditation else None,
+            "calibration": self._calibration_payload(output_dir) if calibration else None,
             "started_at_seconds": started,
             "duration_seconds": duration,
             "elapsed_seconds": elapsed,
@@ -988,6 +993,7 @@ class LocalMuseAppState:
         progress = _read_json_tolerant(output_dir / "progress.json")
         live = self._is_live(output_dir)
         meditation = (output_dir / "blocks.json").is_file()
+        calibration = (output_dir / "calibration" / "cues.jsonl").is_file()
         try:
             started = dt.datetime.strptime(output_dir.name[:15], "%Y%m%d_%H%M%S").isoformat()
         except ValueError:
@@ -1004,6 +1010,8 @@ class LocalMuseAppState:
             "meditation": meditation,
             "report": None if live else self.report_status(output_dir),
             "meditation_report": self._meditation_analysis_status(output_dir) if meditation and not live else None,
+            "calibration": calibration,
+            "calibration_report": self._calibration_report_status(output_dir) if calibration and not live else None,
         }
 
     def _project_root(self) -> Path:
@@ -1111,6 +1119,109 @@ class LocalMuseAppState:
             "analysis": self._meditation_analysis_status(output_dir),
         }
 
+    # --- calibration run -----------------------------------------------------
+
+    def start_calibration(self) -> Tuple[Mapping[str, Any], HTTPStatus]:
+        """Voice-guided calibration: a session recording with the H10, plus the guide.
+
+        The guide (``calibration-guide``) waits for the first Muse frame, speaks
+        the protocol through ``say`` and writes the cue log and blocks files into
+        the recording folder. It stops by itself when the recording ends.
+        """
+        from muse_tmr.protocol.calibration import RECORD_SECONDS
+
+        payload, status = self.start_recording(
+            "session", with_polar=True, duration_seconds=RECORD_SECONDS, calibration=True
+        )
+        if status != HTTPStatus.OK:
+            return payload, status
+        output_dir = Path(payload["output_dir"])
+        pid = payload.get("pid")
+
+        def command() -> Tuple[List[str], Path]:
+            argv = [
+                CAFFEINATE,
+                "-i",
+                sys.executable,
+                "-m",
+                "muse_tmr.cli.main",
+                "calibration-guide",
+                str(output_dir.resolve()),
+            ]
+            if pid is not None:
+                argv += ["--recorder-pid", str(pid)]
+            return argv, output_dir / "calibration" / "segments.json"
+
+        guide_payload, guide_status = self._start_job(output_dir, "guide", command, "calibration-guide.log")
+        if guide_status != HTTPStatus.OK:
+            # A calibration run without its voice is no use; do not leave it recording.
+            self.stop_recording()
+            return guide_payload, guide_status
+        return self._recording_payload(), HTTPStatus.OK
+
+    def calibration_protocol(self) -> Dict[str, Any]:
+        from muse_tmr.protocol.calibration import PROTOCOL, PROTOCOL_SECONDS
+
+        return {
+            "protocol_seconds": PROTOCOL_SECONDS,
+            "steps": [
+                {"name": item.name, "label": item.label, "start_s": item.start_s, "end_s": item.end_s}
+                for item in PROTOCOL
+            ],
+        }
+
+    def build_calibration_report(self) -> Tuple[Mapping[str, Any], HTTPStatus]:
+        output_dir, error = self._finished_handle_dir()
+        if error:
+            return error
+        _job, status = self._start_calibration_report(output_dir)
+        return (self._recording_payload(), status) if status == HTTPStatus.OK else (_job, status)
+
+    def calibration_report_for(self, kind: Any, name: Any) -> Tuple[Mapping[str, Any], HTTPStatus]:
+        output_dir, error = self._recording_dir(kind, name)
+        if error:
+            return error
+        payload, status = self._start_calibration_report(output_dir)
+        return (self._recording_entry(output_dir), status) if status == HTTPStatus.OK else (payload, status)
+
+    def _start_calibration_report(self, output_dir: Path) -> Tuple[Mapping[str, Any], HTTPStatus]:
+        def command() -> Tuple[List[str], Path]:
+            if not (output_dir / "calibration" / "cues.jsonl").is_file():
+                raise JobUnavailable("this recording is not a calibration run")
+            report_dir = self._calibration_report_dir(output_dir)
+            return [
+                sys.executable,
+                "-m",
+                "muse_tmr.cli.main",
+                "calibration-report",
+                str(output_dir.resolve()),
+                "--output-dir",
+                str(report_dir.resolve()),
+            ], report_dir / "report.html"
+
+        return self._start_job(output_dir, "calibration_report", command, "calibration-report.log")
+
+    def _calibration_report_dir(self, output_dir: Path) -> Path:
+        return self.reports_base() / "calibration" / output_dir.name
+
+    def _calibration_report_status(self, output_dir: Path) -> Dict[str, Any]:
+        report_dir = self._calibration_report_dir(output_dir)
+        url = f"/reports/{(report_dir / 'report.html').relative_to(self.reports_base()).as_posix()}"
+        return self._job(output_dir, "calibration_report").status(
+            report_dir / "report.html", url, output_dir / "calibration-report.log"
+        )
+
+    def _calibration_payload(self, output_dir: Path) -> Dict[str, Any]:
+        from muse_tmr.protocol.calibration import read_state
+
+        guide = self._job(output_dir, "guide")
+        return {
+            "step": read_state(output_dir),
+            "guide_running": guide.running(),
+            "guide_log": str(output_dir / "calibration-guide.log"),
+            "report": self._calibration_report_status(output_dir),
+        }
+
     def _recordings_base_resolved(self) -> Path:
         if self._recordings_base is not None:
             return self._recordings_base
@@ -1129,6 +1240,7 @@ class LocalMuseAppState:
             "log_path": str(handle.log_path),
             "output_dir": str(handle.output_dir),
             "with_polar": handle.with_polar,
+            "calibration": handle.calibration,
         }
         try:
             handle.output_dir.mkdir(parents=True, exist_ok=True)
@@ -1423,6 +1535,9 @@ class LocalMuseAppHandler(BaseHTTPRequestHandler):
         if path == "/api/recordings":
             self._write_json(self.server.app_state.list_recordings())
             return
+        if path == "/api/calibration/protocol":
+            self._write_json(self.server.app_state.calibration_protocol())
+            return
         if path == "/api/muse/diagnostics":
             self._write_json(self.server.app_state.diagnostics())
             return
@@ -1469,11 +1584,23 @@ class LocalMuseAppHandler(BaseHTTPRequestHandler):
             payload, status = self.server.app_state.save_meditation_rating(self._read_json_body())
             self._write_json(payload, status=status)
             return
-        if self.path in ("/api/recordings/report", "/api/recordings/analyze"):
+        if self.path in ("/api/recordings/report", "/api/recordings/analyze", "/api/recordings/calibration-report"):
             body = self._read_json_body()
             state = self.server.app_state
-            action = state.build_report_for if self.path.endswith("/report") else state.analyze_meditation_for
+            action = {
+                "/api/recordings/report": state.build_report_for,
+                "/api/recordings/analyze": state.analyze_meditation_for,
+                "/api/recordings/calibration-report": state.calibration_report_for,
+            }[self.path]
             payload, status = action(body.get("kind"), body.get("name"))
+            self._write_json(payload, status=status)
+            return
+        if self.path == "/api/calibration/start":
+            payload, status = self.server.app_state.start_calibration()
+            self._write_json(payload, status=status)
+            return
+        if self.path == "/api/calibration/report":
+            payload, status = self.server.app_state.build_calibration_report()
             self._write_json(payload, status=status)
             return
         if self.path == "/api/meditation/analyze":

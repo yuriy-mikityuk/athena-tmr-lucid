@@ -157,9 +157,12 @@ always carries an `emg` section:
 Nyquist is 128 Hz. Above 60 Hz the spectrum is not a flat noise floor: it falls
 with a log-log slope of about -4 down to 95 Hz, the 100 Hz mains harmonic
 stands out above its neighbours, and 55-95 Hz sits about 23 dB above 110-125 Hz.
-So the band carries signal and 55-95 Hz is the default indicator. The steep
-fall-off means it is attenuated by the device's filtering, so the jaw-clench
-check above is still worth doing once.
+So the band carries signal and 55-95 Hz is the default indicator. That only shows
+the band is not empty, not that it tracks the 20-40 Hz part of the EMG that actually
+moves the metrics. `calibration-run` (see `docs/calibration_run.md`) checks that,
+graded: slight jaw tension, slight forehead tension and clench pulses, each against
+the relaxed minutes around it, with the dB change per channel group next to the LZC
+and 1/f shift.
 
 ## Polar H10 breathing and HRV
 

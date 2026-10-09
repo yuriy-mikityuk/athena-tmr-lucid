@@ -64,6 +64,7 @@ def run_fast_tests():
         'tests.test_cardio_resp_features',
         'tests.test_polar_recording',
         'tests.test_night_cardio',
+        'tests.test_calibration',
     ]
     
     for module in fast_modules:

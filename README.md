@@ -87,7 +87,7 @@ Each stage has a runbook in `docs/` and an automated validator, so a failed prec
 
 ## CLI overview
 
-38 commands under one `muse-tmr` entry point. Full invocations with all flags: [`docs/USAGE.md`](docs/USAGE.md).
+41 commands under one `muse-tmr` entry point. Full invocations with all flags: [`docs/USAGE.md`](docs/USAGE.md).
 
 | Group | Commands |
 | ----- | -------- |
@@ -97,7 +97,7 @@ Each stage has a runbook in `docs/` and an automated validator, so a failed prec
 | TLR cues | `create-tlr-cue` · `train-tlr-cue` · `plan-tlr-block` |
 | Puzzle protocol | `import-puzzles` · `record-puzzle-attempt` · `generate-puzzle-session` · `assign-puzzle-cues` · `record-association-check` |
 | Morning & analysis | `record-dream-report` · `record-puzzle-retest` · `analyze-cued-uncued` |
-| Meditation (side track) | `meditation-plan` · `analyze-meditation` · `aggregate-meditation` |
+| Meditation (side track) | `meditation-plan` · `analyze-meditation` · `aggregate-meditation` · `calibration-run` · `calibration-guide` · `calibration-report` |
 | Pilots & validation | `validate-pilot1-recording` · `validate-pilot2-calibration` · `simulate-replay-cues` · `run-pilot4-cueing` · `run-pilot5-full-night` |
 
 ## Quick start

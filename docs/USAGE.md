@@ -424,6 +424,14 @@ muse-tmr aggregate-meditation data/reports/meditation/*/summary.json \
 
 A/B meditation blocks with LZC, entropies, Hjorth, 1/f fits, Lyapunov, band-envelope DFA and an EMG check per session; p-values only across 8+ sessions. Protocol, metric definitions and limitations: `docs/meditation_metrics.md`.
 
+```bash
+muse-tmr calibration-run [--address <muse>] [--polar-address <h10>] [--voice Milena] [--rate 170] [--silent]
+muse-tmr calibration-guide data/recordings/session/<name> [--recorder-pid <pid>]
+muse-tmr calibration-report data/recordings/session/<name> [--output-dir data/reports/calibration/<name>]
+```
+
+A 23 min Muse + H10 recording led by voice (macOS `say`): slight jaw and forehead tension, clench pulses, 6/min and 12/min paced breathing and an H10 unclip. The report gives the EMG dB change per channel group with the LZC and 1/f shift, the three breathing estimates against the known pace, and the H10 reconnect. Also in the setup app as "Calibration run". Details: `docs/calibration_run.md`.
+
 ## Polar H10 companion recording
 
 ```bash

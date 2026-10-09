@@ -93,6 +93,7 @@
           <button type="button" id="start-session-button" class="primary" hidden>Start session</button>
           <button type="button" id="start-night-button" class="primary" hidden>Start night session</button>
           <button type="button" id="start-meditation-button" hidden>Meditation…</button>
+          <button type="button" id="start-calibration-button" hidden>Calibration run…</button>
           <button type="button" id="stop-recording-button" hidden>Stop recording</button>
           <button type="button" id="disconnect-button" hidden>Disconnect</button>
         </div>
@@ -119,6 +120,24 @@
             <button type="button" id="med-cancel">Cancel</button>
           </div>
         </form>
+        <form class="meditation-form" id="calibration-form" hidden>
+          <h2>Calibration run · 23 min, voice-guided</h2>
+          <p class="muted">Muse and Polar H10 together, so put on the chest strap too. The Mac speaks every step (in Russian): keep the volume up, sit, eyes closed. Tension is slight, except the 1 s clenches. One step asks you to open your eyes and unclip the H10 for a minute.</p>
+          <ol class="meditation-blocks" id="calibration-steps"></ol>
+          <p class="form-error" id="calibration-error" role="alert" hidden></p>
+          <div class="form-actions">
+            <button type="submit" class="primary">Start calibration</button>
+            <button type="button" id="calibration-cancel">Cancel</button>
+          </div>
+        </form>
+        <section class="meditation-panel" id="calibration-panel" hidden>
+          <div class="meditation-now" id="calibration-now"></div>
+          <div class="record-report-actions">
+            <button type="button" id="calibration-report-button" hidden>Build calibration report</button>
+            <a id="open-calibration-report" href="#" target="_blank" rel="noopener" hidden>Open calibration report</a>
+            <span class="muted" id="calibration-report-text"></span>
+          </div>
+        </section>
         <section class="meditation-panel" id="meditation-panel" hidden>
           <div class="meditation-now" id="meditation-now"></div>
           <ol class="meditation-blocks" id="meditation-blocks"></ol>
