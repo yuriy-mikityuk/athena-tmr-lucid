@@ -681,6 +681,36 @@ def build_parser() -> argparse.ArgumentParser:
     meditation_aggregate_parser.add_argument("--min-sessions", type=int, default=8)
     meditation_aggregate_parser.add_argument("--seed", type=int, default=0)
 
+    calibration_run_parser = subparsers.add_parser(
+        "calibration-run",
+        help="Voice-guided ~23 min Muse + Polar H10 recording for the EMG and breathing checks.",
+    )
+    calibration_run_parser.add_argument(
+        "--output-dir", type=Path, help="Defaults to data/recordings/session/<timestamp>_calibration/."
+    )
+    calibration_run_parser.add_argument("--address", help="Muse BLE address. If omitted, discovery is used.")
+    calibration_run_parser.add_argument("--polar-address", help="Polar H10 BLE address. If omitted, name discovery is used.")
+    _add_calibration_voice_args(calibration_run_parser)
+
+    calibration_guide_parser = subparsers.add_parser(
+        "calibration-guide",
+        help="Speak the calibration protocol along a recording that is starting (used by the app).",
+    )
+    calibration_guide_parser.add_argument("recording_dir", type=Path)
+    calibration_guide_parser.add_argument(
+        "--recorder-pid", type=int, help="Stop early when this process exits."
+    )
+    _add_calibration_voice_args(calibration_guide_parser)
+
+    calibration_report_parser = subparsers.add_parser(
+        "calibration-report",
+        help="EMG, breathing and H10 report for one calibration-run recording.",
+    )
+    calibration_report_parser.add_argument("recording_dir", type=Path)
+    calibration_report_parser.add_argument(
+        "--output-dir", type=Path, help="Defaults to data/reports/calibration/<recording name>/."
+    )
+
     record_parser = subparsers.add_parser("record", help="Record an overnight Muse session.")
     record_parser.add_argument(
         "--source",
@@ -828,6 +858,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return asyncio.run(_analyze_meditation(args))
     if args.command == "aggregate-meditation":
         return _aggregate_meditation(args)
+    if args.command == "calibration-run":
+        return _calibration_run(args)
+    if args.command == "calibration-guide":
+        return _calibration_guide(args)
+    if args.command == "calibration-report":
+        return asyncio.run(_calibration_report(args))
     if args.command == "record":
         return asyncio.run(_record(args))
     if args.command == "record-polar":
@@ -1267,6 +1303,162 @@ def _aggregate_meditation(args: argparse.Namespace) -> int:
                 f"mean {row['mean_difference']:+.4f} over {row['n_sessions']} sessions{extra}"
             )
     print(f"aggregate written: {output} ({len(result['rows'])} rows, all but the primary are exploratory)")
+    return 0
+
+
+def _add_calibration_voice_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--voice", default="Milena", help="macOS say voice (default: Milena, Russian).")
+    parser.add_argument("--rate", type=int, help="Speech rate in words per minute.")
+    parser.add_argument("--silent", action="store_true", help="Log the cues without speaking them.")
+
+
+def _calibration_speaker(args: argparse.Namespace):
+    from muse_tmr.protocol.calibration import SaySpeaker, SilentSpeaker, available_voices
+
+    if args.silent:
+        return SilentSpeaker()
+    voices = available_voices()
+    if not voices:
+        raise SystemExit("macOS `say` is not available here; use --silent to run without a voice.")
+    voice = args.voice
+    if voice and voice not in voices:
+        russian = ", ".join(sorted({name for name in voices if name in ("Milena", "Yuri", "Katya")})) or "none installed"
+        print(f"voice {voice} is not installed, using the system voice (Russian voices here: {russian})")
+        voice = None
+    return SaySpeaker(voice=voice, rate=args.rate)
+
+
+def _calibration_run(args: argparse.Namespace) -> int:
+    import shutil
+    import subprocess
+
+    from muse_tmr.protocol.calibration import PROTOCOL, PROTOCOL_SECONDS, RECORD_SECONDS, run_guide
+
+    speaker = _calibration_speaker(args)
+    if args.output_dir is not None:
+        output_dir = _resolve_output_dir(args.output_dir)
+    else:
+        stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = _default_path_base() / "data" / "recordings" / "session" / f"{stamp}_calibration"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    command = [
+        sys.executable, "-m", "muse_tmr.cli.main", "record",
+        "--source", "amused",
+        "--preset", "p1034",
+        "--duration-seconds", f"{RECORD_SECONDS:g}",
+        "--duration-from-first-frame",
+        "--no-data-timeout-seconds", "45",
+        "--max-reconnect-attempts", "1000",
+        "--output-dir", str(output_dir),
+        "--quiet",
+        "--allow-short",
+        "--with-polar",
+    ]  # fmt: skip
+    if args.address:
+        command += ["--address", args.address]
+    if args.polar_address:
+        command += ["--polar-address", args.polar_address]
+    if shutil.which("caffeinate"):
+        # Keep the Mac awake for the whole run, on battery too.
+        command = ["caffeinate", "-i", "-s", *command]
+
+    print(f"calibration run: {output_dir}")
+    print(f"{PROTOCOL_SECONDS / 60:.0f} min from the first Muse frame. Put on the Muse and the H10, sit, eyes closed.")
+    for segment in PROTOCOL:
+        print(f"  {segment.start_s / 60:4.1f}-{segment.end_s / 60:4.1f} min  {segment.label}")
+    print("Connecting to the Muse and the H10 (if the setup app is connected to the Muse, press Disconnect there).")
+    with (output_dir / "record.log").open("ab") as log_file:
+        # Own process group: Ctrl-C reaches only this command, which then stops
+        # the recorder (caffeinate + python) with one clean SIGINT.
+        recorder = subprocess.Popen(
+            command, stdin=subprocess.DEVNULL, stdout=log_file, stderr=subprocess.STDOUT, start_new_session=True
+        )
+    result = None
+    try:
+        result = run_guide(output_dir, speaker, recorder_alive=lambda: recorder.poll() is None, log=print)
+    finally:
+        if recorder.poll() is None and (result is None or result.stop_reason != "completed"):
+            try:
+                os.killpg(recorder.pid, signal.SIGINT)
+            except (ProcessLookupError, PermissionError):
+                pass
+        # The Muse summary comes first, then the recorder stops the H10 streams.
+        deadline = time.monotonic() + RECORD_SECONDS + 120.0
+        while recorder.poll() is None and time.monotonic() < deadline:
+            try:
+                recorder.wait(timeout=1.0)
+            except subprocess.TimeoutExpired:
+                continue
+            except KeyboardInterrupt:
+                print("still stopping the recorder (it stops the H10 streams first)...")
+    print(f"guide: {result.stop_reason if result else 'interrupted'}, recorder exit code {recorder.returncode}")
+    if result and result.blocks_files:
+        print("blocks files: " + ", ".join(sorted(result.blocks_files)))
+    print(f"next: muse-tmr calibration-report {output_dir}")
+    return 0 if result and result.stop_reason == "completed" else 1
+
+
+def _calibration_guide(args: argparse.Namespace) -> int:
+    from muse_tmr.protocol.calibration import run_guide
+
+    def interrupt(_signum, _frame):
+        raise KeyboardInterrupt
+
+    # The app may terminate the guide; finish the cue log and blocks files first.
+    signal.signal(signal.SIGTERM, interrupt)
+    pid = args.recorder_pid
+
+    def recorder_alive() -> bool:
+        if pid is None:
+            return True
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    recording_dir = args.recording_dir.expanduser().resolve()
+    result = run_guide(
+        recording_dir,
+        _calibration_speaker(args),
+        recorder_alive=recorder_alive,
+        log=lambda message: print(message, flush=True),
+    )
+    print(f"guide finished: {result.stop_reason}, {result.cues_spoken} cues, pairs: {', '.join(sorted(result.blocks_files)) or 'none'}")
+    return 0 if result.stop_reason in ("completed", "recording_ended") else 1
+
+
+async def _calibration_report(args: argparse.Namespace) -> int:
+    from muse_tmr.reports.calibration_report import build_calibration_report
+
+    recording_dir = args.recording_dir.expanduser().resolve()
+    output_dir = (
+        _resolve_output_dir(args.output_dir)
+        if args.output_dir is not None
+        else _default_path_base() / "data" / "reports" / "calibration" / recording_dir.name
+    )
+    started = time.monotonic()
+    report = await build_calibration_report(recording_dir)
+    paths = report.write(output_dir)
+    print(f"calibration report written: {paths['report']} ({time.monotonic() - started:.1f} s)")
+    for name, pair in report.summary["pairs"].items():
+        if "error" in pair:
+            print(f"  {name}: {pair['error']}")
+            continue
+        item = pair["variants"]["all"]
+        print(
+            f"  {name:9s} 55-95 dB AF {item['emg_55_95_db']['frontal']:+.1f} TP {item['emg_55_95_db']['temporal']:+.1f}"
+            f" | 30-45 dB AF {item['emg_30_45_db']['frontal']:+.1f} TP {item['emg_30_45_db']['temporal']:+.1f}"
+            f" | dLZC {item['lzc_all']:+.3f} d1/f(2-40) {item['aperiodic_exponent_2_40_all']:+.2f}"
+        )
+    for item in report.summary["breathing"]:
+        estimates = item["estimates_bpm"]
+        print(
+            f"  {item['segment']}: paced {item['known_rate_bpm']:.0f}/min, ACC spectral {estimates['acc_spectral']:.1f},"
+            f" breath-by-breath {estimates['acc_breath']:.1f}, ECG-derived {estimates['edr']:.1f}"
+        )
     return 0
 
 

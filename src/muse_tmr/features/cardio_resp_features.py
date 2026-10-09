@@ -203,18 +203,11 @@ def respiration_from_acc(
     """
     config = config or CardioRespConfig()
     times = np.asarray(times_s, dtype=float)
-    xyz = np.asarray(xyz_mg, dtype=float)
     fs = config.respiration_resample_hz
     nan = {"rate_spectral_bpm": math.nan, "rate_breath_bpm": math.nan, "breaths": 0.0, "seconds": 0.0}
     if times.size < 10 or times[-1] - times[0] < config.respiration_min_seconds:
         return {**nan, "seconds": float(times[-1] - times[0]) if times.size else 0.0}
-    grid = np.arange(times[0], times[-1], 1.0 / fs)
-    resampled = np.column_stack([np.interp(grid, times, xyz[:, axis]) for axis in range(xyz.shape[1])])
-    centered = resampled - resampled.mean(axis=0)
-    sos = butter(2, config.respiration_band_hz, btype="bandpass", fs=fs, output="sos")
-    filtered = sosfiltfilt(sos, centered, axis=0)
-    _values, vectors = np.linalg.eigh(np.cov(filtered.T))
-    component = filtered @ vectors[:, -1]
+    grid, component, centered = _acc_component(times, np.asarray(xyz_mg, dtype=float), config)
     rates = _respiration_rates(component, fs, config)
 
     slow = sosfiltfilt(butter(2, config.respiration_band_hz[1], btype="lowpass", fs=fs, output="sos"), centered, axis=0)
@@ -234,6 +227,35 @@ def respiration_from_acc(
         "posture_change_pct": posture_pct,
         "quality": quality,
     }
+
+
+def acc_breathing_component(
+    times_s: np.ndarray,
+    xyz_mg: np.ndarray,
+    config: Optional[CardioRespConfig] = None,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """(uniform time grid, breathing component in mG) from chest acceleration.
+
+    The first principal component of the band-passed axes. Its sign is
+    arbitrary: which direction is inhaling depends on how the strap sits.
+    """
+    config = config or CardioRespConfig()
+    times = np.asarray(times_s, dtype=float)
+    if times.size < 10:
+        return np.array([]), np.array([])
+    grid, component, _centered = _acc_component(times, np.asarray(xyz_mg, dtype=float), config)
+    return grid, component
+
+
+def _acc_component(times: np.ndarray, xyz: np.ndarray, config: CardioRespConfig):
+    fs = config.respiration_resample_hz
+    grid = np.arange(times[0], times[-1], 1.0 / fs)
+    resampled = np.column_stack([np.interp(grid, times, xyz[:, axis]) for axis in range(xyz.shape[1])])
+    centered = resampled - resampled.mean(axis=0)
+    sos = butter(2, config.respiration_band_hz, btype="bandpass", fs=fs, output="sos")
+    filtered = sosfiltfilt(sos, centered, axis=0)
+    _values, vectors = np.linalg.eigh(np.cov(filtered.T))
+    return grid, filtered @ vectors[:, -1], centered
 
 
 def respiration_from_ecg(

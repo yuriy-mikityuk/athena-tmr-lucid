@@ -1116,6 +1116,84 @@ class TestLocalMuseAppRecentRecordings(TestLocalMuseAppReport):
         self.assertIsNone(entry["report"])
 
 
+class TestLocalMuseAppCalibration(TestLocalMuseAppReport):
+    def test_start_records_with_the_h10_and_launches_the_voice_guide(self):
+        from muse_tmr.protocol.calibration import RECORD_SECONDS
+
+        payload, status = self.state.start_calibration()
+        self.assertEqual(int(status), 200)
+        recorder, _proc = self.procs[0]
+        self.assertIn("--with-polar", recorder)
+        self.assertIn("--duration-from-first-frame", recorder)
+        self.assertEqual(recorder[recorder.index("--duration-seconds") + 1], f"{RECORD_SECONDS:g}")
+        output_dir = Path(payload["output_dir"])
+        guide, _guide_proc = self.procs[1]
+        self.assertEqual(
+            guide,
+            [CAFFEINATE, "-i", sys.executable, "-m", "muse_tmr.cli.main", "calibration-guide",
+             str(output_dir.resolve()), "--recorder-pid", "5000"],
+        )
+        self.assertTrue(payload["calibration"]["guide_running"])
+        self.assertIsNone(payload["calibration"]["step"])
+        self.assertIsNone(payload["meditation"])
+        self.assertFalse(self.state.idle_for_update())
+
+        (output_dir / "calibration" / "state.json").write_text(
+            json.dumps({"state": "running", "label": "Jaw", "step": 3, "steps": 12, "start_s": 180, "end_s": 300})
+        )
+        self.assertEqual(self.state.ui_state()["recording"]["calibration"]["step"]["label"], "Jaw")
+        self.assertTrue(json.loads((output_dir / "launch.json").read_text())["calibration"])
+
+    def test_guide_that_cannot_start_stops_the_recording(self):
+        original = self.state._launcher
+
+        def launcher(command, log_path):
+            if "calibration-guide" in command:
+                raise OSError("no python")
+            return original(command, log_path)
+
+        self.state._launcher = launcher
+        _payload, status = self.state.start_calibration()
+        self.assertEqual(int(status), 500)
+        self.assertEqual(self.state._terminator.signals, [(5000, signal.SIGINT)])
+
+    def test_report_for_a_finished_run(self):
+        payload, _ = self.state.start_calibration()
+        output_dir = Path(payload["output_dir"])
+        _payload, status = self.state.build_calibration_report()
+        self.assertEqual(int(status), 409)  # still recording
+        (output_dir / "calibration" / "cues.jsonl").write_text('{"kind": "segment", "segment": "settle", "elapsed_s": 0.0}\n')
+        (output_dir / "summary.json").write_text(json.dumps({"stop_reason": "duration_complete"}))
+        for _command, proc in self.procs:
+            proc.returncode = 0
+
+        payload, status = self.state.build_calibration_report()
+        self.assertEqual(int(status), 200)
+        command, report_proc = self.procs[2]
+        report_dir = (self.reports / "calibration" / output_dir.name).resolve()
+        self.assertEqual(command[1:4], ["-m", "muse_tmr.cli.main", "calibration-report"])
+        self.assertEqual(command[4:], [str(output_dir.resolve()), "--output-dir", str(report_dir)])
+        self.assertEqual(payload["calibration"]["report"]["state"], "running")
+
+        (report_dir / "report.html").write_text("<html>ok</html>")
+        report_proc.returncode = 0
+        entry = self.state.list_recordings()["recordings"][0]
+        self.assertTrue(entry["calibration"])
+        self.assertEqual(entry["calibration_report"]["url"], f"/reports/calibration/{output_dir.name}/report.html")
+
+    def test_report_needs_a_calibration_run(self):
+        self.finish_recording()
+        name = self.state.list_recordings()["recordings"][0]["name"]
+        _payload, status = self.state.calibration_report_for("session", name)
+        self.assertEqual(int(status), 409)
+        self.assertFalse(self.state.list_recordings()["recordings"][0]["calibration"])
+
+    def test_protocol_steps_for_the_form(self):
+        protocol = self.state.calibration_protocol()
+        self.assertEqual(protocol["protocol_seconds"], 1380)
+        self.assertEqual(protocol["steps"][2]["label"], "Jaw slightly tense, teeth lightly touching")
+
+
 class TestLocalMuseAppRecordingEndpoint(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()

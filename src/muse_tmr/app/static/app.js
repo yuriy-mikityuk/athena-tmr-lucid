@@ -23,6 +23,14 @@ const meditationBlocks = document.querySelector("#meditation-blocks");
 const analyzeMeditationButton = document.querySelector("#analyze-meditation-button");
 const openMeditationReport = document.querySelector("#open-meditation-report");
 const meditationAnalysisText = document.querySelector("#meditation-analysis-text");
+const startCalibrationButton = document.querySelector("#start-calibration-button");
+const calibrationForm = document.querySelector("#calibration-form");
+const calibrationSteps = document.querySelector("#calibration-steps");
+const calibrationPanel = document.querySelector("#calibration-panel");
+const calibrationNow = document.querySelector("#calibration-now");
+const calibrationReportButton = document.querySelector("#calibration-report-button");
+const openCalibrationReport = document.querySelector("#open-calibration-report");
+const calibrationReportText = document.querySelector("#calibration-report-text");
 const stopRecordingButton = document.querySelector("#stop-recording-button");
 const disconnectButton = document.querySelector("#disconnect-button");
 const recordHint = document.querySelector("#record-hint");
@@ -197,8 +205,10 @@ function renderActions() {
   startSessionButton.hidden = !canRecord;
   startNightButton.hidden = !canRecord;
   startMeditationButton.hidden = !(canRecord && isAmused);
+  startCalibrationButton.hidden = !(canRecord && isAmused);
   if (!canRecord) {
     meditationForm.hidden = true;
+    calibrationForm.hidden = true;
   }
   polarOption.hidden = !(canRecord && isAmused);
   stopRecordingButton.hidden = !(
@@ -210,6 +220,7 @@ function renderActions() {
   startSessionButton.disabled = !recordEnabled;
   startNightButton.disabled = !recordEnabled;
   startMeditationButton.disabled = !recordEnabled;
+  startCalibrationButton.disabled = !recordEnabled;
 
   connectButton.classList.toggle("primary", connection !== "connected");
   connectButton.disabled = connection === "connecting";
@@ -456,6 +467,7 @@ function renderRecording(recording) {
   }
 
   renderMeditation(latestRecording);
+  renderCalibration(latestRecording);
   renderActions();
 }
 
@@ -887,6 +899,99 @@ analyzeMeditationButton.addEventListener("click", async () => {
   }
 });
 
+// --- calibration run -----------------------------------------------------------
+
+function minutesClock(seconds) {
+  const value = Math.max(0, Math.round(Number(seconds) || 0));
+  return `${Math.floor(value / 60)}:${pad(value % 60)}`;
+}
+
+function renderCalibration(recording) {
+  const calibration = recording.calibration;
+  calibrationPanel.hidden = !calibration;
+  if (!calibration) {
+    return;
+  }
+  const active = Boolean(recording.active);
+  const step = calibration.step || {};
+  if (active) {
+    if (step.state === "running" && step.label) {
+      calibrationNow.textContent = `Step ${step.step} of ${step.steps} · ${step.label} · ${minutesClock(step.start_s)}–${minutesClock(step.end_s)}`;
+    } else if (step.state === "done") {
+      calibrationNow.textContent = "All steps done; the recording is finishing.";
+    } else {
+      calibrationNow.textContent = "Waiting for the first headband data, then the voice starts.";
+    }
+    if (!calibration.guide_running && step.state !== "done") {
+      calibrationNow.textContent += ` The voice guide is not running, see ${calibration.guide_log}.`;
+    }
+  } else {
+    calibrationNow.textContent =
+      step.state === "done" ? "Calibration run finished." : `Calibration run stopped at step ${step.step || "?"}.`;
+  }
+  const report = calibration.report || { state: "none" };
+  const finished = !active && recording.state === "completed";
+  calibrationReportButton.hidden = !finished || report.state === "ready";
+  calibrationReportButton.disabled = report.state === "running";
+  calibrationReportButton.textContent = report.state === "failed" ? "Build again" : "Build calibration report";
+  openCalibrationReport.hidden = !(report.state === "ready" && report.url);
+  if (report.url) {
+    openCalibrationReport.href = report.url;
+  }
+  calibrationReportText.textContent =
+    report.state === "running"
+      ? "Building (a minute or two)..."
+      : report.state === "failed"
+      ? `Report failed, see ${report.log_path}`
+      : "";
+}
+
+startCalibrationButton.addEventListener("click", async () => {
+  calibrationForm.hidden = !calibrationForm.hidden;
+  if (calibrationForm.hidden || calibrationSteps.childElementCount) {
+    return;
+  }
+  try {
+    const protocol = await requestJson("/api/calibration/protocol");
+    (protocol.steps || []).forEach((step) => {
+      const item = document.createElement("li");
+      item.className = "upcoming";
+      item.textContent = `${minutesClock(step.start_s)}–${minutesClock(step.end_s)} · ${step.label}`;
+      calibrationSteps.appendChild(item);
+    });
+  } catch (error) {
+    calibrationSteps.textContent = `Could not load the steps: ${error.message}`;
+  }
+});
+
+document.querySelector("#calibration-cancel").addEventListener("click", () => {
+  calibrationForm.hidden = true;
+});
+
+calibrationForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const formError = document.querySelector("#calibration-error");
+  const response = await fetch("/api/calibration/start", { method: "POST" });
+  if (response.ok) {
+    calibrationForm.hidden = true;
+    formError.hidden = true;
+  } else {
+    const payload = await response.json().catch(() => ({}));
+    formError.hidden = false;
+    formError.textContent = payload.error || `${response.status} ${response.statusText}`;
+  }
+  await refreshUiState();
+});
+
+calibrationReportButton.addEventListener("click", async () => {
+  calibrationReportButton.disabled = true;
+  try {
+    await requestJson("/api/calibration/report", { method: "POST" });
+  } finally {
+    await refreshUiState();
+  }
+});
+
 // --- recent recordings ------------------------------------------------------------
 
 const historyPanel = document.querySelector("#history-panel");
@@ -920,7 +1025,8 @@ function renderHistory(recordings) {
       minutes == null ? null : `${Math.round(minutes / 60)} min`,
       recording.live ? "recording now" : recording.stop_reason ? String(recording.stop_reason).replaceAll("_", " ") : "no summary",
       recording.with_polar ? "H10" : null,
-      recording.meditation ? "meditation" : null
+      recording.meditation ? "meditation" : null,
+      recording.calibration ? "calibration" : null
     ]
       .filter(Boolean)
       .join(" · ");
@@ -931,6 +1037,17 @@ function renderHistory(recordings) {
       if (recording.meditation) {
         links.append(
           jobControl(recording, recording.meditation_report, "Meditation report", "Analyze meditation", "/api/recordings/analyze")
+        );
+      }
+      if (recording.calibration) {
+        links.append(
+          jobControl(
+            recording,
+            recording.calibration_report,
+            "Calibration report",
+            "Build calibration report",
+            "/api/recordings/calibration-report"
+          )
         );
       }
     }

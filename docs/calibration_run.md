@@ -1,0 +1,103 @@
+# Calibration run: muscle tension, paced breathing, H10 unclip
+
+One ~23 minute recording with the Muse and a Polar H10 that checks three things the
+meditation analysis leans on:
+
+- whether the 55-95 Hz EMG indicator tracks muscle tension that actually moves the
+  EEG metrics (LZC, 1/f slope), at the slight tension a meditation contrast would have;
+- which of the three breathing-rate estimates (ACC spectral, ACC breath-by-breath,
+  ECG-derived) is right, against a known pace;
+- whether the H10 reconnects after the sensor is taken off the strap.
+
+It is done with eyes closed, so the Mac leads it by voice (macOS `say`, Russian voice
+Milena by default) and logs when every cue was actually spoken. The blocks files for
+the analysis are cut from those logged times, not from the plan.
+
+## Running it
+
+In the setup app: connect the Muse, wait for good contact, put on the H10 strap, then
+**Calibration run…** → **Start calibration**. The recording strip shows the current step
+and the H10 status. When it is done, **Build calibration report** (also in Recent
+recordings).
+
+From a terminal (press Disconnect in the app first, the Muse takes one connection):
+
+```bash
+muse-tmr calibration-run [--address <muse>] [--polar-address <h10>] [--voice Milena] [--rate 170]
+muse-tmr calibration-report data/recordings/session/<timestamp>_calibration
+```
+
+Ctrl-C stops the voice and the recording cleanly; the steps finished so far are kept.
+`calibration-guide <recording>` is the voice part alone, which the app runs next to its
+own recording.
+
+## Protocol
+
+Minutes from the first Muse frame:
+
+| Time | Step |
+| ---- | ---- |
+| 0-1 | settle in, eyes closed |
+| 1-3 | relaxed |
+| 3-5 | jaw slightly tense, teeth lightly touching |
+| 5-7 | relaxed |
+| 7-9 | forehead slightly tense, brows a little up |
+| 9-11 | relaxed |
+| 11-12 | clench for 1 s every 3 s, on the voice |
+| 12-13 | relaxed |
+| 13-16 | paced breathing 6/min: in 4 s, out 6 s |
+| 16-19 | paced breathing 12/min: in 2 s, out 3 s |
+| 19-20 | eyes open, unclip the H10 from the strap |
+| 20-23 | H10 back on, eyes closed, sit still |
+
+The recording runs 20 s past the end so the last epoch is complete.
+
+## What gets written
+
+In the recording folder, under `calibration/`:
+
+- `plan.json`: the protocol as run.
+- `cues.jsonl`: every cue with its planned time and the time it was spoken
+  (`elapsed_s`, seconds from the first Muse frame).
+- `segments.json`: actual start and end of each step, paced cycle starts, stop reason.
+- `blocks_jaw.json`, `blocks_forehead.json`, `blocks_clench.json`: one
+  analyze-meditation blocks file per tension step, contrast tension - relaxed. Each
+  tension step is compared with relaxed windows of its own length right before and
+  after it, so linear drift cancels (same idea as the ABBA order in meditation plans).
+- `blocks_breathing.json`: 6/min vs 12/min.
+- `state.json`: the current step, for the app.
+
+These are personal recordings: keep them out of git like the rest of `data/`.
+
+## The report
+
+`calibration-report` writes `data/reports/calibration/<name>/report.html` plus
+`summary.json`, and a full meditation report per pair in subfolders. Epochs are 10 s and
+the first 10 s of each step are skipped (tension starts right after the instruction).
+
+- **Muscle tension**: per step, the 55-95 Hz and 30-45 Hz power change in dB on AF7/AF8
+  and TP9/TP10, and the shift in all-channel LZC and the 1/f exponent (2-40 and 2-20 Hz),
+  for all epochs and for clean ones (artifact flags can drop exactly the tense epochs).
+  The jaw should show on TP9/TP10 (temporalis), the forehead on AF7/AF8 (frontalis).
+  The question is whether 55-95 Hz rises clearly at the slight levels while LZC and the
+  slope move; 30-45 Hz is the EMG that overlaps the EEG metrics, 55-95 Hz only its proxy.
+- **55-95 Hz over the run**: per-epoch power with the tension steps shaded; the first
+  minutes show how long the muscles take to settle.
+- **Breathing against a known pace**: the three estimates and their error on the paced
+  steps, skipping the first 10 s after the first cue.
+- **Inhale vs exhale**: chest ACC and heart rate averaged over the paced cycles from the
+  "inhale" cue. Oriented by the cues, the share of the cycle from ACC trough to peak
+  should match the inhale share (0.4 in both paced steps). Heart rate rises on the
+  inhale, so the last column checks whether HR alone picks the same ACC direction; if
+  it does, inhale and exhale can be told apart without cues.
+- **H10 unclip**: when skin contact was lost and came back, Bluetooth disconnects and
+  reconnects, the longest ECG gap, and the ECG rate in the last minute.
+
+## Limitations
+
+- One run is one person on one day. It calibrates the indicator for this headband and
+  this face, it does not validate it in general.
+- Tension levels are self-produced and only roughly graded ("slight" vs 1 s clenches).
+- Paced breathing is followed by ear; the first cycles and late reactions blur the
+  inhale share a little.
+- The voice is Russian; another `--voice` works, but the instructions stay Russian.
