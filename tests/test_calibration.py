@@ -262,7 +262,23 @@ class H10UnclipTest(unittest.TestCase):
         self.assertEqual((h10["contact_lost_s"], h10["contact_back_s"]), (445.0, 495.0))
         self.assertAlmostEqual(h10["ecg_gap"]["seconds"], 40.0, delta=0.05)
         self.assertAlmostEqual(h10["ecg_rate_last_minute_hz"], 130.0, delta=1.0)
+        self.assertFalse(h10["ecg_gap"]["until_end"])
         self.assertFalse(_h10_unclip(polar, events, ORIGIN, segments[1:])["available"])
+
+    def test_ecg_that_never_comes_back_is_a_gap_to_the_end(self):
+        ecg_t = np.arange(0.0, 452.0, 1 / 130.0)
+        polar = SimpleNamespace(ecg=pd.DataFrame({"time": ORIGIN + ecg_t, "uv": 0.0}), hr=None)
+        segments = [
+            {"name": "h10_off", "start_s": 440.0, "end_s": 470.0},
+            {"name": "h10_back", "start_s": 470.0, "end_s": 600.0},
+        ]
+        h10 = _h10_unclip(polar, [], ORIGIN, segments)
+        self.assertTrue(h10["ecg_gap"]["until_end"])
+        self.assertAlmostEqual(h10["ecg_gap"]["seconds"], 148.0, delta=0.05)
+        self.assertEqual(h10["ecg_rate_last_minute_hz"], 0.0)
+        page = render_calibration_report({"h10": h10, "segments": [], "pairs": {}})
+        self.assertIn("did not come back before the end", page)
+        self.assertNotIn("kept streaming", page)
 
 
 # A time-compressed copy of the protocol with the same step names.

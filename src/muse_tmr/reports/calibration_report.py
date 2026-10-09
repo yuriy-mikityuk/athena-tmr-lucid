@@ -410,12 +410,18 @@ def _h10_unclip(polar, events: Sequence[Mapping[str, object]], origin: float, se
     ]
     ecg_times = polar.ecg["time"].to_numpy(dtype=float) - origin if polar.ecg is not None and len(polar.ecg) else np.array([])
     in_window = ecg_times[(ecg_times >= start) & (ecg_times <= end)]
+    # The window edges count too: ECG that never came back is a gap up to the end.
+    points = np.concatenate(([start], in_window, [end]))
+    steps = np.diff(points)
+    index = int(np.argmax(steps))
     gap = None
-    if in_window.size >= 2:
-        steps = np.diff(in_window)
-        index = int(np.argmax(steps))
-        if steps[index] > 1.0:
-            gap = {"from_s": float(in_window[index]), "to_s": float(in_window[index + 1]), "seconds": float(steps[index])}
+    if steps[index] > 1.0:
+        gap = {
+            "from_s": float(points[index]),
+            "to_s": float(points[index + 1]),
+            "seconds": float(steps[index]),
+            "until_end": bool(index + 1 == points.size - 1),
+        }
     contact_lost_s = contact_back_s = None
     if polar.hr is not None and len(polar.hr):
         hr = polar.hr.assign(elapsed=polar.hr["time"] - origin)
@@ -687,7 +693,9 @@ def _h10_section(h10: Mapping[str, object]) -> str:
     if h10.get("contact_lost_s") is not None:
         parts.append(f"Skin contact lost at {at(h10['contact_lost_s'])}, back at {at(h10.get('contact_back_s'))}.")
     parts.append(f"Bluetooth: {h10.get('disconnects', 0)} disconnect(s), {h10.get('reconnects', 0)} reconnect(s).")
-    if gap:
+    if gap and gap.get("until_end"):
+        parts.append(f"ECG stopped at {at(gap['from_s'])} and did not come back before the end.")
+    elif gap:
         parts.append(f"Longest ECG gap {_fmt(gap['seconds'], 0)} s ({at(gap['from_s'])}–{at(gap['to_s'])}).")
     else:
         parts.append("No ECG gap over 1 s: the strap kept streaming.")

@@ -1395,7 +1395,8 @@ def _calibration_run(args: argparse.Namespace) -> int:
     if result and result.blocks_files:
         print("blocks files: " + ", ".join(sorted(result.blocks_files)))
     print(f"next: muse-tmr calibration-report {output_dir}")
-    return 0 if result and result.stop_reason == "completed" else 1
+    ok = result is not None and result.stop_reason == "completed" and recorder.returncode == 0
+    return 0 if ok else 1
 
 
 def _calibration_guide(args: argparse.Namespace) -> int:
