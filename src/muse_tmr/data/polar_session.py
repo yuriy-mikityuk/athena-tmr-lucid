@@ -15,8 +15,9 @@ Muse replay timestamps are host wall-clock, so Polar data is mapped there too:
    estimate, uncertain by up to about a second.
 
 With the electrodes off the skin the H10 keeps sending ECG and even RR, all
-noise. RR beats around the spans it reports no contact are dropped, and R-peaks
-are searched only in the ECG outside them.
+noise. RR beats around the spans it reports no contact, or where the ECG itself
+swings rail to rail, are dropped, and R-peaks are searched only in the ECG
+outside them.
 
 Chest acceleration stays its own table; it is not head IMU and never goes into
 MuseFrame.imu.
@@ -66,25 +67,37 @@ class ClockMapping:
         }
 
 
-CLOCK_JUMP_SECONDS = 30.0
+CLOCK_JUMP_SECONDS = 10.0
+# ECG and ACC frames interleave, so their end times may step back a little.
+CLOCK_BACKWARD_SECONDS = 1.0
+# A crystal drifts tens of ppm. A fit far beyond that means the run mixes two
+# clocks or has too few points; the offset alone is safer then.
+MAX_DRIFT = 1e-3
 
 
 def split_clock_segments(frames: Sequence[dict]) -> List[List[dict]]:
     """Group PMD frame rows (receive order) into runs of one sensor clock.
 
     Receive time minus sensor time only moves by drift (~2 s over 8 h at
-    70 ppm) and BLE delay; a jump beyond CLOCK_JUMP_SECONDS means the sensor
-    clock was reset or changed.
+    70 ppm) and BLE delay. A jump beyond CLOCK_JUMP_SECONDS, or sensor time
+    going back, means the sensor clock was reset: an H10 that loses power
+    restarts it from its default time. Two power-ups 25 s apart (a battery put
+    back and the cover closed) moved the offset by only 25 s, so the jump alone
+    is not enough.
     """
     ordered = sorted(frames, key=lambda row: row["host_mono"])
     segments: List[List[dict]] = []
-    previous_offset = None
+    previous_offset = previous_sensor = None
     for row in ordered:
-        offset = row["host_mono"] - row["sensor_ns"] / 1e9
-        if previous_offset is None or abs(offset - previous_offset) > CLOCK_JUMP_SECONDS:
+        sensor = row["sensor_ns"] / 1e9
+        offset = row["host_mono"] - sensor
+        reset = previous_offset is None or (
+            abs(offset - previous_offset) > CLOCK_JUMP_SECONDS or sensor < previous_sensor - CLOCK_BACKWARD_SECONDS
+        )
+        if reset:
             segments.append([])
         segments[-1].append(row)
-        previous_offset = offset
+        previous_offset, previous_sensor = offset, sensor
     return segments
 
 
@@ -114,7 +127,7 @@ def fit_clock_mapping(sensor_s: Sequence[float], host_s: Sequence[float]) -> Clo
             bounds=[(None, None), (None, None)],
             method="highs",
         )
-        if result.success:
+        if result.success and abs(float(result.x[1]) / scale) <= MAX_DRIFT:
             offset, drift = float(result.x[0]), float(result.x[1]) / scale
         else:
             offset, drift = float(np.min(y)), 0.0
@@ -163,9 +176,43 @@ def no_contact_spans(
     if start is not None:
         last = float(hr["time"].iloc[-1])
         spans.append((float(start - lead_s), max(last, end_of_data if end_of_data is not None else last) + tail_s))
+    return merge_spans(spans)
+
+
+# Normal seconds peaked at 1200-1900 µV around the median on three sessions
+# (p99.9 3800 on a quiet night); off the skin, unclipping or with the battery
+# being pulled the ECG reached 10000-19600. The contact flag missed the battery
+# pull entirely: the H10 lost power before it reported anything.
+ECG_NOISE_UV = 4000.0
+ECG_NOISE_LEAD_SECONDS = 5.0
+ECG_NOISE_TAIL_SECONDS = 15.0
+# Noise a few seconds apart is one episode; the beats between were garbage too.
+ECG_NOISE_JOIN_SECONDS = 10.0
+
+
+def noisy_ecg_spans(
+    ecg: pd.DataFrame,
+    threshold_uv: float = ECG_NOISE_UV,
+    lead_s: float = ECG_NOISE_LEAD_SECONDS,
+    tail_s: float = ECG_NOISE_TAIL_SECONDS,
+) -> List[Tuple[float, float]]:
+    """Wall-clock spans around seconds of ECG swinging further than any QRS."""
+    if ecg.empty:
+        return []
+    times = ecg["time"].to_numpy(dtype=float)
+    values = ecg["uv"].to_numpy(dtype=float)
+    seconds = np.floor(times - times[0]).astype(np.int64)
+    frame = pd.DataFrame({"second": seconds, "uv": values})
+    swing = frame.groupby("second")["uv"].agg(lambda x: float(np.nanmax(np.abs(x - np.nanmedian(x)))))
+    noisy = swing.index[swing.to_numpy() > threshold_uv]
+    spans = [(float(times[0] + second - lead_s), float(times[0] + second + 1 + tail_s)) for second in noisy]
+    return merge_spans(spans, join_s=ECG_NOISE_JOIN_SECONDS)
+
+
+def merge_spans(spans: Sequence[Tuple[float, float]], join_s: float = 0.0) -> List[Tuple[float, float]]:
     merged: List[Tuple[float, float]] = []
-    for low, high in spans:
-        if merged and low <= merged[-1][1]:
+    for low, high in sorted(spans):
+        if merged and low <= merged[-1][1] + join_s:
             merged[-1] = (merged[-1][0], max(merged[-1][1], high))
         else:
             merged.append((low, high))
@@ -220,7 +267,7 @@ class PolarSession:
     r_peaks: pd.DataFrame  # time, amplitude
     alignment: Dict[str, object] = field(default_factory=dict)
     quality: Dict[str, object] = field(default_factory=dict)
-    # Wall-clock spans whose beats were dropped for lost skin contact.
+    # Wall-clock spans whose beats were dropped: no skin contact, or ECG noise like it.
     no_contact: List[Tuple[float, float]] = field(default_factory=list)
 
 
@@ -264,7 +311,8 @@ def load_polar_session(
 
     device_rr = _device_beats(hr_rows, mono_to_wall)
     ends = [float(frame["time"].max()) for frame in (ecg, acc, hr, device_rr) if len(frame)]
-    spans = no_contact_spans(hr, end_of_data=max(ends) if ends else None)
+    noise = noisy_ecg_spans(ecg)
+    spans = merge_spans(no_contact_spans(hr, end_of_data=max(ends) if ends else None) + noise)
 
     r_peaks = pd.DataFrame({"time": [], "amplitude": []})
     if len(ecg) > int(10 * config.ecg_rate_hz):
@@ -285,6 +333,7 @@ def load_polar_session(
         "r_peaks": int(len(r_peaks)),
         "no_contact_spans": [[low, high] for low, high in spans],
         "no_contact_seconds": float(sum(high - low for low, high in spans)),
+        "ecg_noise_spans": len(noise),
         "no_contact_dropped_rr": int(device_beats - len(device_rr)),
     }
     if summary_path.exists():

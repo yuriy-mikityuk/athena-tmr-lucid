@@ -100,7 +100,7 @@ def acc_frame_delta(timestamp_ns, samples, resolution=16, block=8):
 
 def write_raw_session(
     session_dir, seconds, rng, *, breaths_per_min=12.0, drift_ppm=50.0, with_ecg=True, reset_at_s=None, gap_s=5.0,
-    wall0=1_790_000_000.0, acc_breaths_per_min=None, no_contact=None,
+    wall0=1_790_000_000.0, acc_breaths_per_min=None, no_contact=None, report_contact=True,
 ):
     """Write polar/raw_notifications.jsonl (+ clock anchors) for a synthetic session.
 
@@ -108,7 +108,10 @@ def write_raw_session(
     2019 epoch with a drift; every notification arrives after a random positive
     BLE delay. During no_contact=(start_s, end_s) the HR notifications say the
     electrodes are off the skin and carry random RR, and the ECG swings rail to
-    rail with negative spikes. Returns the ground truth.
+    rail with negative spikes; with report_contact=False the notifications keep
+    saying contact, as when the battery comes out before the H10 notices.
+    reset_at_s may be one time or several: the sensor clock restarts at each,
+    after gap_s without link. Returns the ground truth.
     """
     import base64
     import json
@@ -131,14 +134,17 @@ def write_raw_session(
         ecg[off[::30]] = -19630.0
     t_acc, xyz = chest_acc(seconds, rng, acc_breaths_per_min or breaths_per_min)
 
+    resets = () if reset_at_s is None else tuple(np.atleast_1d(reset_at_s).tolist())
+
     def sensor_ns(true_s):
         # After a power-down the H10 clock restarts from its default time.
-        if reset_at_s is not None and true_s >= reset_at_s:
-            true_s = true_s - reset_at_s
+        since = [reset for reset in resets if true_s >= reset]
+        if since:
+            true_s = true_s - max(since)
         return int(sensor0_ns + true_s * (1.0 + drift) * 1e9)
 
     def link_down(true_s):
-        return reset_at_s is not None and reset_at_s - gap_s <= true_s < reset_at_s
+        return any(reset - gap_s <= true_s < reset for reset in resets)
 
     records = []
 
@@ -178,7 +184,7 @@ def write_raw_session(
         off = no_contact is not None and no_contact[0] <= second < no_contact[1]
         if off:
             batch = [float(rng.uniform(300.0, 2000.0))]
-        add(second, "rx", HEART_RATE_MEASUREMENT, hr_measurement(60, batch, contact=not off), "hr")
+        add(second, "rx", HEART_RATE_MEASUREMENT, hr_measurement(60, batch, contact=not off or not report_contact), "hr")
         second += 1.0
 
     records.sort(key=lambda record: record["mono"])

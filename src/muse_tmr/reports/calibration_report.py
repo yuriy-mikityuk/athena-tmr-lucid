@@ -57,7 +57,8 @@ from muse_tmr.reports.meditation_report import _PAGE, _e, _fmt, _num, _table, em
 # 2: EMG without the 64 Hz line; inhale check reports the ACC peak against the
 # exhale cue instead of the trough-to-peak share.
 # 3: the line is removed before every metric, so LZC and the entropies change too.
-CALIBRATION_REPORT_SCHEMA_VERSION = 3
+# 4: breath-by-breath counts full cycles; H10 beats around ECG noise are dropped.
+CALIBRATION_REPORT_SCHEMA_VERSION = 4
 PAIR_LABELS = {"jaw": "Jaw, slight", "forehead": "Forehead, slight", "clench": "Clench pulses", "breathing": "6/min vs 12/min"}
 GROUP_LABELS = (("all", "all"), ("frontal", "AF7/AF8"), ("temporal", "TP9/TP10"))
 
