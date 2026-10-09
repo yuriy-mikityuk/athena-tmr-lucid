@@ -54,6 +54,11 @@ RECORDING_KINDS: Dict[str, Tuple[str, float, bool]] = {
     "night": ("p21", 8.0, False),
     "session": ("p1034", 1.0, True),
 }
+# Meditation and calibration sessions need clean EEG and take heart rate and
+# breathing from the H10. On p1034 the optics put a 64 Hz line into every EEG
+# channel (32-47 dB above its neighbours on the 2026-10-09 line check, gone on
+# p21), so these record without the optics.
+EEG_ONLY_PRESET = "p21"
 
 
 class JobUnavailable(Exception):
@@ -635,6 +640,8 @@ class LocalMuseAppState:
             return {"error": "recording requires the live amused source"}, HTTPStatus.CONFLICT
 
         preset, duration_hours, _ = RECORDING_KINDS[kind]
+        if meditation or calibration:
+            preset = EEG_ONLY_PRESET
         with self._lock:
             if self._recording is not None and self._recording_alive_unlocked():
                 return {"error": "a recording is already running"}, HTTPStatus.CONFLICT
@@ -642,7 +649,7 @@ class LocalMuseAppState:
                 self._recordings_base_resolved() / kind / self._now().strftime("%Y%m%d_%H%M%S")
             )
             command = self._build_record_command(
-                kind, output_dir, with_polar=with_polar, duration_seconds=duration_seconds
+                kind, output_dir, with_polar=with_polar, duration_seconds=duration_seconds, preset=preset
             )
             handle = RecordingHandle(
                 kind=kind,
@@ -809,8 +816,10 @@ class LocalMuseAppState:
         output_dir: Path,
         with_polar: bool = False,
         duration_seconds: Optional[float] = None,
+        preset: Optional[str] = None,
     ) -> List[str]:
-        preset, duration_hours, allow_short = RECORDING_KINDS[kind]
+        kind_preset, duration_hours, allow_short = RECORDING_KINDS[kind]
+        preset = preset or kind_preset
         command = [
             CAFFEINATE,
             "-s",

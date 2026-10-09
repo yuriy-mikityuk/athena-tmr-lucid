@@ -965,6 +965,7 @@ class TestLocalMuseAppMeditation(TestLocalMuseAppReport):
         self.assertEqual(command[command.index("--duration-seconds") + 1], "210")  # 30 + 4 x 30 + 60 slack
         self.assertIn("--with-polar", command)
         self.assertIn("--duration-from-first-frame", command)
+        self.assertEqual(command[command.index("--preset") + 1], "p21")  # EEG only, no 64 Hz line
         output_dir = Path(payload["output_dir"])
         plan = json.loads((output_dir / "blocks.json").read_text())
         self.assertEqual([block["start_s"] for block in plan["blocks"]], [30.0, 60.0, 90.0, 120.0])
@@ -1124,6 +1125,9 @@ class TestLocalMuseAppCalibration(TestLocalMuseAppReport):
         self.assertEqual(int(status), 200)
         recorder, _proc = self.procs[0]
         self.assertIn("--with-polar", recorder)
+        # No optics: on p1034 they put a 64 Hz line into the EEG.
+        self.assertEqual(recorder[recorder.index("--preset") + 1], "p21")
+        self.assertEqual(payload["preset"], "p21")
         self.assertIn("--duration-from-first-frame", recorder)
         self.assertEqual(recorder[recorder.index("--duration-seconds") + 1], f"{RECORD_SECONDS:g}")
         output_dir = Path(payload["output_dir"])
