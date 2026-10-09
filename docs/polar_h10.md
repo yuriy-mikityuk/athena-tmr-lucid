@@ -90,6 +90,13 @@ host wall-clock too.
    notification arrived a median 2 s (up to ~3 s) after its last beat, so
    these estimates are that far off.
 
+With the electrodes off the skin the H10 keeps streaming ECG and even sends RR,
+all noise; only the HR notification's contact bit says so. On the calibration run
+that bit went false about 10 s after the last real beat, and beats in the ~8 s after
+it came back were still noise (390-3800 ms). So RR beats and ECG R-peaks from 12 s
+before a no-contact span to 10 s after it are dropped. `quality` reports the spans
+and how many beats and peaks went.
+
 Expected error: on synthetic data with 50 ppm drift and random BLE delays the
 mapped times are within a few ms of the truth over 8 h. A constant minimum BLE
 latency (a few ms, one connection interval) cannot be told apart from a clock

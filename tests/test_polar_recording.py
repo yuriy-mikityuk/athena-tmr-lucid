@@ -9,7 +9,12 @@ from pathlib import Path
 import numpy as np
 
 from muse_tmr.data.polar_recorder import PolarRecorder, PolarRecordingConfig, decode_polar_session
-from muse_tmr.data.polar_session import fit_clock_mapping, load_polar_session
+from muse_tmr.data.polar_session import (
+    NO_CONTACT_LEAD_SECONDS,
+    NO_CONTACT_TAIL_SECONDS,
+    fit_clock_mapping,
+    load_polar_session,
+)
 from muse_tmr.data.recorder import CompanionProcess, OvernightRecorder, RecordingConfig
 from muse_tmr.features.cardio_resp_features import extract_cardio_resp_features
 from muse_tmr.sources.polar_h10 import (
@@ -76,6 +81,23 @@ class LoadPolarSessionTest(unittest.TestCase):
             beats = [beat for beat in truth["beats_wall"][1:-1] if abs(beat - truth["wall0"] - 117.5) > 4.0]
             errors = np.array([peaks[np.argmin(np.abs(peaks - beat))] - beat for beat in beats])
             self.assertLess(np.abs(errors).max() * 1000.0, 10.0)
+
+    def test_beats_around_lost_contact_are_dropped(self):
+        rng = np.random.default_rng(9)
+        with tempfile.TemporaryDirectory() as tmp:
+            truth = write_raw_session(tmp, 240, rng, no_contact=(100.0, 140.0))
+            session = load_polar_session(Path(tmp))
+            low = truth["wall0"] + 100.0 - NO_CONTACT_LEAD_SECONDS
+            high = truth["wall0"] + 140.0 + NO_CONTACT_TAIL_SECONDS
+            for frame in (session.rr, session.r_peaks):
+                times = frame["time"].to_numpy()
+                self.assertFalse(np.any((times > low + 1.5) & (times < high - 1.5)))
+                self.assertTrue(np.any(times < low) and np.any(times > high))
+            self.assertEqual(len(session.quality["no_contact_spans"]), 1)
+            self.assertGreater(session.quality["no_contact_dropped_rr"], 40)
+            self.assertGreater(session.quality["no_contact_dropped_r_peaks"], 40)
+            self.assertLess(session.rr["rr_ms"].max(), 1300.0)
+            self.assertGreater((session.rr["aligned_to"] == "ecg_r_peak").mean(), 0.95)
 
     def test_without_ecg_rr_keeps_receive_time_estimate(self):
         rng = np.random.default_rng(5)
