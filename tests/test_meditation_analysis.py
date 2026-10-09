@@ -291,7 +291,7 @@ class MeditationWithPolarTest(unittest.TestCase):
         self.assertAlmostEqual(methods["acc_breath"]["difference"], -9.0, delta=1.0)
         self.assertAlmostEqual(methods["edr"]["difference"], 0.0, delta=1.0)
         self.assertTrue(cardio["breathing_methods_disagree"])
-        self.assertEqual(summary["schema_version"], 3)
+        self.assertEqual(summary["schema_version"], 4)
         self.assertEqual(cardio["breathing_difference_method"], "median_of_methods")
         self.assertGreater(cardio["breathing_methods_spread_bpm"], 7.0)
         self.assertTrue(any("estimates disagree" in item for item in summary["limitations"]))
@@ -483,7 +483,7 @@ class AggregateMeditationTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "1 labels for 2 summaries"):
             aggregate_meditation_summaries([self.summary(("focus", "open"), 0.1, "s1"), old], labels=["s1"])
 
-    def test_sessions_with_different_emg_settings_are_rejected(self):
+    def test_sessions_with_different_feature_settings_are_rejected(self):
         default = {**self.summary(("focus", "open"), 0.1, "s1"), "config": {"complexity": ComplexityConfig().to_dict()}}
         unbridged = {
             **self.summary(("focus", "open"), 0.2, "s2"),
@@ -496,6 +496,18 @@ class AggregateMeditationTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "differ from s1 in: s2, s3"):
             aggregate_meditation_summaries([default, unbridged, other_floor])
         aggregate_meditation_summaries([default, json.loads(json.dumps(default))])  # tuples vs JSON lists
+        # Without Lyapunov that metric is just missing; the rest still pools.
+        no_lyapunov = {
+            **self.summary(("focus", "open"), 0.4, "s4"),
+            "config": {"complexity": ComplexityConfig(lyapunov_enabled=False).to_dict()},
+        }
+        aggregate_meditation_summaries([default, no_lyapunov])
+        line_kept = {
+            **self.summary(("focus", "open"), 0.5, "s5"),
+            "config": {"complexity": ComplexityConfig(line_hz=()).to_dict()},
+        }
+        with self.assertRaisesRegex(ValueError, "differ from s1 in: s5"):
+            aggregate_meditation_summaries([default, line_kept])
 
     def test_residualized_contrasts_pool_only_within_one_emg_indicator(self):
         summaries = [self.summary(("focus", "open"), 0.1 * (index + 1), f"s{index + 1}") for index in range(3)]

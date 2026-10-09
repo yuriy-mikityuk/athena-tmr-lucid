@@ -44,21 +44,17 @@ from muse_tmr.features.epochs import EpochBuilder, EpochConfig, SleepEpoch
 MEDITATION_BLOCKS_SCHEMA_VERSION = 1
 # 2: cardio.breathing_difference_bpm (and breathing_confounded) became the median of
 # three estimates; in 1 it was the ACC spectral rate alone.
-# 3: emg_power_55_95 bridges the 64 Hz device line, which was most of it before;
+# 3: emg_power_55_95 bridges the 64 Hz line, which was most of it before;
 # breath-by-breath counting ignores humps under 0.5 std.
-MEDITATION_SUMMARY_SCHEMA_VERSION = 3
-# Older summaries carry the line-dominated EMG indicator; pooling them with newer
-# ones would mix two different measurements under one name.
-MIN_AGGREGATE_SCHEMA_VERSION = 3
-# Settings that define the EMG metrics; sessions pooled together must share them.
-EMG_DEFINITION_KEYS = (
-    "emg_low_band_hz",
-    "emg_high_band_hz",
-    "emg_reference_band_hz",
-    "emg_floor_band_hz",
-    "emg_exclude_hz",
-    "emg_exclude_half_width_hz",
-)
+# 4: the 64 Hz line is removed from every series before the metrics; what the
+# band-pass left of it had moved SampEn, LZC and Hjorth on AF7/AF8.
+MEDITATION_SUMMARY_SCHEMA_VERSION = 4
+# Older summaries were computed with the 64 Hz line in the signal; pooling them
+# with newer ones would mix two different measurements under one name.
+MIN_AGGREGATE_SCHEMA_VERSION = 4
+# Feature settings that may differ between pooled sessions: without Lyapunov
+# that metric is just missing. Every other setting defines a pooled metric.
+POOLABLE_SETTING_DIFFERENCES = frozenset({"lyapunov_enabled"})
 MEDITATION_AGGREGATE_SCHEMA_VERSION = 1
 TIME_BASE = "seconds_from_recording_start"
 PRIMARY_METRIC = "lzc"
@@ -955,9 +951,10 @@ def _limitations(
 # --- cross-session aggregation -----------------------------------------------
 
 
-def _emg_definition(summary: Mapping[str, object]) -> Tuple[str, ...]:
+def _feature_definition(summary: Mapping[str, object]) -> str:
     complexity = (summary.get("config") or {}).get("complexity") or {}
-    return tuple(json.dumps(complexity.get(key)) for key in EMG_DEFINITION_KEYS)
+    kept = {key: value for key, value in complexity.items() if key not in POOLABLE_SETTING_DIFFERENCES}
+    return json.dumps(kept, sort_keys=True)
 
 
 def aggregate_meditation_summaries(
@@ -984,15 +981,13 @@ def aggregate_meditation_summaries(
     ]
     if stale:
         raise ValueError(
-            f"summaries before schema_version {MIN_AGGREGATE_SCHEMA_VERSION} have the 64 Hz device line in their "
-            f"EMG indicator; rebuild them with analyze-meditation: {', '.join(stale)}"
+            f"summaries before schema_version {MIN_AGGREGATE_SCHEMA_VERSION} were computed with the 64 Hz line "
+            f"in the signal; rebuild them with analyze-meditation: {', '.join(stale)}"
         )
-    definitions = [_emg_definition(summary) for summary in summaries]
+    definitions = [_feature_definition(summary) for summary in summaries]
     differing = [label for label, definition in zip(labels, definitions) if definition != definitions[0]]
     if differing:
-        raise ValueError(
-            f"EMG settings ({', '.join(EMG_DEFINITION_KEYS)}) differ from {labels[0]} in: {', '.join(differing)}"
-        )
+        raise ValueError(f"feature settings (config.complexity) differ from {labels[0]} in: {', '.join(differing)}")
     reference = tuple(summaries[0]["conditions"])
     # One slot per session, so differences[i] always belongs to sessions[i];
     # a session without a contrast (e.g. no Polar data) stays NaN / null.

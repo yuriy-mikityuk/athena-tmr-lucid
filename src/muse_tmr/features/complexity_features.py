@@ -98,9 +98,20 @@ class ComplexityConfig:
     emg_reference_band_hz: Tuple[float, float] = (1.0, 45.0)
     # Near-Nyquist floor: if 55-95 Hz is not above it, the band carries nothing.
     emg_floor_band_hz: Tuple[float, float] = (110.0, 125.0)
-    # Narrow device lines bridged over in the EMG bands. Muse S Athena has one
-    # at exactly fs/4 = 64 Hz, 23-45 dB above its neighbours and fading over a
-    # session; left in, it is most of the 55-95 Hz power.
+    # Interference lines removed from every series before any metric. Muse S
+    # Athena (p1034) shows one near 64 Hz on all channels: 63.93-63.95 Hz in
+    # sample terms on three sessions, so not locked to the sample clock and not
+    # a packet artifact. It is up to 45 dB above its neighbours and fades through
+    # a session; what the 0.5-40 Hz band-pass leaves of it moved SampEn by -0.25
+    # and LZC by -0.05 on AF7 in the first minutes of the first calibration run.
+    # A notch filter rings for ~0.7 s at each end of a 10 s epoch, enough to move
+    # SampEn as much as the line, so epochs get a least-squares sinusoid at the
+    # line's own frequency (searched within +-line_search_hz) subtracted instead;
+    # the minutes-long DFA runs are notched.
+    line_hz: Tuple[float, ...] = (64.0,)
+    line_search_hz: float = 0.5
+    # The same lines bridged over in the EMG bands, so neither the line nor the
+    # notch's dip counts as muscle power.
     emg_exclude_hz: Tuple[float, ...] = (64.0,)
     emg_exclude_half_width_hz: float = 1.5
     dfa_bands_hz: Mapping[str, Tuple[float, float]] = field(
@@ -241,7 +252,7 @@ def channel_metrics(values: np.ndarray, config: ComplexityConfig) -> Dict[str, f
     if x.size < config.min_channel_seconds * fs or float(np.std(x)) <= 0:
         return {metric: math.nan for metric in EPOCH_METRICS}
 
-    x = detrend(x)
+    x = remove_lines(detrend(x), fs, config.line_hz, config.line_search_hz)
     filtered = bandpass(x, fs, config.complexity_band_hz, config.filter_order)
     spectral_input = notch(x, fs, config.notch_hz, config.notch_quality)
     freqs, psd = welch(
@@ -311,6 +322,33 @@ def channel_metrics(values: np.ndarray, config: ComplexityConfig) -> Dict[str, f
 def bandpass(x: np.ndarray, fs: float, band_hz: Tuple[float, float], order: int = 4) -> np.ndarray:
     sos = butter(order, band_hz, btype="bandpass", fs=fs, output="sos")
     return sosfiltfilt(sos, x)
+
+
+def remove_lines(x: np.ndarray, fs: float, lines_hz: Sequence[float], search_hz: float) -> np.ndarray:
+    """x minus a least-squares sinusoid at each line's frequency, found as the
+    spectral peak within +-search_hz on a 0.01 Hz grid. No edge transient."""
+    n = x.size
+    if n < 2:
+        return x
+    t = np.arange(n) / fs
+    for line in lines_hz:
+        nfft = max(n, int(round(fs / 0.01)))
+        spectrum = np.abs(np.fft.rfft(x * np.hanning(n), nfft))
+        freqs = np.fft.rfftfreq(nfft, 1.0 / fs)
+        band = (freqs >= line - search_hz) & (freqs <= line + search_hz)
+        if not np.any(band):
+            continue
+        frequency = freqs[band][int(np.argmax(spectrum[band]))]
+        basis = np.column_stack([np.cos(2 * np.pi * frequency * t), np.sin(2 * np.pi * frequency * t)])
+        coefficients, *_ = np.linalg.lstsq(basis, x, rcond=None)
+        x = x - basis @ coefficients
+    return x
+
+
+def notch_lines(x: np.ndarray, fs: float, lines_hz: Sequence[float], quality: float) -> np.ndarray:
+    for line in lines_hz:
+        x = notch(x, fs, line, quality)
+    return x
 
 
 def notch(x: np.ndarray, fs: float, notch_hz: Optional[float], quality: float) -> np.ndarray:
@@ -597,7 +635,8 @@ def envelope_dfa(
         segment = segment[np.isfinite(segment)]
         if segment.size < min_samples:
             continue
-        filtered = bandpass(detrend(segment), fs, band_hz, config.filter_order)
+        cleaned = notch_lines(detrend(segment), fs, config.line_hz, config.notch_quality)
+        filtered = bandpass(cleaned, fs, band_hz, config.filter_order)
         envelopes.append(np.abs(hilbert(filtered)))
     empty = {"alpha": math.nan, "seconds": 0.0, "windows": 0.0, "min_window_s": math.nan, "max_window_s": math.nan}
     if not envelopes:

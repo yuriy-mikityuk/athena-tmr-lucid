@@ -166,19 +166,37 @@ the relaxed minutes around it, with the dB change per channel group next to the 
 and 1/f shift.
 
 **The 64 Hz line.** The first calibration run showed most of the 55-95 Hz power
-was one line at exactly fs/4 = 64 Hz (in sample terms), 23-45 dB above its
-neighbours, highest on AF7/AF8. It fades smoothly through a session (AF7 about 33
-to 21 dB over 23 min) and does not react to muscles, so with it in the band the indicator fell
-for 20 minutes and barely moved with clenching (+0.7 dB on AF). It is in the
-earlier 13 min session too, and it is why that session's "EMG" seemed to settle
-only by minute 8. `emg_power_55_95` and `emg_high_band_over_floor_db` now bridge
-64 ± 1.5 Hz with the neighbouring bins (`emg_exclude_hz`); ±1 Hz already removes
-it. Without the line 55-95 Hz is about 13 dB above 110-125 Hz at rest, clenching
-raises it 8-9 dB, slight forehead tension 1.6 dB on AF7/AF8 and slight jaw tension
-1.0 dB on TP9/TP10, while LZC moves 0.01-0.05 and the 2-40 Hz exponent flattens by
-roughly 0.1 per dB. Summaries from before this change (`schema_version` 1 and 2)
-carry the old indicator, so `aggregate-meditation` refuses them; rebuild them with
-`analyze-meditation`.
+was one line near 64 Hz, 23-45 dB above its neighbours, highest on AF7/AF8. It
+fades smoothly through a session (AF7 about 41 to 8 µV over 23 min) and does not
+react to muscles, so with it in the band the indicator fell for 20 minutes and
+barely moved with clenching (+0.7 dB on AF). It is in the two earlier sessions too,
+and it is why the 13 min session's "EMG" seemed to settle only by minute 8.
+
+It is not a packet artifact. A packet carries 4 samples per channel and 256/4 = 64,
+but the line sits at 63.93-63.95 Hz in sample terms in all three sessions, so its
+phase drifts against the sample clock. The per-position means within packets are
+under 1 µV against a line of up to ~40 µV, and there is no mirrored alpha around 64 Hz, so
+the positions differ neither in offset nor in gain. It is analog interference with
+its own clock: the headband's optics (they run near 64 Hz) or something in the
+room. Two minutes on `p21`, which has no optics, would tell them apart.
+
+It moves more than the EMG indicator. What the 0.5-40 Hz band-pass leaves of it
+moved SampEn by -0.25, LZC by -0.05 and Hjorth mobility by -0.12 on AF7 in the
+first minutes, fading to -0.04 and -0.01 later, a time trend the size of the
+effects being looked for. Spectral entropy and the 1/f slope don't see it. So it is
+removed before every metric (`line_hz`): each epoch gets a least-squares sinusoid
+at the line's own frequency subtracted, and the minutes-long DFA runs get a notch.
+A notch on a 10 s epoch rings for ~0.7 s at each end, and that alone moved SampEn
+about as much as the line. `emg_power_55_95` and `emg_high_band_over_floor_db`
+also bridge 64 ± 1.5 Hz with the neighbouring bins (`emg_exclude_hz`).
+
+Without the line 55-95 Hz is about 13 dB above 110-125 Hz at rest, clenching raises
+it 8-9 dB, slight forehead tension 1.6 dB on AF7/AF8 and slight jaw tension 1.0 dB
+on TP9/TP10. The 2-40 Hz exponent flattens by roughly 0.1 per dB on every step;
+LZC per dB varies 0.006-0.03 between steps, so only the slope gives a usable
+coefficient. All of this is one run on one day. Summaries from before the line was
+removed (`schema_version` below 4) are refused by `aggregate-meditation`; rebuild
+them with `analyze-meditation`.
 
 ## Polar H10 breathing and HRV
 
