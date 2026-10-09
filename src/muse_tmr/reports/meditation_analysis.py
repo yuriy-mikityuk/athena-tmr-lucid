@@ -50,6 +50,8 @@ MEDITATION_SUMMARY_SCHEMA_VERSION = 3
 # Older summaries carry the line-dominated EMG indicator; pooling them with newer
 # ones would mix two different measurements under one name.
 MIN_AGGREGATE_SCHEMA_VERSION = 3
+# Settings that define the EMG metrics; sessions pooled together must share them.
+EMG_DEFINITION_KEYS = ("emg_low_band_hz", "emg_high_band_hz", "emg_exclude_hz", "emg_exclude_half_width_hz")
 MEDITATION_AGGREGATE_SCHEMA_VERSION = 1
 TIME_BASE = "seconds_from_recording_start"
 PRIMARY_METRIC = "lzc"
@@ -945,6 +947,11 @@ def _limitations(
 # --- cross-session aggregation -----------------------------------------------
 
 
+def _emg_definition(summary: Mapping[str, object]) -> Tuple[str, ...]:
+    complexity = (summary.get("config") or {}).get("complexity") or {}
+    return tuple(json.dumps(complexity.get(key)) for key in EMG_DEFINITION_KEYS)
+
+
 def aggregate_meditation_summaries(
     summaries: Sequence[Mapping[str, object]],
     *,
@@ -971,6 +978,12 @@ def aggregate_meditation_summaries(
         raise ValueError(
             f"summaries before schema_version {MIN_AGGREGATE_SCHEMA_VERSION} have the 64 Hz device line in their "
             f"EMG indicator; rebuild them with analyze-meditation: {', '.join(stale)}"
+        )
+    definitions = [_emg_definition(summary) for summary in summaries]
+    differing = [label for label, definition in zip(labels, definitions) if definition != definitions[0]]
+    if differing:
+        raise ValueError(
+            f"EMG settings ({', '.join(EMG_DEFINITION_KEYS)}) differ from {labels[0]} in: {', '.join(differing)}"
         )
     reference = tuple(summaries[0]["conditions"])
     # One slot per session, so differences[i] always belongs to sessions[i];

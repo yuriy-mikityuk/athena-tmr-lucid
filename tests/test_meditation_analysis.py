@@ -483,6 +483,16 @@ class AggregateMeditationTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "1 labels for 2 summaries"):
             aggregate_meditation_summaries([self.summary(("focus", "open"), 0.1, "s1"), old], labels=["s1"])
 
+    def test_sessions_with_different_emg_settings_are_rejected(self):
+        default = {**self.summary(("focus", "open"), 0.1, "s1"), "config": {"complexity": ComplexityConfig().to_dict()}}
+        unbridged = {
+            **self.summary(("focus", "open"), 0.2, "s2"),
+            "config": {"complexity": ComplexityConfig(emg_exclude_hz=()).to_dict()},
+        }
+        with self.assertRaisesRegex(ValueError, "differ from s1 in: s2"):
+            aggregate_meditation_summaries([default, unbridged])
+        aggregate_meditation_summaries([default, json.loads(json.dumps(default))])  # tuples vs JSON lists
+
     def test_mismatched_conditions_are_rejected(self):
         with self.assertRaises(ValueError):
             aggregate_meditation_summaries(

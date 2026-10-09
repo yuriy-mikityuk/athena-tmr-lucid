@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 from muse_tmr.data.polar_recorder import PolarRecorder, PolarRecordingConfig, decode_polar_session
 from muse_tmr.data.polar_session import (
@@ -14,6 +15,7 @@ from muse_tmr.data.polar_session import (
     NO_CONTACT_TAIL_SECONDS,
     fit_clock_mapping,
     load_polar_session,
+    no_contact_spans,
 )
 from muse_tmr.data.recorder import CompanionProcess, OvernightRecorder, RecordingConfig
 from muse_tmr.features.cardio_resp_features import extract_cardio_resp_features
@@ -112,6 +114,12 @@ class LoadPolarSessionTest(unittest.TestCase):
             inside = extract_cardio_resp_features(session, low + 2, high - 2)
             self.assertEqual(inside["window_seconds"], 0.0)
             self.assertTrue(math.isnan(inside["rmssd_ms"]) and math.isnan(inside["edr_rate_bpm"]))
+
+    def test_unknown_contact_does_not_end_a_loss(self):
+        hr = pd.DataFrame({"time": [0.0, 1.0, 2.0, 3.0, 4.0, 5.0], "contact": [True, False, None, None, True, None]})
+        self.assertEqual(no_contact_spans(hr, lead_s=0.5, tail_s=0.5), [(0.5, 4.5)])
+        open_end = pd.DataFrame({"time": [0.0, 1.0, 2.0], "contact": [True, False, None]})
+        self.assertEqual(no_contact_spans(hr=open_end, lead_s=0.5, tail_s=0.5, end_of_data=9.0), [(0.5, 9.5)])
 
     def test_contact_never_regained_drops_everything_after(self):
         rng = np.random.default_rng(10)

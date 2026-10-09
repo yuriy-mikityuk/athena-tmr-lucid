@@ -145,18 +145,19 @@ def no_contact_spans(
     """Wall-clock spans around HR notifications that reported no skin contact.
 
     A span runs from lead_s before the first such notification to tail_s after
-    the next one that does not say so; None (contact not reported) ends it too.
-    A span still open at the last notification runs to end_of_data.
+    the next one that reports contact again; None (contact not reported) leaves
+    it as it is. A span still open at the last notification runs to end_of_data.
     """
     if hr.empty or "contact" not in hr:
         return []
     spans: List[Tuple[float, float]] = []
     start = None
     for time, contact in zip(hr["time"].to_numpy(dtype=float), hr["contact"]):
-        off = contact is not None and not pd.isna(contact) and not bool(contact)
-        if off and start is None:
+        if contact is None or pd.isna(contact):
+            continue
+        if not bool(contact) and start is None:
             start = time
-        elif not off and start is not None:
+        elif bool(contact) and start is not None:
             spans.append((float(start - lead_s), float(time + tail_s)))
             start = None
     if start is not None:
