@@ -947,12 +947,12 @@ class TestLocalMuseAppReport(unittest.TestCase):
 
 class TestLocalMuseAppMeditation(TestLocalMuseAppReport):
     def start(self, **overrides):
-        body = {"conditions": ["focus", "open"], "blocks": 2, "block_minutes": 1, "settle_seconds": 30, "seed": 4}
+        body = {"conditions": ["focus", "open"], "blocks": 4, "block_minutes": 0.5, "settle_seconds": 30, "seed": 4}
         body.update(overrides)
         return self.state.start_meditation(body)
 
     def test_bad_plans_are_rejected(self):
-        for overrides in ({"conditions": ["focus"]}, {"blocks": 1}, {"block_minutes": 0}, {"settle_seconds": -1}):
+        for overrides in ({"conditions": ["focus"]}, {"blocks": 1}, {"blocks": 6}, {"block_minutes": 0}, {"settle_seconds": -1}):
             _payload, status = self.start(**overrides)
             self.assertEqual(int(status), 400, overrides)
         self.assertEqual(self.procs, [])
@@ -962,12 +962,12 @@ class TestLocalMuseAppMeditation(TestLocalMuseAppReport):
         self.assertEqual(int(status), 200)
         command, _proc = self.procs[0]
         self.assertNotIn("--duration-hours", command)
-        self.assertEqual(command[command.index("--duration-seconds") + 1], "210")  # 30 + 2 x 60 + 60 slack
+        self.assertEqual(command[command.index("--duration-seconds") + 1], "210")  # 30 + 4 x 30 + 60 slack
         self.assertIn("--with-polar", command)
         self.assertIn("--duration-from-first-frame", command)
         output_dir = Path(payload["output_dir"])
         plan = json.loads((output_dir / "blocks.json").read_text())
-        self.assertEqual([block["start_s"] for block in plan["blocks"]], [30.0, 90.0])
+        self.assertEqual([block["start_s"] for block in plan["blocks"]], [30.0, 60.0, 90.0, 120.0])
         self.assertEqual(payload["meditation"]["plan"]["conditions"], ["focus", "open"])
         self.assertIsNone(payload["meditation"]["first_frame_elapsed_seconds"])
         (output_dir / "progress.json").write_text(json.dumps({"elapsed_seconds": 12.0, "first_frame_elapsed_seconds": 4.5}))

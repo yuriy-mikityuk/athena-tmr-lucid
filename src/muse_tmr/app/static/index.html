@@ -104,11 +104,11 @@
         <div class="record-hint" id="record-hint" role="status" hidden></div>
         <form class="meditation-form" id="meditation-form" hidden>
           <h2>Guided meditation</h2>
-          <p class="muted">Two practices in alternating blocks (ABAB or BABA, random). Eyes closed in both.</p>
+          <p class="muted">Two practices in ABBA or BAAB order (random), so slow drift cancels out. Eyes closed in both.</p>
           <div class="form-grid">
             <label>Practice A<input id="med-condition-a" value="focus" required maxlength="40"></label>
             <label>Practice B<input id="med-condition-b" value="open" required maxlength="40"></label>
-            <label>Blocks<input id="med-blocks" type="number" min="2" max="12" value="4" required></label>
+            <label>Blocks<input id="med-blocks" type="number" min="4" max="12" step="4" value="4" required></label>
             <label>Minutes per block<input id="med-block-minutes" type="number" min="0.5" max="60" step="0.5" value="8" required></label>
             <label>Settle-in seconds<input id="med-settle" type="number" min="0" max="600" step="5" value="60" required></label>
           </div>

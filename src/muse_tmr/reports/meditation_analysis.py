@@ -201,7 +201,14 @@ def build_meditation_plan(
     settle_seconds: float = 60.0,
     seed: int,
 ) -> MeditationBlocks:
-    """Alternating ABAB... or BABA... order, picked by seed; ratings left null."""
+    """ABBA BAAB... (Thue-Morse) order, or its mirror BAAB ABBA..., picked by seed.
+
+    With alternating ABAB, A runs half a block earlier on average, so any
+    monotonic drift (relaxing, drowsiness, dry electrodes settling) lands in the
+    A - B contrast. Thue-Morse order cancels linear drift within each group of
+    four blocks and quadratic drift within eight; other counts leave some drift
+    in (see ``check_drift_cancelling``). Ratings are left null.
+    """
     conditions = tuple(str(condition).strip() for condition in conditions)
     if len(conditions) != 2 or not all(conditions) or conditions[0] == conditions[1]:
         raise ValueError("meditation-plan needs exactly two distinct conditions")
@@ -212,7 +219,7 @@ def build_meditation_plan(
     first, second = conditions
     if random.Random(seed).random() >= 0.5:
         first, second = second, first
-    order = tuple(first if index % 2 == 0 else second for index in range(blocks))
+    order = tuple(first if bin(index).count("1") % 2 == 0 else second for index in range(blocks))
     block_seconds = block_minutes * 60.0
     plan = MeditationBlocks(
         blocks=tuple(
@@ -231,6 +238,14 @@ def build_meditation_plan(
     )
     plan.validate()
     return plan
+
+
+def check_drift_cancelling(blocks: int) -> None:
+    """Only whole groups of four cancel linear drift (ABBABA leaves a third of a
+    block's drift in A - B), so plans for real sessions must use 4, 8, 12... blocks.
+    ``build_meditation_plan`` itself still takes any count, for tests and quick checks."""
+    if blocks < 4 or blocks % 4:
+        raise ValueError("use a multiple of 4 blocks (4, 8, 12): only whole ABBA groups cancel drift")
 
 
 def load_meditation_blocks(path: Path) -> MeditationBlocks:

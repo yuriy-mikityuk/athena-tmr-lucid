@@ -16,6 +16,7 @@ from muse_tmr.reports.meditation_analysis import (
     assign_block,
     bootstrap_ci,
     build_meditation_plan,
+    check_drift_cancelling,
     load_meditation_blocks,
     sign_flip_p_value,
     write_meditation_blocks,
@@ -52,11 +53,30 @@ class MeditationPlanTest(unittest.TestCase):
         first = build_meditation_plan(["focus", "open"], blocks=4, block_minutes=8, settle_seconds=60, seed=3)
         again = build_meditation_plan(["focus", "open"], blocks=4, block_minutes=8, settle_seconds=60, seed=3)
         self.assertEqual(first, again)
-        self.assertIn(first.order, (("focus", "open", "focus", "open"), ("open", "focus", "open", "focus")))
+        self.assertIn(first.order, (("focus", "open", "open", "focus"), ("open", "focus", "focus", "open")))
         orders = {build_meditation_plan(["focus", "open"], seed=seed).order for seed in range(20)}
         self.assertEqual(len(orders), 2)
         self.assertEqual([block.start_s for block in first.blocks], [60.0, 540.0, 1020.0, 1500.0])
         self.assertTrue(all(block.depth is None and block.sensory_fading is None for block in first.blocks))
+
+    def test_order_cancels_drift(self):
+        # Block means of a metric that only drifts with time: A - B must be 0
+        # for linear drift over 4 blocks and for quadratic drift over 8.
+        for blocks, power in ((4, 1), (8, 1), (8, 2)):
+            for seed in range(6):
+                plan = build_meditation_plan(["focus", "open"], blocks=blocks, seed=seed)
+                drift = {"focus": [], "open": []}
+                for block in plan.blocks:
+                    drift[block.condition].append(((block.start_s + block.end_s) / 2) ** power)
+                difference = sum(drift["focus"]) / len(drift["focus"]) - sum(drift["open"]) / len(drift["open"])
+                self.assertAlmostEqual(difference, 0.0, delta=1e-6 * max(drift["focus"]), msg=(blocks, power, plan.order))
+        for blocks in (2, 6, 10):
+            with self.assertRaises(ValueError):
+                check_drift_cancelling(blocks)
+        for blocks in (4, 8, 12):
+            check_drift_cancelling(blocks)
+        eight = build_meditation_plan(["a", "b"], blocks=8, seed=3).order
+        self.assertIn("".join(eight), ("abbabaab", "baababba"))
 
     def test_json_round_trip(self):
         plan = build_meditation_plan(["focus", "open"], seed=11)
