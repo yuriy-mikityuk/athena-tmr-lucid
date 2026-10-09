@@ -45,6 +45,9 @@ class CardioRespConfig:
     posture_change_max_pct: float = 10.0
     # Spectral and breath-by-breath rates further apart than this: not trusted.
     respiration_agreement_bpm: float = 2.0
+    # A window mostly without skin contact gives no features; a fragment of it
+    # would stand in for the whole window.
+    min_contact_fraction: float = 0.5
     rr_resample_hz: float = 4.0
     lf_band_hz: Tuple[float, float] = (0.04, 0.15)
     hf_band_hz: Tuple[float, float] = (0.15, 0.4)
@@ -312,12 +315,17 @@ def extract_cardio_resp_features(
     host wall-clock seconds, the same base as Muse replay. Beats are dropped
     where the H10 had no skin contact, and splining or differencing across that
     hole would invent data, so everything comes from the longest part of the
-    window with contact; ``window_seconds`` is that part.
+    window with contact; ``window_seconds`` is that part. A window with contact
+    for less than ``min_contact_fraction`` of it gives no features at all.
     """
     config = config or CardioRespConfig()
     parts = contact_parts(start_time, end_time, getattr(session, "no_contact", None) or ())
-    no_contact_seconds = float(end_time - start_time) - sum(high - low for low, high in parts)
-    start_time, end_time = max(parts, key=lambda part: part[1] - part[0], default=(start_time, start_time))
+    with_contact = sum(high - low for low, high in parts)
+    no_contact_seconds = float(end_time - start_time) - with_contact
+    used = max(parts, key=lambda part: part[1] - part[0], default=(start_time, start_time))
+    if with_contact < config.min_contact_fraction * (end_time - start_time):
+        used = (start_time, start_time)
+    start_time, end_time = used
     features: Dict[str, float] = {
         "window_seconds": float(end_time - start_time),
         "no_contact_seconds": no_contact_seconds,

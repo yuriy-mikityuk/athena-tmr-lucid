@@ -51,7 +51,14 @@ MEDITATION_SUMMARY_SCHEMA_VERSION = 3
 # ones would mix two different measurements under one name.
 MIN_AGGREGATE_SCHEMA_VERSION = 3
 # Settings that define the EMG metrics; sessions pooled together must share them.
-EMG_DEFINITION_KEYS = ("emg_low_band_hz", "emg_high_band_hz", "emg_exclude_hz", "emg_exclude_half_width_hz")
+EMG_DEFINITION_KEYS = (
+    "emg_low_band_hz",
+    "emg_high_band_hz",
+    "emg_reference_band_hz",
+    "emg_floor_band_hz",
+    "emg_exclude_hz",
+    "emg_exclude_half_width_hz",
+)
 MEDITATION_AGGREGATE_SCHEMA_VERSION = 1
 TIME_BASE = "seconds_from_recording_start"
 PRIMARY_METRIC = "lzc"
@@ -88,6 +95,7 @@ CARDIO_METRICS = (
     "ecg_rr_matched_pct",
     "resp_reliable",
     "acc_posture_change_pct",
+    "no_contact_seconds",
 )
 # Contrasted only over blocks whose breathing estimate is reliable.
 CARDIO_BREATHING_METRICS = frozenset({"resp_rate_bpm", "resp_rate_breath_bpm", "edr_rate_bpm", "rsa_power_ms2", "hf_band_valid"})

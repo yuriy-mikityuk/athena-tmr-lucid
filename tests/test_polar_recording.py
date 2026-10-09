@@ -114,6 +114,11 @@ class LoadPolarSessionTest(unittest.TestCase):
             inside = extract_cardio_resp_features(session, low + 2, high - 2)
             self.assertEqual(inside["window_seconds"], 0.0)
             self.assertTrue(math.isnan(inside["rmssd_ms"]) and math.isnan(inside["edr_rate_bpm"]))
+            # Mostly off the skin: a 35 s fragment does not stand in for the window.
+            mostly_off = extract_cardio_resp_features(session, low - 35, high + 5)
+            self.assertEqual(mostly_off["window_seconds"], 0.0)
+            self.assertAlmostEqual(mostly_off["no_contact_seconds"], high - low, delta=0.5)
+            self.assertTrue(math.isnan(mostly_off["resp_rate_bpm"]) and math.isnan(mostly_off["mean_hr_bpm"]))
 
     def test_unknown_contact_does_not_end_a_loss(self):
         hr = pd.DataFrame({"time": [0.0, 1.0, 2.0, 3.0, 4.0, 5.0], "contact": [True, False, None, None, True, None]})

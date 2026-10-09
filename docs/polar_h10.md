@@ -101,7 +101,8 @@ that noise would otherwise pick the detector's polarity for the whole recording.
 `quality` reports the spans, their total seconds and the dropped beats. Splining or
 differencing across the hole would invent data, so `extract_cardio_resp_features`
 takes the longest part of the window with contact: `window_seconds` is that part
-and `no_contact_seconds` what was cut.
+and `no_contact_seconds` what was cut. A window with contact for less than half of
+it (`min_contact_fraction`) gives no features at all.
 
 Expected error: on synthetic data with 50 ppm drift and random BLE delays the
 mapped times are within a few ms of the truth over 8 h. A constant minimum BLE

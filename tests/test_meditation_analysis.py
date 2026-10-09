@@ -489,8 +489,12 @@ class AggregateMeditationTest(unittest.TestCase):
             **self.summary(("focus", "open"), 0.2, "s2"),
             "config": {"complexity": ComplexityConfig(emg_exclude_hz=()).to_dict()},
         }
-        with self.assertRaisesRegex(ValueError, "differ from s1 in: s2"):
-            aggregate_meditation_summaries([default, unbridged])
+        other_floor = {
+            **self.summary(("focus", "open"), 0.3, "s3"),
+            "config": {"complexity": ComplexityConfig(emg_floor_band_hz=(100.0, 120.0)).to_dict()},
+        }
+        with self.assertRaisesRegex(ValueError, "differ from s1 in: s2, s3"):
+            aggregate_meditation_summaries([default, unbridged, other_floor])
         aggregate_meditation_summaries([default, json.loads(json.dumps(default))])  # tuples vs JSON lists
 
     def test_residualized_contrasts_pool_only_within_one_emg_indicator(self):

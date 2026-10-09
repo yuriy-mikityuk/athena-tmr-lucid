@@ -187,7 +187,8 @@ reads its `polar/` folder (skip it with `--no-polar`). For each block's analysed
 (block start + trim to block end, same wall-clock base as Muse) `blocks.csv` gets
 `cardio_*` columns: breathing rate from chest ACC (spectral and breath-by-breath), EDR,
 mean HR, RMSSD, SDNN, RSA around the measured breathing rate, LF/HF, `hf_band_valid`,
-RR correction and ECG match percentages, `acc_posture_change_pct` and `resp_reliable`.
+RR correction and ECG match percentages, `acc_posture_change_pct`, `resp_reliable` and
+`no_contact_seconds` (H10 off the skin; see `docs/polar_h10.md`).
 They are contrasted A - B with group `chest` (exploratory), so `aggregate-meditation`
 picks them up across sessions.
 
