@@ -98,6 +98,11 @@ class ComplexityConfig:
     emg_reference_band_hz: Tuple[float, float] = (1.0, 45.0)
     # Near-Nyquist floor: if 55-95 Hz is not above it, the band carries nothing.
     emg_floor_band_hz: Tuple[float, float] = (110.0, 125.0)
+    # Narrow device lines bridged over in the EMG bands. Muse S Athena has one
+    # at exactly fs/4 = 64 Hz, ~40 dB above its neighbours and fading over a
+    # session; left in, it is most of the 55-95 Hz power.
+    emg_exclude_hz: Tuple[float, ...] = (64.0,)
+    emg_exclude_half_width_hz: float = 1.5
     dfa_bands_hz: Mapping[str, Tuple[float, float]] = field(
         default_factory=lambda: {
             "theta": (4.0, 8.0),
@@ -291,9 +296,10 @@ def channel_metrics(values: np.ndarray, config: ComplexityConfig) -> Dict[str, f
     emg_low = band_power(freqs, psd, *config.emg_low_band_hz)
     metrics["emg_power_30_45"] = emg_low
     metrics["emg_power_30_45_rel"] = _ratio(emg_low, band_power(freqs, psd, *config.emg_reference_band_hz))
-    metrics["emg_power_55_95"] = band_power(freqs, psd, *config.emg_high_band_hz)
+    emg_psd = bridge_lines(freqs, psd, config.emg_exclude_hz, config.emg_exclude_half_width_hz)
+    metrics["emg_power_55_95"] = band_power(freqs, emg_psd, *config.emg_high_band_hz)
     metrics["emg_high_band_over_floor_db"] = _over_floor_db(
-        freqs, psd, config.emg_high_band_hz, config.emg_floor_band_hz
+        freqs, emg_psd, config.emg_high_band_hz, config.emg_floor_band_hz
     )
     # Keep keys in EPOCH_METRICS order and fill anything a custom config skipped.
     return {metric: float(metrics.get(metric, math.nan)) for metric in EPOCH_METRICS}
@@ -423,6 +429,23 @@ def band_power(freqs: np.ndarray, psd: np.ndarray, low_hz: float, high_hz: float
     if np.count_nonzero(mask) < 2:
         return math.nan
     return float(trapezoid(psd[mask], freqs[mask]))
+
+
+def bridge_lines(
+    freqs: np.ndarray,
+    psd: np.ndarray,
+    lines_hz: Sequence[float],
+    half_width_hz: float,
+) -> np.ndarray:
+    """PSD with the bins within half_width_hz of each line interpolated from their neighbours."""
+    covered = np.zeros(freqs.shape, dtype=bool)
+    for line in lines_hz:
+        covered |= np.abs(freqs - line) <= half_width_hz
+    if not np.any(covered) or np.all(covered):
+        return psd
+    bridged = np.array(psd, dtype=float, copy=True)
+    bridged[covered] = np.interp(freqs[covered], freqs[~covered], psd[~covered])
+    return bridged
 
 
 def _over_floor_db(

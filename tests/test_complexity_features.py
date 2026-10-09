@@ -113,6 +113,16 @@ class ComplexityMetricTest(unittest.TestCase):
         self.assertAlmostEqual(with_alpha["emg_power_55_95"], plain["emg_power_55_95"], delta=0.02 * plain["emg_power_55_95"])
         self.assertGreater(with_alpha["band_power_alpha"], 2.0 * plain["band_power_alpha"])
 
+    def test_emg_indicator_ignores_the_64_hz_device_line(self):
+        base = 20.0 * self.noise + 20.0 * band_noise(self.noise.size, (60.0, 90.0), self.rng)
+        line = 60.0 * np.sin(2 * np.pi * 64.0 * self.t)
+        plain = channel_metrics(base, ComplexityConfig())
+        with_line = channel_metrics(base + line, ComplexityConfig())
+        self.assertAlmostEqual(with_line["emg_power_55_95"], plain["emg_power_55_95"], delta=0.05 * plain["emg_power_55_95"])
+        self.assertAlmostEqual(with_line["emg_high_band_over_floor_db"], plain["emg_high_band_over_floor_db"], delta=0.3)
+        unbridged = channel_metrics(base + line, ComplexityConfig(emg_exclude_hz=()))
+        self.assertGreater(unbridged["emg_power_55_95"], 2.0 * plain["emg_power_55_95"])
+
     def test_lyapunov_can_be_switched_off(self):
         metrics = channel_metrics(20.0 * self.noise, ComplexityConfig(lyapunov_enabled=False))
         self.assertTrue(math.isnan(metrics["lyapunov_max"]))
