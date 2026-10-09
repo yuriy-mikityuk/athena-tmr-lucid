@@ -991,6 +991,9 @@ function seriesSessionText(session) {
   if (session.state === "short") {
     return `stopped at ${minutesClock(session.covered_seconds)} of ${minutesClock(session.needed_seconds)}, not counted`;
   }
+  if (session.state === "no_data") {
+    return "no headband data, not counted";
+  }
   return "the recorder did not finish, not counted";
 }
 

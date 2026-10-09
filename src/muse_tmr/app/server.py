@@ -1231,7 +1231,8 @@ class LocalMuseAppState:
         return sessions
 
     def _series_session(self, output_dir: Path, plan: Mapping[str, Any]) -> Dict[str, Any]:
-        """state: recording | counted | short (stopped before the last block ended) | unfinished (no summary)."""
+        """state: recording | counted | short (stopped before the last block ended) |
+        no_data (no Muse frame ever came) | unfinished (no summary)."""
         needed = max((float(block.get("end_s") or 0.0) for block in plan.get("blocks") or ()), default=0.0)
         session: Dict[str, Any] = {
             "name": output_dir.name,
@@ -1246,10 +1247,13 @@ class LocalMuseAppState:
             session["state"] = "unfinished"
         else:
             # Block times count from the first Muse frame, the recorder's duration from its start.
-            first_frame = _read_json_tolerant(output_dir / "progress.json").get("first_frame_elapsed_seconds") or 0.0
-            covered = float(summary.get("duration_seconds") or 0.0) - float(first_frame)
-            session["covered_seconds"] = covered
-            session["state"] = "counted" if covered >= needed - SERIES_END_SLACK_SECONDS else "short"
+            first_frame = _read_json_tolerant(output_dir / "progress.json").get("first_frame_elapsed_seconds")
+            if first_frame is None:
+                session["state"] = "no_data"
+            else:
+                covered = float(summary.get("duration_seconds") or 0.0) - float(first_frame)
+                session["covered_seconds"] = covered
+                session["state"] = "counted" if covered >= needed - SERIES_END_SLACK_SECONDS else "short"
         return session
 
     # --- calibration run -----------------------------------------------------

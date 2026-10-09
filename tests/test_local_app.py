@@ -1033,7 +1033,7 @@ class TestLocalMuseAppMeditationSeries(TestLocalMuseAppReport):
     def finish(self, payload, seconds, first_frame=5.0):
         output_dir = Path(payload["output_dir"])
         (output_dir / "progress.json").write_text(json.dumps({"first_frame_elapsed_seconds": first_frame}))
-        (output_dir / "summary.json").write_text(json.dumps({"duration_seconds": first_frame + seconds}))
+        (output_dir / "summary.json").write_text(json.dumps({"duration_seconds": (first_frame or 0.0) + seconds}))
         self.procs[-1][1].returncode = 0
         return output_dir
 
@@ -1077,13 +1077,16 @@ class TestLocalMuseAppMeditationSeries(TestLocalMuseAppReport):
         self.finish(self.state.start_meditation_series(self.FIRST)[0], 150 + 60)  # ran to the end
         self.finish(self.state.start_meditation_series({})[0], 150 - 3)  # stopped right at "All blocks done"
         self.finish(self.state.start_meditation_series({})[0], 100)  # stopped in block 3
+        self.finish(self.state.start_meditation_series({})[0], 600, first_frame=None)  # the headband never sent a frame
         self.state.start_meditation_series({})
         self.procs[-1][1].returncode = 1  # the recorder died, no summary
 
         status = self.state.meditation_series()
         self.assertEqual(status["counted"], 2)
         sessions = status["sessions"]  # oldest first
-        self.assertEqual([session["state"] for session in sessions], ["counted", "counted", "short", "unfinished"])
+        self.assertEqual(
+            [session["state"] for session in sessions], ["counted", "counted", "short", "no_data", "unfinished"]
+        )
         self.assertEqual((sessions[2]["covered_seconds"], sessions[2]["needed_seconds"]), (100.0, 150.0))
 
     def test_other_meditations_do_not_count(self):
