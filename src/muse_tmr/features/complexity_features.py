@@ -99,7 +99,7 @@ class ComplexityConfig:
     # Near-Nyquist floor: if 55-95 Hz is not above it, the band carries nothing.
     emg_floor_band_hz: Tuple[float, float] = (110.0, 125.0)
     # Narrow device lines bridged over in the EMG bands. Muse S Athena has one
-    # at exactly fs/4 = 64 Hz, ~40 dB above its neighbours and fading over a
+    # at exactly fs/4 = 64 Hz, 23-45 dB above its neighbours and fading over a
     # session; left in, it is most of the 55-95 Hz power.
     emg_exclude_hz: Tuple[float, ...] = (64.0,)
     emg_exclude_half_width_hz: float = 1.5

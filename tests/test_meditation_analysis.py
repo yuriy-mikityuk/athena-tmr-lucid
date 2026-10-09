@@ -9,6 +9,7 @@ import numpy as np
 
 from muse_tmr.features.complexity_features import ComplexityConfig
 from muse_tmr.reports.meditation_analysis import (
+    MEDITATION_SUMMARY_SCHEMA_VERSION,
     MeditationAnalysisConfig,
     MeditationBlocks,
     aggregate_meditation_summaries,
@@ -422,6 +423,7 @@ class MeditationReportTest(unittest.TestCase):
 class AggregateMeditationTest(unittest.TestCase):
     def summary(self, conditions, lzc_difference, recording):
         return {
+            "schema_version": MEDITATION_SUMMARY_SCHEMA_VERSION,
             "recording": recording,
             "conditions": list(conditions),
             "contrasts": [
@@ -470,6 +472,13 @@ class AggregateMeditationTest(unittest.TestCase):
         low, high = lzc["ci95"]
         self.assertLess(low, lzc["mean_difference"])
         self.assertGreater(high, lzc["mean_difference"])
+
+    def test_summaries_with_the_old_emg_indicator_are_rejected(self):
+        old = {**self.summary(("focus", "open"), 0.2, "s2"), "schema_version": 2}
+        unversioned = self.summary(("focus", "open"), 0.3, "s3")
+        del unversioned["schema_version"]
+        with self.assertRaisesRegex(ValueError, "rebuild them with analyze-meditation: s2, s3"):
+            aggregate_meditation_summaries([self.summary(("focus", "open"), 0.1, "s1"), old, unversioned])
 
     def test_mismatched_conditions_are_rejected(self):
         with self.assertRaises(ValueError):

@@ -1282,12 +1282,16 @@ def _aggregate_meditation(args: argparse.Namespace) -> int:
     from muse_tmr.reports.meditation_analysis import aggregate_meditation_summaries, json_safe
 
     summaries = [json.loads(path.expanduser().read_text(encoding="utf-8")) for path in args.summaries]
-    result = aggregate_meditation_summaries(
-        summaries,
-        labels=[str(path) for path in args.summaries],
-        min_sessions_for_inference=args.min_sessions,
-        seed=args.seed,
-    )
+    try:
+        result = aggregate_meditation_summaries(
+            summaries,
+            labels=[str(path) for path in args.summaries],
+            min_sessions_for_inference=args.min_sessions,
+            seed=args.seed,
+        )
+    except ValueError as exc:
+        print(f"aggregate-meditation: {exc}", file=sys.stderr)
+        return 2
     output = _resolve_output_path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(json_safe(result), indent=2, sort_keys=True) + "\n", encoding="utf-8")

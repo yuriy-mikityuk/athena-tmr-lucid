@@ -47,6 +47,9 @@ MEDITATION_BLOCKS_SCHEMA_VERSION = 1
 # 3: emg_power_55_95 bridges the 64 Hz device line, which was most of it before;
 # breath-by-breath counting ignores humps under 0.5 std.
 MEDITATION_SUMMARY_SCHEMA_VERSION = 3
+# Older summaries carry the line-dominated EMG indicator; pooling them with newer
+# ones would mix two different measurements under one name.
+MIN_AGGREGATE_SCHEMA_VERSION = 3
 MEDITATION_AGGREGATE_SCHEMA_VERSION = 1
 TIME_BASE = "seconds_from_recording_start"
 PRIMARY_METRIC = "lzc"
@@ -957,6 +960,16 @@ def aggregate_meditation_summaries(
     if labels is None:
         labels = [str(item.get("recording") or index) for index, item in enumerate(summaries)]
     labels = list(labels)
+    stale = [
+        label
+        for label, summary in zip(labels, summaries)
+        if int(summary.get("schema_version") or 1) < MIN_AGGREGATE_SCHEMA_VERSION
+    ]
+    if stale:
+        raise ValueError(
+            f"summaries before schema_version {MIN_AGGREGATE_SCHEMA_VERSION} have the 64 Hz device line in their "
+            f"EMG indicator; rebuild them with analyze-meditation: {', '.join(stale)}"
+        )
     reference = tuple(summaries[0]["conditions"])
     # One slot per session, so differences[i] always belongs to sessions[i];
     # a session without a contrast (e.g. no Polar data) stays NaN / null.
