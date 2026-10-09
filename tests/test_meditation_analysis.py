@@ -493,6 +493,17 @@ class AggregateMeditationTest(unittest.TestCase):
             aggregate_meditation_summaries([default, unbridged])
         aggregate_meditation_summaries([default, json.loads(json.dumps(default))])  # tuples vs JSON lists
 
+    def test_residualized_contrasts_pool_only_within_one_emg_indicator(self):
+        summaries = [self.summary(("focus", "open"), 0.1 * (index + 1), f"s{index + 1}") for index in range(3)]
+        for summary, indicator in zip(summaries, ("emg_power_55_95", "emg_power_30_45", "emg_power_55_95")):
+            summary["emg"]["indicator"] = indicator
+        result = aggregate_meditation_summaries(summaries)
+        self.assertEqual(self.row(result)["n_sessions"], 3)
+        residual = {row["emg_indicator"]: row for row in result["rows"] if row["kind"] == "emg_residualized"}
+        self.assertEqual(residual["emg_power_55_95"]["n_sessions"], 2)
+        self.assertEqual(residual["emg_power_30_45"]["n_sessions"], 1)
+        self.assertTrue(math.isnan(residual["emg_power_55_95"]["differences"][1]))
+
     def test_mismatched_conditions_are_rejected(self):
         with self.assertRaises(ValueError):
             aggregate_meditation_summaries(

@@ -988,18 +988,22 @@ def aggregate_meditation_summaries(
     reference = tuple(summaries[0]["conditions"])
     # One slot per session, so differences[i] always belongs to sessions[i];
     # a session without a contrast (e.g. no Polar data) stays NaN / null.
-    per_contrast: Dict[Tuple[str, str, str, str], List[float]] = {}
+    # Residualized contrasts are keyed by the EMG indicator they were adjusted
+    # for: auto picks 55-95 or 30-45 Hz per session, and those don't pool.
+    per_contrast: Dict[Tuple[str, str, str, str, str], List[float]] = {}
     for position, summary in enumerate(summaries):
         conditions = tuple(summary["conditions"])
         if set(conditions) != set(reference):
             raise ValueError(f"session conditions {conditions} do not match {reference}")
         sign = 1.0 if conditions == reference else -1.0
+        emg = summary.get("emg") or {}
+        indicator = str(emg.get("indicator") or "")
         values = [
-            ((item["metric"], item["group"], item["variant"], "raw"), item["difference"])
+            ((item["metric"], item["group"], item["variant"], "raw", ""), item["difference"])
             for item in summary.get("contrasts", ())
         ] + [
-            ((item["metric"], item["group"], item["variant"], "emg_residualized"), item["residualized_difference"])
-            for item in summary.get("emg", {}).get("residualized_contrasts", ())
+            ((item["metric"], item["group"], item["variant"], "emg_residualized", indicator), item["residualized_difference"])
+            for item in emg.get("residualized_contrasts", ())
         ]
         for key, value in values:
             slots = per_contrast.setdefault(key, [math.nan] * len(summaries))
@@ -1008,7 +1012,7 @@ def aggregate_meditation_summaries(
     n_sessions = len(summaries)
     inference = n_sessions >= min_sessions_for_inference
     rows = []
-    for (metric, group, variant, kind), differences in sorted(per_contrast.items()):
+    for (metric, group, variant, kind, indicator), differences in sorted(per_contrast.items()):
         finite = np.asarray([value for value in differences if math.isfinite(value)], dtype=float)
         primary = is_primary(metric, group, variant, kind)
         row: Dict[str, object] = {
@@ -1016,6 +1020,7 @@ def aggregate_meditation_summaries(
             "group": group,
             "variant": variant,
             "kind": kind,
+            "emg_indicator": indicator or None,
             "primary": primary,
             "label": "primary" if primary else "exploratory",
             "n_sessions": int(finite.size),

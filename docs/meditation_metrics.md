@@ -145,7 +145,8 @@ always carries an `emg` section:
   metric. No p-values, epochs are autocorrelated.
 - `residualized_contrasts`: each metric's A - B after regressing it on the log10
   indicator within the session (OLS on epochs). A contrast that disappears after
-  residualizing is probably muscle.
+  residualizing is probably muscle. `aggregate-meditation` pools these only across
+  sessions with the same indicator (`emg_indicator` on each row).
 - `group_difference_db`: the same A - B in dB for all channels, AF7/AF8
   (forehead, frontalis) and TP9/TP10 (jaw, temporalis). The report shows it
   next to the ratio.
