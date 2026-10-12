@@ -162,6 +162,7 @@ class TestLocalMuseApp(unittest.TestCase):
         self.assertIn("Start night session", body)
         self.assertIn('id="stop-recording-button"', body)
         self.assertIn('id="recording-strip"', body)
+        self.assertIn('id="meditation-sound"', body)
         self.assertIn("/api/muse/ui-state", script)
         self.assertNotIn('requestJson("/api/muse/state"', script)
         self.assertNotIn('requestJson("/api/muse/contact"', script)

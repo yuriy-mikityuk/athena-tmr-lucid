@@ -456,6 +456,24 @@ button:disabled {
   margin-top: 10px;
 }
 
+.meditation-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.meditation-head button {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 0.88rem;
+}
+
+.meditation-head button[aria-pressed="false"] {
+  color: var(--muted);
+}
+
 .meditation-now {
   font-size: 1.15rem;
   font-weight: 700;

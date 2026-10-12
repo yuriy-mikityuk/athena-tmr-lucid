@@ -96,7 +96,9 @@ minutes per block and settle-in time. Starting it builds the same counterbalance
 (plus a minute of slack) and stores `blocks.json` in the recording folder. While it runs the
 panel shows the current block, practice and time left, counted from the first Muse frame
 like the analysis, and plays a soft tone at every block change (the browser needs one click
-on the page for sound; untick the option to stay silent). Finished blocks get depth and
+on the page for sound). The Sound button next to the timer mutes or unmutes it mid-session,
+and unmuting plays the tone once so the volume can be checked; it is the same setting as the
+option in the start form. Finished blocks get depth and
 sensory-fading selectors that save straight into `blocks.json`. When the recording is done,
 "Analyze meditation" runs `analyze-meditation` in the background and links its
 `report.html`. The Polar H10 checkbox applies here too.

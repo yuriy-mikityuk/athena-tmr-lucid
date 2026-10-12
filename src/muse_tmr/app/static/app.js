@@ -19,6 +19,7 @@ const meditationCancel = document.querySelector("#med-cancel");
 const meditationChime = document.querySelector("#med-chime");
 const meditationPanel = document.querySelector("#meditation-panel");
 const meditationNow = document.querySelector("#meditation-now");
+const meditationSound = document.querySelector("#meditation-sound");
 const meditationBlocks = document.querySelector("#meditation-blocks");
 const analyzeMeditationButton = document.querySelector("#analyze-meditation-button");
 const openMeditationReport = document.querySelector("#open-meditation-report");
@@ -658,11 +659,26 @@ disconnectButton.addEventListener("click", async () => {
 const meditationState = { outputDir: null, items: new Map(), lastPhase: null, anchor: null };
 let audioContext = null;
 
-function chimeEnabled() {
+function readChimeSetting() {
   try {
     return window.localStorage.getItem("meditationChime") !== "0";
   } catch (error) {
     return true;
+  }
+}
+
+let chimeSetting = readChimeSetting();
+
+function chimeEnabled() {
+  return chimeSetting;
+}
+
+function setChimeEnabled(enabled) {
+  chimeSetting = enabled;
+  try {
+    window.localStorage.setItem("meditationChime", enabled ? "1" : "0");
+  } catch (error) {
+    // the setting just won't survive a reload
   }
 }
 
@@ -754,6 +770,8 @@ function renderMeditation(recording) {
   const active = Boolean(recording.active);
   const seconds = planSeconds(recording, meditation);
   const phase = meditationPhase(blocks, seconds, active);
+  meditationSound.hidden = !active;
+  renderSoundButton();
 
   if (phase.key === "waiting") {
     meditationNow.textContent = "Waiting for the first headband data...";
@@ -779,6 +797,25 @@ function renderMeditation(recording) {
   blocks.forEach((block) => renderMeditationBlock(block, seconds, active, phase));
   renderMeditationAnalysis(recording, meditation, active);
 }
+
+function renderSoundButton() {
+  const on = chimeEnabled();
+  meditationSound.textContent = on ? "Sound: on" : "Sound: off";
+  meditationSound.setAttribute("aria-pressed", String(on));
+}
+
+// Turning the sound on plays the tone once, so the volume can be checked before closing the eyes.
+// While the browser still blocks sound (page reloaded mid-session) a click unlocks it instead of muting.
+meditationSound.addEventListener("click", () => {
+  if (chimeEnabled() && audioContext) {
+    setChimeEnabled(false);
+  } else {
+    setChimeEnabled(true);
+    ensureAudio();
+    playChime(1);
+  }
+  renderSoundButton();
+});
 
 function renderMeditationBlock(block, seconds, active, phase) {
   let item = meditationState.items.get(block.index);
@@ -864,11 +901,7 @@ meditationCancel.addEventListener("click", () => {
 
 meditationForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  try {
-    window.localStorage.setItem("meditationChime", meditationChime.checked ? "1" : "0");
-  } catch (error) {
-    // the setting just won't be remembered
-  }
+  setChimeEnabled(meditationChime.checked);
   if (meditationChime.checked) {
     ensureAudio();
   }
@@ -1031,11 +1064,7 @@ seriesNew.addEventListener("click", async () => {
 
 seriesForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  try {
-    window.localStorage.setItem("meditationChime", seriesChime.checked ? "1" : "0");
-  } catch (error) {
-    // the setting just won't be remembered
-  }
+  setChimeEnabled(seriesChime.checked);
   if (seriesChime.checked) {
     ensureAudio();
   }
