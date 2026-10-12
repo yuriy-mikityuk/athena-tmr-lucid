@@ -720,6 +720,46 @@ function playChime(count) {
   }
 }
 
+// What the voice says for the default practice labels; any other label is read as typed.
+const practicePhrases = { focus: "фокус на дыхании", open: "открытое внимание" };
+
+function practicePhrase(condition) {
+  const label = String(condition || "").trim();
+  return practicePhrases[label.toLowerCase()] || label;
+}
+
+// Russian, like the calibration voice. It speaks in the first seconds of a block, which the
+// analysis drops anyway (the first 30 s of every block).
+function phaseCue(phase, lastKey, blocks) {
+  if (!phase.block) {
+    return "Всё, можно открыть глаза.";
+  }
+  const phrase = practicePhrase(phase.block.condition);
+  const previous = blocks.find((block) => `block-${block.index}` === lastKey);
+  return previous && previous.condition === phase.block.condition ? `Снова ${phrase}.` : `${titleCase(phrase)}.`;
+}
+
+function speak(text, delayMs) {
+  if (!window.speechSynthesis || typeof SpeechSynthesisUtterance === "undefined") {
+    return;
+  }
+  window.setTimeout(() => {
+    if (!chimeEnabled()) {
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "ru-RU";
+    // A voice of the Mac (Milena) over a browser's network one, like "Google русский" in Chrome.
+    const voices = window.speechSynthesis.getVoices().filter((item) => item.lang.toLowerCase().startsWith("ru"));
+    const voice = voices.find((item) => item.localService) || voices[0];
+    if (voice) {
+      utterance.voice = voice;
+    }
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+  }, delayMs);
+}
+
 function planSeconds(recording, meditation) {
   const elapsed = numberOrNull(recording.elapsed_seconds);
   const offset = numberOrNull(meditation.first_frame_elapsed_seconds);
@@ -785,12 +825,14 @@ function renderMeditation(recording) {
       : "Done. Rate the blocks, then analyze.";
   }
   if (active && chimeEnabled() && !audioContext) {
-    meditationNow.textContent += " (click the page to enable tones)";
+    meditationNow.textContent += " (click the page to enable sound)";
   }
 
   const last = meditationState.lastPhase;
-  if (last && last !== "waiting" && last !== phase.key && active) {
-    playChime(phase.key === "done" ? 2 : 1);
+  if (last && last !== "waiting" && last !== phase.key && active && chimeEnabled()) {
+    const tones = phase.key === "done" ? 2 : 1;
+    playChime(tones);
+    speak(phaseCue(phase, last, blocks), 1400 + (tones - 1) * 900);
   }
   meditationState.lastPhase = phase.key;
 
@@ -804,15 +846,20 @@ function renderSoundButton() {
   meditationSound.setAttribute("aria-pressed", String(on));
 }
 
-// Turning the sound on plays the tone once, so the volume can be checked before closing the eyes.
-// While the browser still blocks sound (page reloaded mid-session) a click unlocks it instead of muting.
+// Turning the sound on plays the tone and the voice once, so the volume can be checked before
+// closing the eyes. While the browser still blocks sound (page reloaded mid-session) a click
+// unlocks it instead of muting.
 meditationSound.addEventListener("click", () => {
   if (chimeEnabled() && audioContext) {
     setChimeEnabled(false);
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
   } else {
     setChimeEnabled(true);
     ensureAudio();
     playChime(1);
+    speak("Звук включён.", 1400);
   }
   renderSoundButton();
 });

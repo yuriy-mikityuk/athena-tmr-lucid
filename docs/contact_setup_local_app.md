@@ -95,12 +95,13 @@ minutes per block and settle-in time. Starting it builds the same counterbalance
 `muse-tmr meditation-plan` (random seed), starts a session recording long enough for it
 (plus a minute of slack) and stores `blocks.json` in the recording folder. While it runs the
 panel shows the current block, practice and time left, counted from the first Muse frame
-like the analysis, and plays a soft tone at every block change (the browser needs one click
-on the page for sound). The Sound button next to the timer mutes or unmutes it mid-session,
-and unmuting plays the tone once so the volume can be checked; it is the same setting as the
-option in the start form. Finished blocks get depth and
-sensory-fading selectors that save straight into `blocks.json`. When the recording is done,
-"Analyze meditation" runs `analyze-meditation` in the background and links its
+like the analysis. At every block change it plays a soft tone, then a Russian voice names the
+practice (focus and open get a short phrase, other labels are read as typed), so the order
+need not be kept in mind with eyes closed. The browser needs one click on the page for sound.
+The Sound button next to the timer mutes or unmutes both mid-session, and unmuting plays them
+once to check the volume; it is the same setting as the option in the start form. Finished
+blocks get depth and sensory-fading selectors that save straight into `blocks.json`. When the
+recording is done, "Analyze meditation" runs `analyze-meditation` in the background and links its
 `report.html`. The Polar H10 checkbox applies here too.
 
 ## Meditation series
