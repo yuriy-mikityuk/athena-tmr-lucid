@@ -739,6 +739,12 @@ function phaseCue(phase, lastKey, blocks) {
   return previous && previous.condition === phase.block.condition ? `Снова ${phrase}.` : `${titleCase(phrase)}.`;
 }
 
+// Chrome fills its voice list only after the first call, so ask now: the first cue then finds
+// Milena instead of leaving the choice to the browser.
+if (window.speechSynthesis) {
+  window.speechSynthesis.getVoices();
+}
+
 function speak(text, delayMs) {
   if (!window.speechSynthesis || typeof SpeechSynthesisUtterance === "undefined") {
     return;
