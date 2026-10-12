@@ -740,7 +740,7 @@ function phaseCue(phase, lastKey, blocks) {
 }
 
 // Chrome fills its voice list only after the first call, so ask now: the first cue then finds
-// Milena instead of leaving the choice to the browser.
+// Milena instead of an empty list.
 if (window.speechSynthesis) {
   window.speechSynthesis.getVoices();
 }
@@ -753,14 +753,17 @@ function speak(text, delayMs) {
     if (!chimeEnabled()) {
       return;
     }
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "ru-RU";
-    // A voice of the Mac (Milena) over a browser's network one, like "Google русский" in Chrome.
-    const voices = window.speechSynthesis.getVoices().filter((item) => item.lang.toLowerCase().startsWith("ru"));
-    const voice = voices.find((item) => item.localService) || voices[0];
-    if (voice) {
-      utterance.voice = voice;
+    // Only a voice of the Mac (Milena). A network one, like "Google русский" in Chrome, would send
+    // the text out of this machine, so without a local voice the change stays a tone.
+    const voice = window.speechSynthesis
+      .getVoices()
+      .find((item) => item.localService && item.lang.toLowerCase().startsWith("ru"));
+    if (!voice) {
+      return;
     }
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = voice.lang;
+    utterance.voice = voice;
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
   }, delayMs);

@@ -97,7 +97,9 @@ minutes per block and settle-in time. Starting it builds the same counterbalance
 panel shows the current block, practice and time left, counted from the first Muse frame
 like the analysis. At every block change it plays a soft tone, then a Russian voice names the
 practice (focus and open get a short phrase, other labels are read as typed), so the order
-need not be kept in mind with eyes closed. The browser needs one click on the page for sound.
+need not be kept in mind with eyes closed. The voice has to be installed on the Mac (Milena);
+a browser's network voice is never used, since it would send the text out, so without a local
+one the change is just the tone. The browser needs one click on the page for sound.
 The Sound button next to the timer mutes or unmutes both mid-session, and unmuting plays them
 once to check the volume; it is the same setting as the option in the start form. Finished
 blocks get depth and sensory-fading selectors that save straight into `blocks.json`. When the
