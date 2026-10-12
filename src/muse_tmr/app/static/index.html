@@ -114,7 +114,7 @@
             <label>Minutes per block<input id="med-block-minutes" type="number" min="0.5" max="60" step="0.5" value="8" required></label>
             <label>Settle-in seconds<input id="med-settle" type="number" min="0" max="600" step="5" value="60" required></label>
           </div>
-          <label class="record-option"><input type="checkbox" id="med-chime" checked> Soft tone at every block change</label>
+          <label class="record-option"><input type="checkbox" id="med-chime" checked> Tone and spoken practice at every block change</label>
           <p class="form-error" id="med-error" role="alert" hidden></p>
           <div class="form-actions">
             <button type="submit" class="primary">Start meditation</button>
@@ -131,7 +131,7 @@
             <label>Minutes per block<input id="series-block-minutes" type="number" min="0.5" max="60" step="0.5" value="8" required></label>
             <label>Settle-in seconds<input id="series-settle" type="number" min="0" max="600" step="5" value="60" required></label>
           </div>
-          <label class="record-option"><input type="checkbox" id="series-chime" checked> Soft tone at every block change</label>
+          <label class="record-option"><input type="checkbox" id="series-chime" checked> Tone and spoken practice at every block change</label>
           <ul class="meditation-blocks series-sessions" id="series-sessions"></ul>
           <p class="form-error" id="series-error" role="alert" hidden></p>
           <div class="form-actions">
@@ -159,7 +159,10 @@
           </div>
         </section>
         <section class="meditation-panel" id="meditation-panel" hidden>
-          <div class="meditation-now" id="meditation-now"></div>
+          <div class="meditation-head">
+            <div class="meditation-now" id="meditation-now"></div>
+            <button type="button" id="meditation-sound" aria-pressed="true" title="Tone and spoken practice at every block change. Turning it on plays both once." hidden>Sound: on</button>
+          </div>
           <ol class="meditation-blocks" id="meditation-blocks"></ol>
           <div class="record-report-actions">
             <button type="button" id="analyze-meditation-button" hidden>Analyze meditation</button>

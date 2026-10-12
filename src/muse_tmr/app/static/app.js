@@ -19,6 +19,7 @@ const meditationCancel = document.querySelector("#med-cancel");
 const meditationChime = document.querySelector("#med-chime");
 const meditationPanel = document.querySelector("#meditation-panel");
 const meditationNow = document.querySelector("#meditation-now");
+const meditationSound = document.querySelector("#meditation-sound");
 const meditationBlocks = document.querySelector("#meditation-blocks");
 const analyzeMeditationButton = document.querySelector("#analyze-meditation-button");
 const openMeditationReport = document.querySelector("#open-meditation-report");
@@ -657,8 +658,11 @@ disconnectButton.addEventListener("click", async () => {
 
 const meditationState = { outputDir: null, items: new Map(), lastPhase: null, anchor: null };
 let audioContext = null;
+// Set by a click that tried to unlock blocked sound: the next click mutes even if the browser
+// kept it blocked, so the Sound button cannot get stuck on "Enable sound".
+let unlockTried = false;
 
-function chimeEnabled() {
+function readChimeSetting() {
   try {
     return window.localStorage.getItem("meditationChime") !== "0";
   } catch (error) {
@@ -666,14 +670,42 @@ function chimeEnabled() {
   }
 }
 
+let chimeSetting = readChimeSetting();
+
+function chimeEnabled() {
+  return chimeSetting;
+}
+
+function setChimeEnabled(enabled) {
+  chimeSetting = enabled;
+  try {
+    window.localStorage.setItem("meditationChime", enabled ? "1" : "0");
+  } catch (error) {
+    // the setting just won't survive a reload
+  }
+}
+
 function ensureAudio() {
   if (!audioContext) {
     const Context = window.AudioContext || window.webkitAudioContext;
     audioContext = Context ? new Context() : null;
+    if (audioContext) {
+      audioContext.addEventListener("statechange", () => {
+        if (audioRunning()) {
+          unlockTried = false;
+        }
+        renderSoundButton();
+      });
+    }
   }
-  if (audioContext && audioContext.state === "suspended") {
+  if (audioContext && audioContext.state !== "running") {
     audioContext.resume().catch(() => {});
   }
+}
+
+// Suspended (no click yet after a reload, or Safari interrupted it) counts as blocked.
+function audioRunning() {
+  return Boolean(audioContext) && audioContext.state === "running";
 }
 
 // Browsers only allow sound after a click; any click on the page unlocks it again
@@ -702,6 +734,55 @@ function playChime(count) {
     oscillator.start(time);
     oscillator.stop(time + 1.7);
   }
+}
+
+// What the voice says for the default practice labels; any other label is read as typed.
+const practicePhrases = { focus: "фокус на дыхании", open: "открытое внимание" };
+
+function practicePhrase(condition) {
+  const label = String(condition || "").trim();
+  return practicePhrases[label.toLowerCase()] || label;
+}
+
+// Russian, like the calibration voice. It speaks in the first seconds of a block, which the
+// analysis drops anyway (the first 30 s of every block).
+function phaseCue(phase, lastKey, blocks) {
+  if (!phase.block) {
+    return "Всё, можно открыть глаза.";
+  }
+  const phrase = practicePhrase(phase.block.condition);
+  const previous = blocks.find((block) => `block-${block.index}` === lastKey);
+  return previous && previous.condition === phase.block.condition ? `Снова ${phrase}.` : `${titleCase(phrase)}.`;
+}
+
+// Chrome fills its voice list only after the first call, so ask now: the first cue then finds
+// Milena instead of an empty list.
+if (window.speechSynthesis) {
+  window.speechSynthesis.getVoices();
+}
+
+function speak(text, delayMs) {
+  if (!window.speechSynthesis || typeof SpeechSynthesisUtterance === "undefined") {
+    return;
+  }
+  window.setTimeout(() => {
+    if (!chimeEnabled()) {
+      return;
+    }
+    // Only a voice of the Mac (Milena). A network one, like "Google русский" in Chrome, would send
+    // the text out of this machine, so without a local voice the change stays a tone.
+    const voice = window.speechSynthesis
+      .getVoices()
+      .find((item) => item.localService && item.lang.toLowerCase().startsWith("ru"));
+    if (!voice) {
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = voice.lang;
+    utterance.voice = voice;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+  }, delayMs);
 }
 
 function planSeconds(recording, meditation) {
@@ -754,6 +835,8 @@ function renderMeditation(recording) {
   const active = Boolean(recording.active);
   const seconds = planSeconds(recording, meditation);
   const phase = meditationPhase(blocks, seconds, active);
+  meditationSound.hidden = !active;
+  renderSoundButton();
 
   if (phase.key === "waiting") {
     meditationNow.textContent = "Waiting for the first headband data...";
@@ -766,19 +849,55 @@ function renderMeditation(recording) {
       ? "All blocks done. Rate them below; the recording is finishing."
       : "Done. Rate the blocks, then analyze.";
   }
-  if (active && chimeEnabled() && !audioContext) {
-    meditationNow.textContent += " (click the page to enable tones)";
+  if (active && chimeEnabled() && !audioRunning()) {
+    meditationNow.textContent += " (click the page to enable sound)";
   }
 
+  // A cue when a block starts or the plan ends. A block right after "waiting" counts too: with
+  // no settle-in the first block starts there.
   const last = meditationState.lastPhase;
-  if (last && last !== "waiting" && last !== phase.key && active) {
-    playChime(phase.key === "done" ? 2 : 1);
+  const blockStarted = Boolean(phase.block) && Boolean(last) && last !== phase.key;
+  const planEnded = phase.key === "done" && Boolean(last) && last !== "done" && last !== "waiting";
+  if ((blockStarted || planEnded) && active && chimeEnabled()) {
+    const tones = phase.key === "done" ? 2 : 1;
+    playChime(tones);
+    speak(phaseCue(phase, last, blocks), 1400 + (tones - 1) * 900);
   }
   meditationState.lastPhase = phase.key;
 
   blocks.forEach((block) => renderMeditationBlock(block, seconds, active, phase));
   renderMeditationAnalysis(recording, meditation, active);
 }
+
+function soundBlocked() {
+  return chimeEnabled() && !audioRunning() && !unlockTried;
+}
+
+function renderSoundButton() {
+  const on = chimeEnabled();
+  meditationSound.textContent = !on ? "Sound: off" : soundBlocked() ? "Enable sound" : "Sound: on";
+  meditationSound.setAttribute("aria-pressed", String(on));
+}
+
+// Turning the sound on plays the tone and the voice once, so the volume can be checked before
+// closing the eyes. While the browser blocks sound the button reads "Enable sound" and a click
+// unlocks it instead of muting.
+meditationSound.addEventListener("click", () => {
+  if (chimeEnabled() && !soundBlocked()) {
+    unlockTried = false;
+    setChimeEnabled(false);
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+  } else {
+    unlockTried = chimeEnabled();
+    setChimeEnabled(true);
+    ensureAudio();
+    playChime(1);
+    speak("Звук включён.", 1400);
+  }
+  renderSoundButton();
+});
 
 function renderMeditationBlock(block, seconds, active, phase) {
   let item = meditationState.items.get(block.index);
@@ -864,11 +983,7 @@ meditationCancel.addEventListener("click", () => {
 
 meditationForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  try {
-    window.localStorage.setItem("meditationChime", meditationChime.checked ? "1" : "0");
-  } catch (error) {
-    // the setting just won't be remembered
-  }
+  setChimeEnabled(meditationChime.checked);
   if (meditationChime.checked) {
     ensureAudio();
   }
@@ -1031,11 +1146,7 @@ seriesNew.addEventListener("click", async () => {
 
 seriesForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  try {
-    window.localStorage.setItem("meditationChime", seriesChime.checked ? "1" : "0");
-  } catch (error) {
-    // the setting just won't be remembered
-  }
+  setChimeEnabled(seriesChime.checked);
   if (seriesChime.checked) {
     ensureAudio();
   }
