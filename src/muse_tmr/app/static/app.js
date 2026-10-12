@@ -658,6 +658,9 @@ disconnectButton.addEventListener("click", async () => {
 
 const meditationState = { outputDir: null, items: new Map(), lastPhase: null, anchor: null };
 let audioContext = null;
+// Set by a click that tried to unlock blocked sound: the next click mutes even if the browser
+// kept it blocked, so the Sound button cannot get stuck on "Enable sound".
+let unlockTried = false;
 
 function readChimeSetting() {
   try {
@@ -686,10 +689,23 @@ function ensureAudio() {
   if (!audioContext) {
     const Context = window.AudioContext || window.webkitAudioContext;
     audioContext = Context ? new Context() : null;
+    if (audioContext) {
+      audioContext.addEventListener("statechange", () => {
+        if (audioRunning()) {
+          unlockTried = false;
+        }
+        renderSoundButton();
+      });
+    }
   }
-  if (audioContext && audioContext.state === "suspended") {
+  if (audioContext && audioContext.state !== "running") {
     audioContext.resume().catch(() => {});
   }
+}
+
+// Suspended (no click yet after a reload, or Safari interrupted it) counts as blocked.
+function audioRunning() {
+  return Boolean(audioContext) && audioContext.state === "running";
 }
 
 // Browsers only allow sound after a click; any click on the page unlocks it again
@@ -833,12 +849,16 @@ function renderMeditation(recording) {
       ? "All blocks done. Rate them below; the recording is finishing."
       : "Done. Rate the blocks, then analyze.";
   }
-  if (active && chimeEnabled() && !audioContext) {
+  if (active && chimeEnabled() && !audioRunning()) {
     meditationNow.textContent += " (click the page to enable sound)";
   }
 
+  // A cue when a block starts or the plan ends. A block right after "waiting" counts too: with
+  // no settle-in the first block starts there.
   const last = meditationState.lastPhase;
-  if (last && last !== "waiting" && last !== phase.key && active && chimeEnabled()) {
+  const blockStarted = Boolean(phase.block) && Boolean(last) && last !== phase.key;
+  const planEnded = phase.key === "done" && Boolean(last) && last !== "done" && last !== "waiting";
+  if ((blockStarted || planEnded) && active && chimeEnabled()) {
     const tones = phase.key === "done" ? 2 : 1;
     playChime(tones);
     speak(phaseCue(phase, last, blocks), 1400 + (tones - 1) * 900);
@@ -849,22 +869,28 @@ function renderMeditation(recording) {
   renderMeditationAnalysis(recording, meditation, active);
 }
 
+function soundBlocked() {
+  return chimeEnabled() && !audioRunning() && !unlockTried;
+}
+
 function renderSoundButton() {
   const on = chimeEnabled();
-  meditationSound.textContent = on ? "Sound: on" : "Sound: off";
+  meditationSound.textContent = !on ? "Sound: off" : soundBlocked() ? "Enable sound" : "Sound: on";
   meditationSound.setAttribute("aria-pressed", String(on));
 }
 
 // Turning the sound on plays the tone and the voice once, so the volume can be checked before
-// closing the eyes. While the browser still blocks sound (page reloaded mid-session) a click
+// closing the eyes. While the browser blocks sound the button reads "Enable sound" and a click
 // unlocks it instead of muting.
 meditationSound.addEventListener("click", () => {
-  if (chimeEnabled() && audioContext) {
+  if (chimeEnabled() && !soundBlocked()) {
+    unlockTried = false;
     setChimeEnabled(false);
     if (window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
   } else {
+    unlockTried = chimeEnabled();
     setChimeEnabled(true);
     ensureAudio();
     playChime(1);
