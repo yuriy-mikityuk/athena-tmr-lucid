@@ -29,7 +29,9 @@ from muse_tmr.reports.meditation_analysis import MeditationBlock, MeditationBloc
 
 CALIBRATION_DIRNAME = "calibration"
 CALIBRATION_SCHEMA_VERSION = 1
-DEFAULT_VOICE = "Milena"
+LANGUAGES = ("en", "ru")
+# The macOS say voice for each language when no --voice is given.
+VOICES = {"en": "Samantha", "ru": "Milena"}
 RELAXED = "relaxed"
 
 
@@ -101,12 +103,37 @@ PROTOCOL: Tuple[Segment, ...] = (
     Segment("h10_back", "H10 back on the strap, eyes closed, sit still", 1200, 1380,
             "Пристегни датчик обратно. Закрой глаза и сиди спокойно до конца."),
 )
-END_SAY = "Всё, запись закончена. Можно открыть глаза."
+# The same steps in English (language "en"); times, conditions and paces stay as above.
+ENGLISH_STEPS = {
+    "settle": "Close your eyes and sit still. The first minute is for settling in.",
+    "relaxed_1": "Just relax. Keep your face and jaw soft.",
+    "jaw": "Tense your jaw slightly, teeth lightly touching. Hold it for two minutes.",
+    "relaxed_2": "Let go of the jaw. Relax.",
+    "forehead": "Tense your forehead slightly, brows a little up. Hold it for two minutes.",
+    "relaxed_3": "Let go of the forehead. Relax.",
+    "clench": "Now clench your teeth for a second on each cue.",
+    "relaxed_4": "That's enough. Relax.",
+    "breath_6": "Breathe with the voice. In for four seconds, out for six.",
+    "breath_12": "Now faster. In for two seconds, out for three.",
+    "h10_off": "Breathe normally. Open your eyes, unclip the H10 sensor from the strap and put it down next to you.",
+    "h10_back": "Clip the sensor back on. Close your eyes and sit still until the end.",
+}
+ENGLISH_WORDS = {"сжать": "clench", "отпустить": "release", "вдох": "in", "выдох": "out"}
+END_SAY = {
+    "en": "That's it, the recording is over. You can open your eyes.",
+    "ru": "Всё, запись закончена. Можно открыть глаза.",
+}
 PROTOCOL_SECONDS = PROTOCOL[-1].end_s
-BATTERY_PULL_SAY = (
-    "Дыши как обычно. Открой глаза, отстегни датчик H10 от ремня, открой крышку монеткой "
-    "и вынь батарейку секунд на десять. Потом вставь её обратно и закрой крышку."
-)
+BATTERY_PULL_SAY = {
+    "en": (
+        "Breathe normally. Open your eyes, unclip the H10 sensor from the strap, open its cover with a coin "
+        "and take the battery out for about ten seconds. Then put it back and close the cover."
+    ),
+    "ru": (
+        "Дыши как обычно. Открой глаза, отстегни датчик H10 от ремня, открой крышку монеткой "
+        "и вынь батарейку секунд на десять. Потом вставь её обратно и закрой крышку."
+    ),
+}
 # The recorder runs a little past the protocol so the last epoch is complete.
 RECORD_SECONDS = PROTOCOL_SECONDS + 20.0
 
@@ -124,25 +151,46 @@ BREATHING_PAIR = ("breathing", "breath_6", "breath_12")
 LINE_CHECK_PRESETS = ("p1034", "p21", "p1034", "p21")
 LINE_CHECK_SECONDS = 120.0
 LINE_CHECK_FILENAME = "line_check.json"
-LINE_CHECK_INTRO_SAY = (
-    "Сначала проверка помехи: четыре куска по две минуты, между ними обруч переподключается. "
-    "Закрой глаза и сиди спокойно."
-)
-LINE_CHECK_SEGMENT_SAY = "Кусок {number} из четырёх."
-LINE_CHECK_DONE_SAY = "Проверка помехи закончена. Дальше калибровка, сиди как сидишь."
+LINE_CHECK_INTRO_SAY = {
+    "en": (
+        "First a noise check: four parts of two minutes, and the headband reconnects between them. "
+        "Close your eyes and sit still."
+    ),
+    "ru": (
+        "Сначала проверка помехи: четыре куска по две минуты, между ними обруч переподключается. "
+        "Закрой глаза и сиди спокойно."
+    ),
+}
+LINE_CHECK_SEGMENT_SAY = {"en": "Part {number} of four.", "ru": "Кусок {number} из четырёх."}
+LINE_CHECK_DONE_SAY = {
+    "en": "The noise check is done. The calibration is next, stay as you are.",
+    "ru": "Проверка помехи закончена. Дальше калибровка, сиди как сидишь.",
+}
 
 
-def calibration_protocol(battery_pull: bool = False) -> Tuple[Segment, ...]:
-    """The protocol; with battery_pull the H10 minute also takes its battery out
-    for ~10 s, so the link really drops and the sensor clock restarts."""
+def calibration_protocol(battery_pull: bool = False, language: str = "ru") -> Tuple[Segment, ...]:
+    """The protocol, spoken in ``language``; with battery_pull the H10 minute also takes its
+    battery out for ~10 s, so the link really drops and the sensor clock restarts."""
+    protocol = tuple(_in_english(segment) for segment in PROTOCOL) if language == "en" else PROTOCOL
     if not battery_pull:
-        return PROTOCOL
+        return protocol
     return tuple(
-        replace(segment, label="Eyes open: unclip the H10, take its battery out for ~10 s", say=BATTERY_PULL_SAY)
+        replace(
+            segment,
+            label="Eyes open: unclip the H10, take its battery out for ~10 s",
+            say=BATTERY_PULL_SAY[language],
+        )
         if segment.name == "h10_off"
         else segment
-        for segment in PROTOCOL
+        for segment in protocol
     )
+
+
+def _in_english(segment: Segment) -> Segment:
+    pace = segment.pace
+    if pace is not None:
+        pace = replace(pace, beats=tuple((offset, ENGLISH_WORDS[word]) for offset, word in pace.beats))
+    return replace(segment, say=ENGLISH_STEPS[segment.name], pace=pace)
 
 
 def run_line_check(
@@ -150,20 +198,21 @@ def run_line_check(
     speaker,
     record: Callable[[Path, str], int],
     presets: Sequence[str] = LINE_CHECK_PRESETS,
+    language: str = "ru",
     log: Callable[[str], None] = lambda message: None,
 ) -> List[Dict[str, object]]:
     """One short recording per preset, in order; ``record(directory, preset)``
     runs the recorder to the end and returns its exit code."""
     finish = getattr(speaker, "wait", lambda: None)
-    speaker.speak(LINE_CHECK_INTRO_SAY)
+    speaker.speak(LINE_CHECK_INTRO_SAY[language])
     finish()  # the next cue would cut the instructions short
     results: List[Dict[str, object]] = []
     for number, (directory, preset) in enumerate(zip(directories, presets), start=1):
-        speaker.speak(LINE_CHECK_SEGMENT_SAY.format(number=number))
+        speaker.speak(LINE_CHECK_SEGMENT_SAY[language].format(number=number))
         log(f"line check {number}/{len(presets)}: {preset} -> {directory}")
         code = record(Path(directory), preset)
         results.append({"index": number, "preset": preset, "recording": str(directory), "returncode": code})
-    speaker.speak(LINE_CHECK_DONE_SAY)
+    speaker.speak(LINE_CHECK_DONE_SAY[language])
     finish()
     return results
 
@@ -177,7 +226,7 @@ class Cue:
     cycle_start: bool = False
 
 
-def schedule(protocol: Sequence[Segment] = PROTOCOL) -> List[Cue]:
+def schedule(protocol: Sequence[Segment] = PROTOCOL, language: str = "ru") -> List[Cue]:
     """Every spoken cue in time order; paced cycles never run past their segment."""
     cues: List[Cue] = []
     for segment in protocol:
@@ -190,7 +239,7 @@ def schedule(protocol: Sequence[Segment] = PROTOCOL) -> List[Cue]:
             for offset, word in pace.beats:
                 cues.append(Cue(cycle + offset, "beat", segment.name, word, cycle_start=offset == 0.0))
             cycle += pace.period_s
-    cues.append(Cue(protocol[-1].end_s, "end", "end", END_SAY))
+    cues.append(Cue(protocol[-1].end_s, "end", "end", END_SAY[language]))
     return sorted(cues, key=lambda cue: cue.planned_s)
 
 
@@ -216,7 +265,7 @@ class SaySpeaker:
 
     def __init__(
         self,
-        voice: Optional[str] = DEFAULT_VOICE,
+        voice: Optional[str] = None,
         rate: Optional[int] = None,
         command: str = "say",
         popen: Callable[..., object] = subprocess.Popen,
@@ -310,6 +359,7 @@ def run_guide(
     speaker,
     *,
     protocol: Sequence[Segment] = PROTOCOL,
+    language: str = "ru",
     recorder_alive: Callable[[], bool] = lambda: True,
     clock: Callable[[], float] = time.time,
     sleep: Callable[[float], None] = time.sleep,
@@ -365,7 +415,7 @@ def run_guide(
         if origin is not None:
             log("first frame received, starting the protocol")
             with (out_dir / "cues.jsonl").open("a", encoding="utf-8") as cues_file:
-                for cue in schedule(protocol):
+                for cue in schedule(protocol, language):
                     due = origin + cue.planned_s
                     while clock() < due and not ended():
                         sleep(max(0.0, min(poll_seconds, due - clock())))

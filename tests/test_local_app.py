@@ -163,6 +163,7 @@ class TestLocalMuseApp(unittest.TestCase):
         self.assertIn('id="stop-recording-button"', body)
         self.assertIn('id="recording-strip"', body)
         self.assertIn('id="meditation-sound"', body)
+        self.assertEqual(body.count('class="voice-language"'), 3)
         self.assertIn("/api/muse/ui-state", script)
         self.assertNotIn('requestJson("/api/muse/state"', script)
         self.assertNotIn('requestJson("/api/muse/contact"', script)
@@ -1280,6 +1281,18 @@ class TestLocalMuseAppCalibration(TestLocalMuseAppReport):
         )
         self.assertEqual(self.state.ui_state()["recording"]["calibration"]["step"]["label"], "Jaw")
         self.assertTrue(json.loads((output_dir / "launch.json").read_text())["calibration"])
+
+    def test_guide_speaks_the_language_picked_in_the_form(self):
+        _payload, status = self.state.start_calibration({"language": "ru"})
+        self.assertEqual(int(status), 200)
+        guide, _proc = self.procs[1]
+        self.assertEqual(guide[-2:], ["--language", "ru"])
+
+    def test_unknown_language_starts_nothing(self):
+        payload, status = self.state.start_calibration({"language": "de"})
+        self.assertEqual(int(status), 400)
+        self.assertIn("en, ru", payload["error"])
+        self.assertEqual(self.procs, [])
 
     def test_guide_that_cannot_start_stops_the_recording(self):
         original = self.state._launcher

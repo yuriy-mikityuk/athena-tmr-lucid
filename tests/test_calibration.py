@@ -1,21 +1,28 @@
 import asyncio
+import contextlib
+import io
 import json
 import math
+import re
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
 
+from muse_tmr.cli.main import _calibration_speaker, build_parser
 from muse_tmr.protocol.calibration import (
+    END_SAY,
     PROTOCOL,
     PROTOCOL_SECONDS,
     Pace,
     SaySpeaker,
     Segment,
     SilentSpeaker,
+    calibration_protocol,
     first_frame_time,
     pair_blocks,
     read_state,
@@ -75,6 +82,21 @@ class ScheduleTest(unittest.TestCase):
         self.assertEqual(exhale[0] - 786.0, 4.0)
         self.assertEqual(cues[-1].kind, "end")
 
+    def test_english_says_the_same_plan(self):
+        english = calibration_protocol(language="en")
+        self.assertEqual(
+            [(s.name, s.label, s.start_s, s.end_s, s.condition) for s in english],
+            [(s.name, s.label, s.start_s, s.end_s, s.condition) for s in PROTOCOL],
+        )
+        cues = schedule(english, "en")
+        self.assertEqual(
+            [(cue.planned_s, cue.kind, cue.segment, cue.cycle_start) for cue in cues],
+            [(cue.planned_s, cue.kind, cue.segment, cue.cycle_start) for cue in schedule()],
+        )
+        self.assertEqual([cue.text for cue in cues if re.search("[а-яё]", cue.text, re.IGNORECASE)], [])
+        self.assertEqual({cue.text for cue in cues if cue.segment == "breath_6" and cue.kind == "beat"}, {"in", "out"})
+        self.assertEqual(cues[-1].text, END_SAY["en"])
+
 
 class GuideTest(unittest.TestCase):
     def test_full_run_logs_cues_and_writes_the_pairs(self):
@@ -106,6 +128,18 @@ class GuideTest(unittest.TestCase):
             paced = next(item for item in segments["segments"] if item["name"] == "breath_6")
             self.assertEqual(len(paced["cycle_starts_s"]), 17)
             self.assertEqual(paced["known_rate_bpm"], 6.0)
+
+    def test_english_run_speaks_english(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = recording_with_first_frame(tmp)
+            clock = FakeClock(ORIGIN)
+            speaker = SilentSpeaker()
+            english = calibration_protocol(language="en")
+            result = run_guide(folder, speaker, protocol=english, language="en", clock=clock, sleep=clock.sleep)
+            self.assertEqual(result.stop_reason, "completed")
+            self.assertEqual(speaker.spoken[0], english[0].say)
+            self.assertEqual(speaker.spoken[-1], END_SAY["en"])
+            self.assertEqual(sorted(result.blocks_files), ["breathing", "clench", "forehead", "jaw"])
 
     def test_stops_when_the_recording_ends(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -197,6 +231,19 @@ class SpeakerTest(unittest.TestCase):
         self.assertTrue(first.waited)
         self.assertEqual(calls[0], ["say", "-v", "Milena", "-r", "170", "вдох"])
         self.assertEqual(SaySpeaker(voice=None, popen=popen).voice, None)
+
+    def test_voice_follows_the_language(self):
+        def speaker(*argv):
+            return _calibration_speaker(build_parser().parse_args(["calibration-guide", "/tmp/x", *argv]))
+
+        with patch("muse_tmr.protocol.calibration.available_voices", return_value=["Milena", "Samantha", "Yuri"]):
+            self.assertEqual(speaker().voice, "Samantha")
+            self.assertEqual(speaker("--language", "ru").voice, "Milena")
+            self.assertEqual(speaker("--language", "ru", "--voice", "Yuri").voice, "Yuri")
+        out = io.StringIO()
+        with patch("muse_tmr.protocol.calibration.available_voices", return_value=["Samantha"]), contextlib.redirect_stdout(out):
+            self.assertIsNone(speaker("--language", "ru").voice)
+        self.assertIn("Russian voices here: none installed", out.getvalue())
 
 
 def asymmetric_breathing_session(period_s, inhale_s, seconds=200.0, first_cue_s=5.0, rng=None, exhale_s=None):

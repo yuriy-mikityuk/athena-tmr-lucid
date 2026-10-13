@@ -82,9 +82,15 @@ class LineCheckRunTest(unittest.TestCase):
         self.assertEqual([preset for _name, preset in recorded], list(LINE_CHECK_PRESETS))
         self.assertEqual([result["returncode"] for result in results], [0, 3, 0, 3])
         # The intro and the closing cue are let finish before anything else is said.
-        self.assertEqual(spoken[:2], [LINE_CHECK_INTRO_SAY, "<wait>"])
-        self.assertEqual(spoken[-2:], [LINE_CHECK_DONE_SAY, "<wait>"])
+        self.assertEqual(spoken[:2], [LINE_CHECK_INTRO_SAY["ru"], "<wait>"])
+        self.assertEqual(spoken[-2:], [LINE_CHECK_DONE_SAY["ru"], "<wait>"])
         self.assertEqual(len(spoken), 8)
+
+        spoken.clear()
+        run_line_check([Path(f"/tmp/s{i}") for i in range(4)], speaker, record, language="en")
+        self.assertEqual(spoken[0], LINE_CHECK_INTRO_SAY["en"])
+        self.assertEqual(spoken[2], "Part 1 of four.")
+        self.assertEqual(spoken[-2], LINE_CHECK_DONE_SAY["en"])
 
     def test_record_command_carries_the_preset(self):
         command = _calibration_record_command(Path("/tmp/x"), "p21", 120.0, with_polar=False, polar_address="AA")
@@ -103,7 +109,9 @@ class BatteryPullTest(unittest.TestCase):
         self.assertEqual([(s.name, s.start_s, s.end_s) for s in pulled], [(s.name, s.start_s, s.end_s) for s in PROTOCOL])
         changed = [segment for segment, original in zip(pulled, PROTOCOL) if segment != original]
         self.assertEqual([segment.name for segment in changed], ["h10_off"])
-        self.assertEqual(changed[0].say, BATTERY_PULL_SAY)
+        self.assertEqual(changed[0].say, BATTERY_PULL_SAY["ru"])
+        english = {segment.name: segment for segment in calibration_protocol(battery_pull=True, language="en")}
+        self.assertEqual(english["h10_off"].say, BATTERY_PULL_SAY["en"])
 
     def test_calibration_report_shows_a_line_check(self):
         line = {"AF7": {"amplitude_uv": 20.0, "height_db": 35.0, "windows": 12}}

@@ -9,21 +9,21 @@ meditation analysis leans on:
   ECG-derived) is right, against a known pace;
 - whether the H10 reconnects after the sensor is taken off the strap.
 
-It is done with eyes closed, so the Mac leads it by voice (macOS `say`, Russian voice
-Milena by default) and logs when every cue was actually spoken. The blocks files for
-the analysis are cut from those logged times, not from the plan.
+It is done with eyes closed, so the Mac leads it by voice (macOS `say`, in English with
+Samantha or in Russian with Milena) and logs when every cue was actually spoken. The
+blocks files for the analysis are cut from those logged times, not from the plan.
 
 ## Running it
 
 In the setup app: connect the Muse, wait for good contact, put on the H10 strap, then
-**Calibration run…** → **Start calibration**. The recording strip shows the current step
-and the H10 status. When it is done, **Build calibration report** (also in Recent
-recordings).
+**Calibration run…**, pick the voice language and **Start calibration**. The recording
+strip shows the current step and the H10 status. When it is done, **Build calibration
+report** (also in Recent recordings).
 
 From a terminal (press Disconnect in the app first, the Muse takes one connection):
 
 ```bash
-muse-tmr calibration-run [--address <muse>] [--polar-address <h10>] [--voice Milena] [--rate 170]
+muse-tmr calibration-run [--address <muse>] [--polar-address <h10>] [--language en|ru] [--voice <name>] [--rate 170]
 muse-tmr calibration-report data/recordings/session/<timestamp>_calibration
 ```
 
@@ -137,4 +137,5 @@ the first 10 s of each step are skipped (tension starts right after the instruct
 - Tension levels are self-produced and only roughly graded ("slight" vs 1 s clenches).
 - Paced breathing is followed by ear; the first cycles and late reactions blur the
   peak timing a little.
-- The voice is Russian; another `--voice` works, but the instructions stay Russian.
+- The steps exist in English and Russian only (`--language`, English by default); `--voice`
+  changes the voice, not the language.

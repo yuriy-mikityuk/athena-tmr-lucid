@@ -736,29 +736,93 @@ function playChime(count) {
   }
 }
 
-// What the voice says for the default practice labels; any other label is read as typed.
-const practicePhrases = { focus: "фокус на дыхании", open: "открытое внимание" };
+// The voice language, for the block changes here and for the calibration run on the Mac. Until
+// one is picked in a form, the browser's own language decides.
+function readVoiceLanguage() {
+  try {
+    const stored = window.localStorage.getItem("voiceLanguage");
+    if (stored === "en" || stored === "ru") {
+      return stored;
+    }
+  } catch (error) {
+    // no storage: the browser language decides
+  }
+  const browser = (navigator.languages || [navigator.language])
+    .map((tag) => String(tag || "").slice(0, 2).toLowerCase())
+    .find((code) => code === "en" || code === "ru");
+  return browser || "en";
+}
+
+let voiceLanguage = readVoiceLanguage();
+const voiceLanguageSelects = document.querySelectorAll(".voice-language");
+voiceLanguageSelects.forEach((select) => {
+  select.value = voiceLanguage;
+  select.addEventListener("change", () => {
+    voiceLanguage = select.value;
+    voiceLanguageSelects.forEach((other) => {
+      other.value = voiceLanguage;
+    });
+    try {
+      window.localStorage.setItem("voiceLanguage", voiceLanguage);
+    } catch (error) {
+      // the choice just won't survive a reload
+    }
+  });
+});
+
+// What the voice says. The default practice labels get a phrase; any other label is read as typed.
+const voicePhrases = {
+  en: {
+    practices: { focus: "focus on the breath", open: "open awareness" },
+    again: (phrase) => `${titleCase(phrase)} again.`,
+    end: "That's it, you can open your eyes.",
+    soundOn: "Sound on."
+  },
+  ru: {
+    practices: { focus: "фокус на дыхании", open: "открытое внимание" },
+    again: (phrase) => `Снова ${phrase}.`,
+    end: "Всё, можно открыть глаза.",
+    soundOn: "Звук включён."
+  }
+};
+// The voices of the calibration run, preferred here too when the Mac has them.
+const voiceNames = { en: "Samantha", ru: "Milena" };
 
 function practicePhrase(condition) {
   const label = String(condition || "").trim();
-  return practicePhrases[label.toLowerCase()] || label;
+  return voicePhrases[voiceLanguage].practices[label.toLowerCase()] || label;
 }
 
-// Russian, like the calibration voice. It speaks in the first seconds of a block, which the
-// analysis drops anyway (the first 30 s of every block).
+// It speaks in the first seconds of a block, which the analysis drops anyway (the first 30 s of
+// every block).
 function phaseCue(phase, lastKey, blocks) {
+  const phrases = voicePhrases[voiceLanguage];
   if (!phase.block) {
-    return "Всё, можно открыть глаза.";
+    return phrases.end;
   }
   const phrase = practicePhrase(phase.block.condition);
   const previous = blocks.find((block) => `block-${block.index}` === lastKey);
-  return previous && previous.condition === phase.block.condition ? `Снова ${phrase}.` : `${titleCase(phrase)}.`;
+  return previous && previous.condition === phase.block.condition ? phrases.again(phrase) : `${titleCase(phrase)}.`;
 }
 
 // Chrome fills its voice list only after the first call, so ask now: the first cue then finds
-// Milena instead of an empty list.
+// its voice instead of an empty list.
 if (window.speechSynthesis) {
   window.speechSynthesis.getVoices();
+}
+
+// Only a voice of the Mac. A network one, like "Google русский" in Chrome, would send the text
+// out of this machine, so without a local voice the change stays a tone. Samantha or Milena go
+// first, then the system's default voice: the first English voice in the list can be a novelty one.
+function localVoice(language) {
+  const voices = window.speechSynthesis
+    .getVoices()
+    .filter((item) => item.localService && item.lang.toLowerCase().startsWith(language));
+  return (
+    voices.find((item) => item.name.startsWith(voiceNames[language])) ||
+    voices.find((item) => item.default) ||
+    voices[0]
+  );
 }
 
 function speak(text, delayMs) {
@@ -769,11 +833,7 @@ function speak(text, delayMs) {
     if (!chimeEnabled()) {
       return;
     }
-    // Only a voice of the Mac (Milena). A network one, like "Google русский" in Chrome, would send
-    // the text out of this machine, so without a local voice the change stays a tone.
-    const voice = window.speechSynthesis
-      .getVoices()
-      .find((item) => item.localService && item.lang.toLowerCase().startsWith("ru"));
+    const voice = localVoice(voiceLanguage);
     if (!voice) {
       return;
     }
@@ -894,7 +954,7 @@ meditationSound.addEventListener("click", () => {
     setChimeEnabled(true);
     ensureAudio();
     playChime(1);
-    speak("Звук включён.", 1400);
+    speak(voicePhrases[voiceLanguage].soundOn, 1400);
   }
   renderSoundButton();
 });
@@ -1244,7 +1304,11 @@ document.querySelector("#calibration-cancel").addEventListener("click", () => {
 calibrationForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const formError = document.querySelector("#calibration-error");
-  const response = await fetch("/api/calibration/start", { method: "POST" });
+  const response = await fetch("/api/calibration/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ language: voiceLanguage })
+  });
   if (response.ok) {
     calibrationForm.hidden = true;
     formError.hidden = true;
