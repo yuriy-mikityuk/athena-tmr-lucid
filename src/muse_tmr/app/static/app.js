@@ -42,6 +42,7 @@ const recordReportText = document.querySelector("#record-report-text");
 const recordReportPath = document.querySelector("#record-report-path");
 const buildReportButton = document.querySelector("#build-report-button");
 const openReportLink = document.querySelector("#open-report-link");
+const backToMenuButton = document.querySelector("#back-to-menu-button");
 const recordingStrip = document.querySelector("#recording-strip");
 const recordingStatus = document.querySelector("#recording-status");
 const recordingKind = document.querySelector("#recording-kind");
@@ -77,6 +78,8 @@ let latestContact = {};
 let latestGate = {};
 let latestDiagnostics = {};
 let latestRecording = {};
+// The output folder of a finished recording put away with "Back to menu"; kept over a reload.
+let dismissedRecording = readDismissedRecording();
 let loadedBuild = null;
 
 const stateText = {
@@ -436,8 +439,9 @@ function renderRecording(recording) {
   stopRecordingButton.textContent = state === "stopping" ? "Stopping" : "Stop recording";
   stopRecordingButton.disabled = state === "stopping";
 
-  const finished = state === "completed" || state === "failed";
   const outputDir = latestRecording.output_dir;
+  // Once put away, the page is back to the buttons; the recording stays under Recent recordings.
+  const finished = (state === "completed" || state === "failed") && outputDir !== dismissedRecording;
   recordReport.hidden = !(finished && outputDir);
   if (finished && outputDir) {
     const report = latestRecording.report || { state: "none" };
@@ -473,8 +477,9 @@ function renderRecording(recording) {
     }
   }
 
-  renderMeditation(latestRecording);
-  renderCalibration(latestRecording);
+  const shown = active || finished ? latestRecording : {};
+  renderMeditation(shown);
+  renderCalibration(shown);
   renderActions();
 }
 
@@ -637,6 +642,24 @@ buildReportButton.addEventListener("click", async () => {
   } finally {
     await refreshUiState();
   }
+});
+
+function readDismissedRecording() {
+  try {
+    return window.localStorage.getItem("dismissedRecording");
+  } catch (error) {
+    return null;
+  }
+}
+
+backToMenuButton.addEventListener("click", () => {
+  dismissedRecording = latestRecording.output_dir;
+  try {
+    window.localStorage.setItem("dismissedRecording", dismissedRecording);
+  } catch (error) {
+    // it just shows again after a reload
+  }
+  renderRecording(latestRecording);
 });
 
 stopRecordingButton.addEventListener("click", async () => {

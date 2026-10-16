@@ -137,7 +137,10 @@ When a recording ends, the box under the buttons offers "Build report". It runs
 own Python and writes `data/reports/<kind>/<name>.html`; when it is done the box shows an
 "Open report" link served by the app (only `.html` files from `data/reports/`). If the
 build fails, the box points to `report.log` next to the recording and shows the command to
-run by hand.
+run by hand. "Back to menu" in the same box puts the finished recording away, with its
+meditation or calibration panel, until the next one (it stays under Recent recordings). The
+app lets go of the headband for every recording, so afterwards "Connect Muse" brings the
+record buttons back.
 
 ## Recording with a Polar H10
 
