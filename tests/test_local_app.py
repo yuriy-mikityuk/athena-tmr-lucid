@@ -163,6 +163,7 @@ class TestLocalMuseApp(unittest.TestCase):
         self.assertIn('id="stop-recording-button"', body)
         self.assertIn('id="recording-strip"', body)
         self.assertIn('id="meditation-sound"', body)
+        self.assertIn('id="back-to-menu-button"', body)
         self.assertEqual(body.count('class="voice-language"'), 3)
         self.assertIn("/api/muse/ui-state", script)
         self.assertNotIn('requestJson("/api/muse/state"', script)
