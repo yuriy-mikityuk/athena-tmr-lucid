@@ -95,11 +95,14 @@ minutes per block and settle-in time. Starting it builds the same counterbalance
 `muse-tmr meditation-plan` (random seed), starts a session recording long enough for it
 (plus a minute of slack) and stores `blocks.json` in the recording folder. While it runs the
 panel shows the current block, practice and time left, counted from the first Muse frame
-like the analysis. At every block change it plays a soft tone, then a Russian voice names the
+like the analysis. At every block change it plays a soft tone, then a voice names the
 practice (focus and open get a short phrase, other labels are read as typed), so the order
-need not be kept in mind with eyes closed. The voice has to be installed on the Mac (Milena);
-a browser's network voice is never used, since it would send the text out, so without a local
-one the change is just the tone. The browser needs one click on the page for sound.
+need not be kept in mind with eyes closed. It speaks English or Russian, as picked under
+"Voice language" in the form (until then the browser's language decides); the same choice
+sets the language of the calibration run. The voice has to be installed on the Mac (Samantha
+or Milena, else another local voice of that language); a browser's network voice is never
+used, since it would send the text out, so without a local one the change is just the tone.
+The browser needs one click on the page for sound.
 The Sound button next to the timer mutes or unmutes both mid-session, and unmuting plays them
 once to check the volume; it is the same setting as the option in the start form. Finished
 blocks get depth and sensory-fading selectors that save straight into `blocks.json`. When the

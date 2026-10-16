@@ -408,6 +408,11 @@ button:disabled {
   cursor: pointer;
 }
 
+.record-option select {
+  font: inherit;
+  color: var(--text);
+}
+
 .meditation-form,
 .meditation-panel {
   margin-top: 12px;

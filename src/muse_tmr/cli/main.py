@@ -1332,23 +1332,27 @@ def _aggregate_meditation(args: argparse.Namespace) -> int:
 
 
 def _add_calibration_voice_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--voice", default="Milena", help="macOS say voice (default: Milena, Russian).")
+    parser.add_argument("--language", choices=("en", "ru"), default="en", help="Language of the spoken steps (default: en).")
+    parser.add_argument("--voice", help="macOS say voice (default: Samantha for en, Milena for ru).")
     parser.add_argument("--rate", type=int, help="Speech rate in words per minute.")
     parser.add_argument("--silent", action="store_true", help="Log the cues without speaking them.")
 
 
 def _calibration_speaker(args: argparse.Namespace):
-    from muse_tmr.protocol.calibration import SaySpeaker, SilentSpeaker, available_voices
+    from muse_tmr.protocol.calibration import VOICES, SaySpeaker, SilentSpeaker, available_voices
 
     if args.silent:
         return SilentSpeaker()
     voices = available_voices()
     if not voices:
         raise SystemExit("macOS `say` is not available here; use --silent to run without a voice.")
-    voice = args.voice
-    if voice and voice not in voices:
-        russian = ", ".join(sorted({name for name in voices if name in ("Milena", "Yuri", "Katya")})) or "none installed"
-        print(f"voice {voice} is not installed, using the system voice (Russian voices here: {russian})")
+    voice = args.voice or VOICES[args.language]
+    if voice not in voices:
+        note = ""
+        if args.language == "ru":
+            russian = ", ".join(sorted({name for name in voices if name in ("Milena", "Yuri", "Katya")})) or "none installed"
+            note = f" (Russian voices here: {russian})"
+        print(f"voice {voice} is not installed, using the system voice{note}")
         voice = None
     return SaySpeaker(voice=voice, rate=args.rate)
 
@@ -1447,7 +1451,7 @@ def _run_line_check(args: argparse.Namespace, output_dir: Path, speaker) -> Dict
         for number, preset in enumerate(LINE_CHECK_PRESETS, start=1)
     ]
     print(f"line check: {len(directories)} x {LINE_CHECK_SECONDS / 60:.0f} min, presets {', '.join(LINE_CHECK_PRESETS)}")
-    results = run_line_check(directories, speaker, record, log=print)
+    results = run_line_check(directories, speaker, record, language=args.language, log=print)
     segments = []
     for result in results:
         channels: Mapping[str, object] = {}
@@ -1484,7 +1488,7 @@ def _calibration_run(args: argparse.Namespace) -> int:
     from muse_tmr.protocol.calibration import RECORD_SECONDS, calibration_protocol, run_guide
 
     speaker = _calibration_speaker(args)
-    protocol = calibration_protocol(battery_pull=args.battery_pull)
+    protocol = calibration_protocol(battery_pull=args.battery_pull, language=args.language)
     if args.output_dir is not None:
         output_dir = _resolve_output_dir(args.output_dir)
     else:
@@ -1512,7 +1516,12 @@ def _calibration_run(args: argparse.Namespace) -> int:
     result = None
     try:
         result = run_guide(
-            output_dir, speaker, protocol=protocol, recorder_alive=lambda: recorder.poll() is None, log=print
+            output_dir,
+            speaker,
+            protocol=protocol,
+            language=args.language,
+            recorder_alive=lambda: recorder.poll() is None,
+            log=print,
         )
     finally:
         stop = result is None or result.stop_reason != "completed"
@@ -1547,11 +1556,12 @@ def _calibration_guide(args: argparse.Namespace) -> int:
         return True
 
     recording_dir = args.recording_dir.expanduser().resolve()
-    protocol = calibration_protocol(battery_pull=args.battery_pull)
+    protocol = calibration_protocol(battery_pull=args.battery_pull, language=args.language)
     result = run_guide(
         recording_dir,
         _calibration_speaker(args),
         protocol=protocol,
+        language=args.language,
         recorder_alive=recorder_alive,
         log=lambda message: print(message, flush=True),
     )

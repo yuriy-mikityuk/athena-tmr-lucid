@@ -115,6 +115,7 @@
             <label>Settle-in seconds<input id="med-settle" type="number" min="0" max="600" step="5" value="60" required></label>
           </div>
           <label class="record-option"><input type="checkbox" id="med-chime" checked> Tone and spoken practice at every block change</label>
+          <label class="record-option">Voice language <select class="voice-language"><option value="en">English</option><option value="ru">Русский</option></select></label>
           <p class="form-error" id="med-error" role="alert" hidden></p>
           <div class="form-actions">
             <button type="submit" class="primary">Start meditation</button>
@@ -132,6 +133,7 @@
             <label>Settle-in seconds<input id="series-settle" type="number" min="0" max="600" step="5" value="60" required></label>
           </div>
           <label class="record-option"><input type="checkbox" id="series-chime" checked> Tone and spoken practice at every block change</label>
+          <label class="record-option">Voice language <select class="voice-language"><option value="en">English</option><option value="ru">Русский</option></select></label>
           <ul class="meditation-blocks series-sessions" id="series-sessions"></ul>
           <p class="form-error" id="series-error" role="alert" hidden></p>
           <div class="form-actions">
@@ -142,7 +144,8 @@
         </form>
         <form class="meditation-form" id="calibration-form" hidden>
           <h2>Calibration run · 23 min, voice-guided</h2>
-          <p class="muted">Muse (EEG only) and Polar H10 together, so put on the chest strap too. The Mac speaks every step (in Russian): keep the volume up, sit, eyes closed. Tension is slight, except the 1 s clenches. One step asks you to open your eyes and unclip the H10 for a minute.</p>
+          <p class="muted">Muse (EEG only) and Polar H10 together, so put on the chest strap too. The Mac speaks every step: keep the volume up, sit, eyes closed. Tension is slight, except the 1 s clenches. One step asks you to open your eyes and unclip the H10 for a minute.</p>
+          <label class="record-option">Voice language <select class="voice-language"><option value="en">English</option><option value="ru">Русский</option></select></label>
           <ol class="meditation-blocks" id="calibration-steps"></ol>
           <p class="form-error" id="calibration-error" role="alert" hidden></p>
           <div class="form-actions">

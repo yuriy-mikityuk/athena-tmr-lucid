@@ -1261,15 +1261,19 @@ class LocalMuseAppState:
 
     # --- calibration run -----------------------------------------------------
 
-    def start_calibration(self) -> Tuple[Mapping[str, Any], HTTPStatus]:
+    def start_calibration(self, body: Optional[Mapping[str, Any]] = None) -> Tuple[Mapping[str, Any], HTTPStatus]:
         """Voice-guided calibration: a session recording with the H10, plus the guide.
 
         The guide (``calibration-guide``) waits for the first Muse frame, speaks
         the protocol through ``say`` and writes the cue log and blocks files into
-        the recording folder. It stops by itself when the recording ends.
+        the recording folder. It stops by itself when the recording ends. The
+        body's ``language`` (en or ru) is the language it speaks.
         """
-        from muse_tmr.protocol.calibration import RECORD_SECONDS
+        from muse_tmr.protocol.calibration import LANGUAGES, RECORD_SECONDS
 
+        language = (body or {}).get("language")
+        if language is not None and language not in LANGUAGES:
+            return {"error": f"language must be one of {', '.join(LANGUAGES)}"}, HTTPStatus.BAD_REQUEST
         payload, status = self.start_recording(
             "session", with_polar=True, duration_seconds=RECORD_SECONDS, calibration=True
         )
@@ -1290,6 +1294,8 @@ class LocalMuseAppState:
             ]
             if pid is not None:
                 argv += ["--recorder-pid", str(pid)]
+            if language is not None:
+                argv += ["--language", language]
             return argv, output_dir / "calibration" / "segments.json"
 
         guide_payload, guide_status = self._start_job(output_dir, "guide", command, "calibration-guide.log")
@@ -1746,7 +1752,7 @@ class LocalMuseAppHandler(BaseHTTPRequestHandler):
             self._write_json(payload, status=status)
             return
         if self.path == "/api/calibration/start":
-            payload, status = self.server.app_state.start_calibration()
+            payload, status = self.server.app_state.start_calibration(self._read_json_body())
             self._write_json(payload, status=status)
             return
         if self.path == "/api/calibration/report":
