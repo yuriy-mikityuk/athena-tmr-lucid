@@ -109,6 +109,11 @@ blocks get depth and sensory-fading selectors that save straight into `blocks.js
 recording is done, "Analyze meditation" runs `analyze-meditation` in the background and links its
 `report.html`. The Polar H10 checkbox applies here too.
 
+The meditation and series forms link a guide for newcomers, `/guide.html`, in English and
+Russian (it opens in the voice language). It explains the settle-in, what to do in focus on
+the breath and in open awareness, what the tones and the voice mean, why a practice repeats,
+and the two ratings. Its quotes of the voice are checked against `app.js` in the tests.
+
 ## Meditation series
 
 "Meditation series…" is for the sessions that get pooled by `aggregate-meditation`,
