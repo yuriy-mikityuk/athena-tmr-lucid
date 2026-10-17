@@ -180,6 +180,33 @@ class TestLocalMuseApp(unittest.TestCase):
         self.assertIn('scanButton.hidden = connection === "connected"', script)
         self.assertIn("startSessionButton.hidden = !canRecord", script)
 
+    def test_meditation_guide_is_linked_and_quotes_the_voice(self):
+        with urllib.request.urlopen(f"{self.base_url}/", timeout=2) as response:
+            body = response.read().decode("utf-8")
+        with urllib.request.urlopen(f"{self.base_url}/app.js", timeout=2) as response:
+            script = response.read().decode("utf-8")
+        with urllib.request.urlopen(f"{self.base_url}/guide.html", timeout=2) as response:
+            self.assertEqual(response.headers.get_content_type(), "text/html")
+            guide = response.read().decode("utf-8")
+        with urllib.request.urlopen(f"{self.base_url}/guide.css", timeout=2) as response:
+            self.assertEqual(response.headers.get_content_type(), "text/css")
+
+        # Linked from the meditation and the series form.
+        self.assertEqual(body.count('href="/guide.html"'), 2)
+        self.assertIn('data-lang="en"', guide)
+        self.assertIn('data-lang="ru"', guide)
+        # The guide quotes what the voice says, in both languages.
+        for phrase in (
+            "focus on the breath",
+            "open awareness",
+            "That's it, you can open your eyes",
+            "фокус на дыхании",
+            "открытое внимание",
+            "Всё, можно открыть глаза",
+        ):
+            self.assertIn(phrase.lower(), script.lower())
+            self.assertIn(phrase.lower(), guide.lower())
+
     def test_diagnostics_endpoint_reports_state_and_last_contact(self):
         self.post_json("/api/muse/connect")
         self.get_json("/api/muse/contact")

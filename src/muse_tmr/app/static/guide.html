@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Meditation guide</title>
+    <link rel="stylesheet" href="/guide.css">
+  </head>
+  <body>
+    <!-- Icons and the two practice drawings, shared by both languages. -->
+    <svg class="sprite" aria-hidden="true">
+      <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></symbol>
+      <symbol id="i-leaf" viewBox="0 0 24 24"><path d="M5 19C5 10.5 10.5 5 19 5c0 8.5-5.5 14-14 14z"/><path d="M5 19l8-8"/></symbol>
+      <symbol id="i-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="7.5"/></symbol>
+      <symbol id="i-rings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1.8" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="5.5"/><circle cx="12" cy="12" r="9.5" stroke-dasharray="2.2 2.6"/></symbol>
+      <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></symbol>
+      <symbol id="i-return" viewBox="0 0 24 24"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3"/><path d="M4.5 3.5v3.7h3.7"/></symbol>
+      <symbol id="i-face" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M7.8 10.2c.9.7 2.1.7 3 0M13.2 10.2c.9.7 2.1.7 3 0"/><path d="M9.3 15.2c1.6.9 3.8.9 5.4 0"/></symbol>
+      <symbol id="i-still" viewBox="0 0 24 24"><path d="M3 11c3.2 3.6 14.8 3.6 18 0"/><path d="M6.5 14.2 5.3 16.3M12 15.3v2.4M17.5 14.2l1.2 2.1"/></symbol>
+      <symbol id="i-pen" viewBox="0 0 24 24"><path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17z"/><path d="M14.5 7.5l2 2"/></symbol>
+      <symbol id="i-repeat" viewBox="0 0 24 24"><path d="M17 3l3 3-3 3"/><path d="M4 11V9.5A3.5 3.5 0 0 1 7.5 6H20"/><path d="M7 21l-3-3 3-3"/><path d="M20 13v1.5a3.5 3.5 0 0 1-3.5 3.5H4"/></symbol>
+      <symbol id="i-pair" viewBox="0 0 24 24"><circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+      <symbol id="art-focus" viewBox="0 0 160 110">
+        <g fill="currentColor" stroke="none" opacity=".28">
+          <circle cx="24" cy="26" r="2.4"/><circle cx="34" cy="86" r="3"/><circle cx="52" cy="14" r="1.8"/>
+          <circle cx="133" cy="23" r="2.6"/><circle cx="142" cy="80" r="3"/><circle cx="112" cy="98" r="2"/>
+        </g>
+        <path d="M131 26C121 33 110 41 98.5 47.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="3 4" opacity=".6"/>
+        <path d="M104.5 47.6 98.5 47.5l3.1-5.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" opacity=".6"/>
+        <circle cx="80" cy="55" r="31" fill="currentColor" opacity=".07"/>
+        <circle cx="80" cy="55" r="20" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".35"/>
+        <circle cx="80" cy="55" r="9" fill="currentColor"/>
+      </symbol>
+      <symbol id="art-open" viewBox="0 0 160 110">
+        <g fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="80" cy="55" r="14" opacity=".6"/>
+          <circle cx="80" cy="55" r="27" opacity=".42"/>
+          <circle cx="80" cy="55" r="40" opacity=".26" stroke-dasharray="4 5"/>
+          <circle cx="80" cy="55" r="52" opacity=".14" stroke-dasharray="3 6"/>
+        </g>
+        <circle cx="80" cy="55" r="4.5" fill="currentColor"/>
+        <g fill="currentColor" opacity=".75">
+          <circle cx="102.1" cy="39.5" r="2.6"/><circle cx="55.5" cy="66.4" r="2.2"/>
+          <circle cx="57.1" cy="22.2" r="2.8"/><circle cx="116.3" cy="71.9" r="2.4"/>
+          <circle cx="130.9" cy="44.2" r="2.2"/><circle cx="29.1" cy="44.2" r="2.6"/><circle cx="97.8" cy="103.9" r="2"/>
+        </g>
+      </symbol>
+    </svg>
+
+    <header class="topbar">
+      <a class="brand" href="/">Muse TMR</a>
+      <div class="lang-switch" role="group" aria-label="Language">
+        <button type="button" value="en" aria-pressed="true">English</button>
+        <button type="button" value="ru" aria-pressed="false">Русский</button>
+      </div>
+    </header>
+
+    <article class="guide" lang="en" data-lang="en" data-title="Meditation guide">
+      <header class="hero">
+        <p class="eyebrow">Guided meditation · for newcomers</p>
+        <h1>How a meditation session goes</h1>
+        <p class="lede">You sit with your eyes closed for about half an hour and switch between two ways of paying attention. A soft tone and a voice tell you when to switch, so there is no order to remember and no clock to watch.</p>
+      </header>
+
+      <section class="glance" aria-labelledby="en-glance">
+        <h2 id="en-glance"><span class="kicker">01</span>The session at a glance</h2>
+        <div class="timeline" role="img" aria-label="One minute to settle in, then four 8-minute blocks: focus, open, open, focus. A tone and the voice at every change, two tones at the end.">
+          <div class="seg settle"><svg class="icon"><use href="#i-leaf"/></svg></div>
+          <div class="seg focus"><svg class="icon bell"><use href="#i-bell"/></svg><svg class="icon"><use href="#i-dot"/></svg><span class="seg-label">Focus</span></div>
+          <div class="seg open"><svg class="icon bell"><use href="#i-bell"/></svg><svg class="icon"><use href="#i-rings"/></svg><span class="seg-label">Open</span></div>
+          <div class="seg open"><svg class="icon bell"><use href="#i-bell"/></svg><svg class="icon"><use href="#i-rings"/></svg><span class="seg-label">Open</span></div>
+          <div class="seg focus"><svg class="icon bell"><use href="#i-bell"/></svg><svg class="icon"><use href="#i-dot"/></svg><span class="seg-label">Focus</span></div>
+          <div class="seg finish"><span class="bells"><svg class="icon"><use href="#i-bell"/></svg><svg class="icon"><use href="#i-bell"/></svg></span><svg class="icon"><use href="#i-eye"/></svg></div>
+        </div>
+        <div class="ticks" aria-hidden="true"><span>0</span><span>1</span><span>9</span><span>17</span><span>25</span><span>33 min</span></div>
+        <ul class="legend">
+          <li><i class="swatch settle"></i>Settle in, 1 min</li>
+          <li><i class="swatch focus"></i>Focus on the breath, 8 min</li>
+          <li><i class="swatch open"></i>Open awareness, 8 min</li>
+          <li><svg class="icon"><use href="#i-bell"/></svg>A tone, then the voice</li>
+        </ul>
+        <p class="note">These are the default settings, about 33 minutes in all. The order is drawn anew for every session: focus, open, open, focus, or open, focus, focus, open.</p>
+      </section>
+
+      <section aria-labelledby="en-practices">
+        <h2 id="en-practices"><span class="kicker">02</span>Two practices</h2>
+        <div class="cards">
+          <section class="card focus">
+            <svg class="art" viewBox="0 0 160 110" aria-hidden="true"><use href="#art-focus"/></svg>
+            <h3>Focus on the breath</h3>
+            <p class="essence">Like a flashlight beam on one spot.</p>
+            <h4>What to do</h4>
+            <p>Pick one place where you feel the breath best: the air at the nostrils, or the belly rising and falling. Rest your attention there and simply feel each breath, without changing it.</p>
+            <h4>When the mind wanders</h4>
+            <p>Sooner or later you will find yourself thinking about something else. That happens to everyone. As soon as you notice, let the thought go and come back to the breath. Coming back is the exercise.</p>
+            <p class="voice"><span>The voice says</span>“Focus on the breath.”</p>
+          </section>
+          <section class="card open">
+            <svg class="art" viewBox="0 0 160 110" aria-hidden="true"><use href="#art-open"/></svg>
+            <h3>Open awareness</h3>
+            <p class="essence">Like a lamp that lights up the whole room.</p>
+            <h4>What to do</h4>
+            <p>Don't hold on to anything in particular. Let your attention be wide and notice whatever comes up: sounds, sensations in the body, the breath, thoughts, moods. Let each one come and go by itself.</p>
+            <h4>When the mind wanders</h4>
+            <p>If a thought pulls you in, notice that and go back to simply noticing everything at once. Nothing needs to be pushed away.</p>
+            <p class="voice"><span>The voice says</span>“Open awareness.”</p>
+          </section>
+        </div>
+        <p class="difference">The difference in one line: in focus you keep coming back to one spot, in open awareness you let everything in and hold on to nothing.</p>
+      </section>
+
+      <section aria-labelledby="en-steps">
+        <h2 id="en-steps"><span class="kicker">03</span>Step by step</h2>
+        <ol class="steps">
+          <li>
+            <h3>Get ready</h3>
+            <p>Sit comfortably, back upright, hands resting. Put the headband on and adjust it until the app says “Contact looks good”. If you use the Polar H10 chest strap, put it on too. Turn the volume up; if the panel says “click the page to enable sound”, click anywhere on the page once.</p>
+          </li>
+          <li class="settle">
+            <h3>Settle in <small>1 min</small></h3>
+            <p>Press Start meditation and close your eyes. Nothing to do yet: just sit and let the body calm down. The clock starts with the first data from the headband.</p>
+          </li>
+          <li class="block">
+            <h3>Blocks <small>8 min each</small></h3>
+            <p>A soft tone, then the voice names the practice. Stay with it until the next tone. Keep your eyes closed the whole time; the voice always tells you what comes next.</p>
+          </li>
+          <li class="block">
+            <h3>The same practice again</h3>
+            <p>Sometimes the voice says “again”, as in “Open awareness again.” Then the same practice simply goes on for another block. That is on purpose, see below.</p>
+          </li>
+          <li>
+            <h3>The end</h3>
+            <p>Two tones and “That's it, you can open your eyes.” The recording stops by itself about a minute later.</p>
+          </li>
+          <li>
+            <h3>Rate the blocks</h3>
+            <p>Right away, while you still remember, give each block the two ratings below and press Analyze meditation. Rate before you press Back to menu: the ratings are only in that panel.</p>
+          </li>
+        </ol>
+      </section>
+
+      <section aria-labelledby="en-ratings">
+        <h2 id="en-ratings"><span class="kicker">04</span>The two ratings</h2>
+        <div class="scales">
+          <div class="scale depth">
+            <h3>Depth</h3>
+            <p>How deep the block felt.</p>
+            <div class="bar" aria-hidden="true"><span>0</span><span>10</span></div>
+            <div class="ends"><p><b>0</b> restless, thoughts jumping around</p><p><b>10</b> very still and absorbed, almost nothing pulled you away</p></div>
+          </div>
+          <div class="scale fading">
+            <h3>Sensory fading</h3>
+            <p>How far the world around you and your own body faded into the background.</p>
+            <div class="bar" aria-hidden="true"><span>0</span><span>10</span></div>
+            <div class="ends"><p><b>0</b> sounds and body sensations as vivid as usual</p><p><b>10</b> they almost disappeared</p></div>
+          </div>
+        </div>
+        <p class="note">There are no right answers, and it is not a test. Compare the blocks with each other, not with anyone else.</p>
+      </section>
+
+      <section aria-labelledby="en-why">
+        <h2 id="en-why"><span class="kicker">05</span>Why it is built like this</h2>
+        <div class="why">
+          <div>
+            <svg class="icon"><use href="#i-pair"/></svg>
+            <h3>Both practices in one sitting</h3>
+            <p>The app compares the headband's recording of brain activity (EEG) between the two practices. With both in the same session, the same day and the same fit of the headband, the comparison is fair.</p>
+          </div>
+          <div>
+            <svg class="icon"><use href="#i-repeat"/></svg>
+            <h3>Why a practice repeats</h3>
+            <p>Over half an hour you slowly relax and may get a little drowsy. The order A, B, B, A gives both practices the same share of early and late minutes, so that slow change does not pass for a difference between them.</p>
+          </div>
+          <div>
+            <svg class="icon"><use href="#i-clock"/></svg>
+            <h3>The first 30 seconds don't count</h3>
+            <p>The analysis skips the first 30 seconds of every block and the whole settle-in minute, so there is no need to switch instantly.</p>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="en-tips">
+        <h2 id="en-tips"><span class="kicker">06</span>Good to know</h2>
+        <ul class="tips">
+          <li><svg class="icon"><use href="#i-return"/></svg><p><b>Getting distracted is normal.</b> Noticing it and coming back is the practice.</p></li>
+          <li><svg class="icon"><use href="#i-face"/></svg><p><b>Keep your face and jaw soft, teeth apart.</b> Tense muscles show up in the EEG as noise.</p></li>
+          <li><svg class="icon"><use href="#i-still"/></svg><p><b>Sit still with your eyes closed.</b> Body and eye movements show up in the recording too. Swallowing or a small shift is fine.</p></li>
+          <li><svg class="icon"><use href="#i-pen"/></svg><p><b>Your own practices.</b> The form lets you type other names. The voice then reads them as typed; this guide is about the two default ones.</p></li>
+          <li><svg class="icon"><use href="#i-repeat"/></svg><p><b>A meditation series</b> repeats the same two practices in every session, and the app counts the sessions. From eight sessions on, the series report also checks whether the difference is more than chance.</p></li>
+        </ul>
+      </section>
+
+      <footer class="end"><a href="/">← Back to the app</a></footer>
+    </article>
+
+    <article class="guide" lang="ru" data-lang="ru" data-title="Как проходит медитация" hidden>
+      <header class="hero">
+        <p class="eyebrow">Медитация с голосом · для новичков</p>
+        <h1>Как проходит сессия медитации</h1>
+        <p class="lede">Около получаса ты сидишь с закрытыми глазами и чередуешь два способа направлять внимание. Когда переключаться, подскажут тихий сигнал и голос, так что не нужно ни запоминать порядок, ни следить за временем.</p>
+      </header>
+
+      <section class="glance" aria-labelledby="ru-glance">
+        <h2 id="ru-glance"><span class="kicker">01</span>Вся сессия на одной картинке</h2>
+        <div class="timeline" role="img" aria-label="Минута, чтобы успокоиться, потом четыре блока по 8 минут: фокус, открытое, открытое, фокус. Сигнал и голос на каждой смене, в конце два сигнала.">
+          <div class="seg settle"><svg class="icon"><use href="#i-leaf"/></svg></div>
+          <div class="seg focus"><svg class="icon bell"><use href="#i-bell"/></svg><svg class="icon"><use href="#i-dot"/></svg><span class="seg-label">Фокус</span></div>
+          <div class="seg open"><svg class="icon bell"><use href="#i-bell"/></svg><svg class="icon"><use href="#i-rings"/></svg><span class="seg-label">Открытое</span></div>
+          <div class="seg open"><svg class="icon bell"><use href="#i-bell"/></svg><svg class="icon"><use href="#i-rings"/></svg><span class="seg-label">Открытое</span></div>
+          <div class="seg focus"><svg class="icon bell"><use href="#i-bell"/></svg><svg class="icon"><use href="#i-dot"/></svg><span class="seg-label">Фокус</span></div>
+          <div class="seg finish"><span class="bells"><svg class="icon"><use href="#i-bell"/></svg><svg class="icon"><use href="#i-bell"/></svg></span><svg class="icon"><use href="#i-eye"/></svg></div>
+        </div>
+        <div class="ticks" aria-hidden="true"><span>0</span><span>1</span><span>9</span><span>17</span><span>25</span><span>33 мин</span></div>
+        <ul class="legend">
+          <li><i class="swatch settle"></i>Успокоиться, 1 мин</li>
+          <li><i class="swatch focus"></i>Фокус на дыхании, 8 мин</li>
+          <li><i class="swatch open"></i>Открытое внимание, 8 мин</li>
+          <li><svg class="icon"><use href="#i-bell"/></svg>Сигнал, потом голос</li>
+        </ul>
+        <p class="note">Это настройки по умолчанию, всего около 33 минут. Порядок выбирается заново в каждой сессии: фокус, открытое, открытое, фокус или открытое, фокус, фокус, открытое.</p>
+      </section>
+
+      <section aria-labelledby="ru-practices">
+        <h2 id="ru-practices"><span class="kicker">02</span>Две практики</h2>
+        <div class="cards">
+          <section class="card focus">
+            <svg class="art" viewBox="0 0 160 110" aria-hidden="true"><use href="#art-focus"/></svg>
+            <h3>Фокус на дыхании</h3>
+            <p class="essence">Как луч фонарика на одной точке.</p>
+            <h4>Что делать</h4>
+            <p>Выбери одно место, где дыхание чувствуется лучше всего: воздух у ноздрей или живот, который поднимается и опускается. Держи внимание там и просто чувствуй каждый вдох и выдох, ничего в них не меняя.</p>
+            <h4>Когда мысли уводят</h4>
+            <p>Рано или поздно поймаешь себя на том, что думаешь о другом. Так бывает у всех. Как только заметишь, отпусти мысль и вернись к дыханию. Это возвращение и есть упражнение.</p>
+            <p class="voice"><span>Голос скажет</span>«Фокус на дыхании»</p>
+          </section>
+          <section class="card open">
+            <svg class="art" viewBox="0 0 160 110" aria-hidden="true"><use href="#art-open"/></svg>
+            <h3>Открытое внимание</h3>
+            <p class="essence">Как лампа, которая освещает всю комнату.</p>
+            <h4>Что делать</h4>
+            <p>Ни за что специально не держись. Пусть внимание будет широким и замечает всё, что появляется: звуки, ощущения в теле, дыхание, мысли, настроение. Пусть каждое приходит и уходит само.</p>
+            <h4>Когда мысли уводят</h4>
+            <p>Если какая-то мысль затянула, заметь это и снова просто наблюдай за всем сразу. Отталкивать ничего не нужно.</p>
+            <p class="voice"><span>Голос скажет</span>«Открытое внимание»</p>
+          </section>
+        </div>
+        <p class="difference">Разница в одной строке: в фокусе ты раз за разом возвращаешься к одной точке, в открытом внимании впускаешь всё и ни за что не цепляешься.</p>
+      </section>
+
+      <section aria-labelledby="ru-steps">
+        <h2 id="ru-steps"><span class="kicker">03</span>Шаг за шагом</h2>
+        <ol class="steps">
+          <li>
+            <h3>Подготовка</h3>
+            <p>Сядь удобно, спина прямая, руки лежат свободно. Надень обруч и поправляй его, пока приложение не напишет «Contact looks good». Если пользуешься нагрудным датчиком Polar H10, надень и его. Сделай звук погромче; если на панели написано «click the page to enable sound», один раз кликни по странице.</p>
+          </li>
+          <li class="settle">
+            <h3>Успокоиться <small>1 мин</small></h3>
+            <p>Нажми Start meditation и закрой глаза. Пока делать ничего не нужно: просто сиди и дай телу успокоиться. Отсчёт начнётся с первых данных от обруча.</p>
+          </li>
+          <li class="block">
+            <h3>Блоки <small>по 8 мин</small></h3>
+            <p>Тихий сигнал, потом голос называет практику. Занимайся ею до следующего сигнала. Глаза всё время закрыты, голос сам скажет, что дальше.</p>
+          </li>
+          <li class="block">
+            <h3>Та же практика ещё раз</h3>
+            <p>Иногда голос говорит «снова», например «Снова открытое внимание». Значит, та же практика просто продолжается ещё один блок. Так задумано, объяснение ниже.</p>
+          </li>
+          <li>
+            <h3>Конец</h3>
+            <p>Два сигнала и «Всё, можно открыть глаза». Запись сама остановится примерно через минуту.</p>
+          </li>
+          <li>
+            <h3>Оценить блоки</h3>
+            <p>Сразу после, пока помнишь, поставь каждому блоку две оценки (они описаны ниже) и нажми Analyze meditation. Оценивай до кнопки Back to menu: оценки есть только в этой панели.</p>
+          </li>
+        </ol>
+      </section>
+
+      <section aria-labelledby="ru-ratings">
+        <h2 id="ru-ratings"><span class="kicker">04</span>Две оценки</h2>
+        <div class="scales">
+          <div class="scale depth">
+            <h3>Глубина <small>Depth</small></h3>
+            <p>Насколько глубоким был блок.</p>
+            <div class="bar" aria-hidden="true"><span>0</span><span>10</span></div>
+            <div class="ends"><p><b>0</b> беспокойно, мысли скачут</p><p><b>10</b> очень тихо и собранно, почти ничто не отвлекало</p></div>
+          </div>
+          <div class="scale fading">
+            <h3>Угасание ощущений <small>Sensory fading</small></h3>
+            <p>Насколько ушли на второй план всё вокруг и собственное тело.</p>
+            <div class="bar" aria-hidden="true"><span>0</span><span>10</span></div>
+            <div class="ends"><p><b>0</b> звуки и ощущения в теле такие же яркие, как обычно</p><p><b>10</b> они почти исчезли</p></div>
+          </div>
+        </div>
+        <p class="note">Правильных ответов нет, это не экзамен. Сравнивай блоки между собой, а не с кем-то ещё.</p>
+      </section>
+
+      <section aria-labelledby="ru-why">
+        <h2 id="ru-why"><span class="kicker">05</span>Почему всё устроено именно так</h2>
+        <div class="why">
+          <div>
+            <svg class="icon"><use href="#i-pair"/></svg>
+            <h3>Обе практики за один раз</h3>
+            <p>Приложение сравнивает запись активности мозга (ЭЭГ) с обруча в двух практиках. Если обе идут в одной сессии, в один день и при том же положении обруча, сравнение честное.</p>
+          </div>
+          <div>
+            <svg class="icon"><use href="#i-repeat"/></svg>
+            <h3>Почему практика повторяется</h3>
+            <p>За полчаса человек понемногу расслабляется и может слегка задремать. Порядок А, Б, Б, А даёт обеим практикам поровну ранних и поздних минут, и это медленное изменение не выдаёт себя за разницу между ними.</p>
+          </div>
+          <div>
+            <svg class="icon"><use href="#i-clock"/></svg>
+            <h3>Первые 30 секунд не считаются</h3>
+            <p>Анализ пропускает первые 30 секунд каждого блока и всю минуту в начале, так что переключаться мгновенно не нужно.</p>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="ru-tips">
+        <h2 id="ru-tips"><span class="kicker">06</span>Полезно знать</h2>
+        <ul class="tips">
+          <li><svg class="icon"><use href="#i-return"/></svg><p><b>Отвлекаться нормально.</b> Практика как раз в том, чтобы заметить это и вернуться.</p></li>
+          <li><svg class="icon"><use href="#i-face"/></svg><p><b>Лицо и челюсть расслаблены, зубы не сжаты.</b> Напряжённые мышцы попадают в ЭЭГ как шум.</p></li>
+          <li><svg class="icon"><use href="#i-still"/></svg><p><b>Сиди неподвижно и с закрытыми глазами.</b> Движения тела и глаз тоже видны в записи. Сглотнуть или чуть поменять позу можно.</p></li>
+          <li><svg class="icon"><use href="#i-pen"/></svg><p><b>Свои практики.</b> В форме можно вписать другие названия. Голос прочитает их как есть, а эта справка про две практики по умолчанию.</p></li>
+          <li><svg class="icon"><use href="#i-repeat"/></svg><p><b>Серия медитаций</b> повторяет одни и те же две практики в каждой сессии, а приложение считает сессии. С восьми сессий отчёт по серии ещё и проверяет, не случайна ли разница.</p></li>
+        </ul>
+      </section>
+
+      <footer class="end"><a href="/">← Вернуться в приложение</a></footer>
+    </article>
+
+    <script>
+      // The language follows #en / #ru, then the voice language picked in the app, then the browser.
+      const guideLanguages = ["en", "ru"];
+
+      function initialGuideLanguage() {
+        const fromHash = window.location.hash.slice(1);
+        if (guideLanguages.includes(fromHash)) {
+          return fromHash;
+        }
+        try {
+          const stored = window.localStorage.getItem("voiceLanguage");
+          if (guideLanguages.includes(stored)) {
+            return stored;
+          }
+        } catch (error) {
+          // no storage: the browser language decides
+        }
+        const browser = (navigator.languages || [navigator.language])
+          .map((tag) => String(tag || "").slice(0, 2).toLowerCase())
+          .find((code) => guideLanguages.includes(code));
+        return browser || "en";
+      }
+
+      function showGuide(language) {
+        document.documentElement.lang = language;
+        document.querySelectorAll("[data-lang]").forEach((article) => {
+          article.hidden = article.dataset.lang !== language;
+          if (!article.hidden) {
+            document.title = article.dataset.title;
+          }
+        });
+        document.querySelectorAll(".lang-switch button").forEach((button) => {
+          button.setAttribute("aria-pressed", String(button.value === language));
+        });
+      }
+
+      document.querySelectorAll(".lang-switch button").forEach((button) => {
+        button.addEventListener("click", () => {
+          window.history.replaceState(null, "", `#${button.value}`);
+          showGuide(button.value);
+        });
+      });
+      showGuide(initialGuideLanguage());
+    </script>
+  </body>
+</html>
