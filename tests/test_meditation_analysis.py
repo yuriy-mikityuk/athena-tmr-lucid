@@ -87,6 +87,7 @@ class MeditationPlanTest(unittest.TestCase):
             payload = json.loads(path.read_text())
             self.assertEqual(payload["time_base"], "seconds_from_recording_start")
             self.assertEqual(payload["blocks"][0]["depth"], None)
+            self.assertEqual(payload["blocks"][0]["drowsiness"], None)
             self.assertNotIn("series", payload)
             self.assertEqual(load_meditation_blocks(path), plan)
             tagged = replace(plan, series="20261010_190000_ab12cd")
@@ -167,6 +168,35 @@ class MeditationAnalysisEndToEndTest(unittest.TestCase):
         self.assertIn("55–95 Hz per 10 s epoch", page)
         condition_a = analysis.summary["conditions"][0]
         self.assertEqual(page.count('class="band"'), sum(block.condition == condition_a for block in plan.blocks))
+
+    def test_ratings_reach_the_summary_and_the_report(self):
+        from muse_tmr.reports.meditation_report import render_meditation_report
+
+        plan = build_meditation_plan(["busy", "calm"], blocks=4, block_minutes=1, settle_seconds=30, seed=3)
+        plan = replace(
+            plan,
+            blocks=tuple(
+                replace(block, depth=6.0, sensory_fading=3.0, drowsiness=float(block.index)) for block in plan.blocks
+            ),
+        )
+
+        def signal_for(condition, seconds, rng):
+            return condition_signal("busy" if condition == "settle" else condition, seconds, rng)
+
+        analysis = self.analyze(plan, signal_for)
+        for condition in ("busy", "calm"):
+            indices = [block.index for block in plan.blocks if block.condition == condition]
+            self.assertEqual(
+                analysis.summary["ratings"][condition],
+                {"depth": 6.0, "sensory_fading": 3.0, "drowsiness": sum(indices) / len(indices)},
+            )
+        rows = analysis.blocks.to_dict("records")
+        self.assertEqual({row["drowsiness"] for row in rows}, {0.0, 1.0, 2.0, 3.0})
+        page = render_meditation_report(analysis.summary, rows)
+        # depth is shown as Stability, in the ratings by condition and in the blocks table.
+        self.assertEqual(page.count("<th>Stability</th>"), 2)
+        self.assertEqual(page.count("<th>Drowsiness</th>"), 2)
+        self.assertNotIn("<th>Depth</th>", page)
 
     def test_timeline_traces_use_epoch_midpoints_and_break_at_gaps(self):
         from muse_tmr.reports.meditation_report import trace_segments

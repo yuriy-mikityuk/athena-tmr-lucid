@@ -68,9 +68,25 @@ EEG, 10 s epochs, no correction across metrics.
 
 3. Start the meditation in the app, which records on `p21` without the optics (or
    `muse-tmr record --preset p21 --allow-short`),
-   follow the printed block times, and after each block fill in `depth` and
-   `sensory_fading` (0-10) in the blocks file. It is personal data: keep it under
-   `data/protocol/` (gitignored), never commit it.
+   follow the printed block times, and after each block fill in `depth`,
+   `sensory_fading` and `drowsiness` (0-10) in the blocks file. It is personal data:
+   keep it under `data/protocol/` (gitignored), never commit it.
+
+   The ratings, as the app and `/guide.html` describe them:
+
+   - `depth` now means stability, shown as "Stability": how much of the block was
+     really spent in the practice rather than carried off by thoughts or dozing (0
+     almost none, 5 about half, 10 almost all, clear and steady without effort). The
+     field keeps its old name so earlier blocks files still load, but ratings saved
+     before this change meant depth and are not on the same scale.
+   - `sensory_fading`: how faint sounds and body sensations became while in the
+     practice; not noticing them while lost in thought or dozing does not count (0 as
+     vivid as usual or more, 10 almost gone with the mind clear).
+   - `drowsiness`: how sleepy (0 awake and clear, 10 kept nodding off).
+
+   Keep one scale across sessions, give blocks that felt the same the same number, and
+   leave a block unrated rather than guess. The report shows all three per condition
+   and per block.
 
 4. Analyze:
 

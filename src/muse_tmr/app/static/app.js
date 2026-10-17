@@ -1000,8 +1000,10 @@ function renderMeditationBlock(block, seconds, active, phase) {
   item.label.textContent = `${block.condition} · ${(block.start_s / 60).toFixed(1)}–${(block.end_s / 60).toFixed(1)} min`;
   if (done && !item.built) {
     item.built = true;
-    const depth = ratingSelect("Depth", block.depth);
+    // Stability is stored as depth. Every save sends all three, since the server sets all three.
+    const stability = ratingSelect("Stability", block.depth);
     const fading = ratingSelect("Sensory fading", block.sensory_fading);
+    const drowsiness = ratingSelect("Drowsiness", block.drowsiness);
     const saved = document.createElement("small");
     const save = async () => {
       saved.textContent = "saving...";
@@ -1010,15 +1012,15 @@ function renderMeditationBlock(block, seconds, active, phase) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           block_index: block.index,
-          depth: depth.select.value,
-          sensory_fading: fading.select.value
+          depth: stability.select.value,
+          sensory_fading: fading.select.value,
+          drowsiness: drowsiness.select.value
         })
       });
       saved.textContent = response.ok ? "saved" : "not saved";
     };
-    depth.select.addEventListener("change", save);
-    fading.select.addEventListener("change", save);
-    item.ratings.append(depth.label, fading.label, saved);
+    [stability, fading, drowsiness].forEach((rating) => rating.select.addEventListener("change", save));
+    item.ratings.append(stability.label, fading.label, drowsiness.label, saved);
   }
 }
 

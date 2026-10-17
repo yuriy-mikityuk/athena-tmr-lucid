@@ -1241,7 +1241,7 @@ def _meditation_plan(args: argparse.Namespace) -> int:
     print(f"order: {' '.join(plan.order)}")
     for block in plan.blocks:
         print(f"  block {block.index}: {block.condition:<12} {block.start_s / 60:6.1f} - {block.end_s / 60:6.1f} min")
-    print("Fill in depth and sensory_fading (0-10) after each block.")
+    print("Fill in depth (stability), sensory_fading and drowsiness (0-10) after each block.")
     return 0
 
 

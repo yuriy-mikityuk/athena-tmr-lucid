@@ -118,8 +118,11 @@ class MeditationBlock:
     condition: str
     start_s: float
     end_s: float
+    # Ratings, 0-10. depth holds stability (how much of the block was spent in the practice);
+    # the field keeps its old name so earlier blocks files still load.
     depth: Optional[float] = None
     sensory_fading: Optional[float] = None
+    drowsiness: Optional[float] = None
     notes: str = ""
 
     def to_dict(self) -> Dict[str, object]:
@@ -130,6 +133,7 @@ class MeditationBlock:
             "end_s": self.end_s,
             "depth": self.depth,
             "sensory_fading": self.sensory_fading,
+            "drowsiness": self.drowsiness,
             "notes": self.notes,
         }
 
@@ -142,6 +146,7 @@ class MeditationBlock:
             end_s=float(data["end_s"]),
             depth=_optional_float(data.get("depth")),
             sensory_fading=_optional_float(data.get("sensory_fading")),
+            drowsiness=_optional_float(data.get("drowsiness")),
             notes=str(data.get("notes") or ""),
         )
 
@@ -763,6 +768,7 @@ def _block_table(
                 "end_s": block.end_s,
                 "depth": block.depth,
                 "sensory_fading": block.sensory_fading,
+                "drowsiness": block.drowsiness,
                 "epochs": int(len(selected)),
             }
             for column in epoch_columns:
@@ -970,7 +976,7 @@ def _ratings(blocks: MeditationBlocks, condition_a: str, condition_b: str) -> Di
         selected = [block for block in blocks.blocks if block.condition == condition]
         ratings[condition] = {
             name: _mean_or_nan(getattr(block, name) for block in selected)
-            for name in ("depth", "sensory_fading")
+            for name in ("depth", "sensory_fading", "drowsiness")
         }
     return ratings
 

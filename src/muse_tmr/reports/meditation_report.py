@@ -109,10 +109,22 @@ def _ratings_section(summary: Mapping[str, object], condition_a: str, condition_
     rows = []
     for condition in (condition_a, condition_b):
         item = ratings.get(condition) or {}
-        rows.append([_e(condition), _fmt(item.get("depth"), 1), _fmt(item.get("sensory_fading"), 1)])
+        rows.append(
+            [
+                _e(condition),
+                _fmt(item.get("depth"), 1),
+                _fmt(item.get("sensory_fading"), 1),
+                _fmt(item.get("drowsiness"), 1),
+            ]
+        )
     if all(cell == "–" for row in rows for cell in row[1:]):
         return ""
-    return "<section><h2>Ratings</h2>" + _table(["Condition", "Depth", "Sensory fading"], rows) + "</section>"
+    # Stability is stored as depth.
+    return (
+        "<section><h2>Ratings</h2>"
+        + _table(["Condition", "Stability", "Sensory fading", "Drowsiness"], rows)
+        + "</section>"
+    )
 
 
 def _emg_section(emg: Mapping[str, object], condition_a: str, condition_b: str) -> str:
@@ -365,10 +377,12 @@ def _blocks_section(clean_rows, all_rows) -> str:
                 _fmt(clean.get(index, {}).get("lzc_all"), 4),
                 _fmt(row.get("depth"), 0),
                 _fmt(row.get("sensory_fading"), 0),
+                _fmt(row.get("drowsiness"), 0),
             ]
         )
     return "<section><h2>Blocks</h2>" + _table(
-        ["Block", "Condition", "Time", "Clean/all epochs", "LZC (clean)", "Depth", "Sensory fading"], rows
+        ["Block", "Condition", "Time", "Clean/all epochs", "LZC (clean)", "Stability", "Sensory fading", "Drowsiness"],
+        rows,
     ) + "</section>"
 
 

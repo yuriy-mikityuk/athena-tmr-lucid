@@ -1009,12 +1009,21 @@ class TestLocalMuseAppMeditation(TestLocalMuseAppReport):
     def test_ratings_are_saved_into_blocks_json(self):
         payload, _ = self.start()
         output_dir = Path(payload["output_dir"])
-        _payload, status = self.state.save_meditation_rating({"block_index": 1, "depth": "7", "sensory_fading": 4})
+        _payload, status = self.state.save_meditation_rating(
+            {"block_index": 1, "depth": "7", "sensory_fading": 4, "drowsiness": "2"}
+        )
         self.assertEqual(int(status), 200)
         plan = json.loads((output_dir / "blocks.json").read_text())
-        self.assertEqual((plan["blocks"][1]["depth"], plan["blocks"][1]["sensory_fading"]), (7.0, 4.0))
+        block = plan["blocks"][1]
+        self.assertEqual((block["depth"], block["sensory_fading"], block["drowsiness"]), (7.0, 4.0, 2.0))
         self.assertIsNone(plan["blocks"][0]["depth"])
-        for bad in ({"block_index": 1, "depth": 11}, {"block_index": 9, "depth": 3}, {"depth": 3}):
+        self.assertIsNone(plan["blocks"][0]["drowsiness"])
+        for bad in (
+            {"block_index": 1, "depth": 11},
+            {"block_index": 1, "drowsiness": -1},
+            {"block_index": 9, "depth": 3},
+            {"depth": 3},
+        ):
             _payload, status = self.state.save_meditation_rating(bad)
             self.assertEqual(int(status), 400, bad)
 
