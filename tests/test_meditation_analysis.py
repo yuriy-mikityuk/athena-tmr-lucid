@@ -88,6 +88,12 @@ class MeditationPlanTest(unittest.TestCase):
             self.assertEqual(payload["time_base"], "seconds_from_recording_start")
             self.assertEqual(payload["blocks"][0]["depth"], None)
             self.assertEqual(payload["blocks"][0]["drowsiness"], None)
+            self.assertEqual(payload["ratings_scale"], "stability")
+            # A file from before ratings_scale was written rated depth itself.
+            del payload["ratings_scale"]
+            self.assertEqual(MeditationBlocks.from_dict(payload).ratings_scale, "depth")
+            with self.assertRaises(ValueError):
+                MeditationBlocks.from_dict({**payload, "ratings_scale": "deep"})
             self.assertNotIn("series", payload)
             self.assertEqual(load_meditation_blocks(path), plan)
             tagged = replace(plan, series="20261010_190000_ab12cd")
@@ -197,6 +203,11 @@ class MeditationAnalysisEndToEndTest(unittest.TestCase):
         self.assertEqual(page.count("<th>Stability</th>"), 2)
         self.assertEqual(page.count("<th>Drowsiness</th>"), 2)
         self.assertNotIn("<th>Depth</th>", page)
+        # An older blocks file rated depth itself, and its report says so.
+        older = {**analysis.summary, "blocks_file": {**analysis.summary["blocks_file"], "ratings_scale": "depth"}}
+        page = render_meditation_report(older, rows)
+        self.assertEqual(page.count("<th>Depth</th>"), 2)
+        self.assertNotIn("<th>Stability</th>", page)
 
     def test_timeline_traces_use_epoch_midpoints_and_break_at_gaps(self):
         from muse_tmr.reports.meditation_report import trace_segments

@@ -77,8 +77,9 @@ EEG, 10 s epochs, no correction across metrics.
    - `depth` now means stability, shown as "Stability": how much of the block was
      really spent in the practice rather than carried off by thoughts or dozing (0
      almost none, 5 about half, 10 almost all, clear and steady without effort). The
-     field keeps its old name so earlier blocks files still load, but ratings saved
-     before this change meant depth and are not on the same scale.
+     field keeps its old name. New blocks files say `"ratings_scale": "stability"`;
+     files without it are from before this change, when the field meant depth, which
+     is not on the same scale, and the report still calls it Depth for them.
    - `sensory_fading`: how faint sounds and body sensations became while in the
      practice; not noticing them while lost in thought or dozing does not count (0 as
      vivid as usual or more, 10 almost gone with the mind clear).

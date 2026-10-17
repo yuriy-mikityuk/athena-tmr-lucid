@@ -43,6 +43,10 @@ from muse_tmr.features.eeg_features import _collect_epoch_eeg
 from muse_tmr.features.epochs import EpochBuilder, EpochConfig, SleepEpoch
 
 MEDITATION_BLOCKS_SCHEMA_VERSION = 1
+# What the depth rating means in a blocks file: stability in plans made since the ratings
+# changed, depth itself in older files, which have no ratings_scale.
+RATINGS_SCALES = ("depth", "stability")
+RATINGS_SCALE = "stability"
 # 2: cardio.breathing_difference_bpm (and breathing_confounded) became the median of
 # three estimates; in 1 it was the ACC spectral rate alone.
 # 3: emg_power_55_95 bridges the 64 Hz line, which was most of it before;
@@ -118,8 +122,8 @@ class MeditationBlock:
     condition: str
     start_s: float
     end_s: float
-    # Ratings, 0-10. depth holds stability (how much of the block was spent in the practice);
-    # the field keeps its old name so earlier blocks files still load.
+    # Ratings, 0-10. depth holds stability (how much of the block was spent in the practice)
+    # when the file's ratings_scale says so; see RATINGS_SCALES.
     depth: Optional[float] = None
     sensory_fading: Optional[float] = None
     drowsiness: Optional[float] = None
@@ -166,6 +170,7 @@ class MeditationBlocks:
     series: Optional[str] = None
     schema_version: int = MEDITATION_BLOCKS_SCHEMA_VERSION
     time_base: str = TIME_BASE
+    ratings_scale: str = RATINGS_SCALE
 
     def condition_pair(self) -> Tuple[str, str]:
         """(A, B); contrasts are A - B."""
@@ -179,6 +184,8 @@ class MeditationBlocks:
             raise ValueError(f"unsupported blocks schema_version {self.schema_version}")
         if self.time_base != TIME_BASE:
             raise ValueError(f"time_base must be {TIME_BASE}")
+        if self.ratings_scale not in RATINGS_SCALES:
+            raise ValueError(f"ratings_scale must be one of {', '.join(RATINGS_SCALES)}")
         if not self.blocks:
             raise ValueError("blocks file has no blocks")
         pair = self.condition_pair()
@@ -196,6 +203,7 @@ class MeditationBlocks:
         payload: Dict[str, object] = {
             "schema_version": self.schema_version,
             "time_base": self.time_base,
+            "ratings_scale": self.ratings_scale,
             "settle_seconds": self.settle_seconds,
             "conditions": list(self.conditions),
             "order": list(self.order),
@@ -218,6 +226,8 @@ class MeditationBlocks:
             series=str(data["series"]) if data.get("series") else None,
             schema_version=int(data.get("schema_version", MEDITATION_BLOCKS_SCHEMA_VERSION)),
             time_base=str(data.get("time_base", TIME_BASE)),
+            # Files from before ratings_scale was written rated depth itself.
+            ratings_scale=str(data.get("ratings_scale", "depth")),
         )
         blocks.validate()
         return blocks
