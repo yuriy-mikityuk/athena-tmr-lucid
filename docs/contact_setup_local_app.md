@@ -105,14 +105,15 @@ used, since it would send the text out, so without a local one the change is jus
 The browser needs one click on the page for sound.
 The Sound button next to the timer mutes or unmutes both mid-session, and unmuting plays them
 once to check the volume; it is the same setting as the option in the start form. Finished
-blocks get depth and sensory-fading selectors that save straight into `blocks.json`. When the
+blocks get Stability, Sensory fading and Drowsiness selectors that save straight into
+`blocks.json` (Stability under the old field name `depth`). When the
 recording is done, "Analyze meditation" runs `analyze-meditation` in the background and links its
 `report.html`. The Polar H10 checkbox applies here too.
 
 The meditation and series forms link a guide for newcomers, `/guide.html`, in English and
 Russian (it opens in the voice language). It explains the settle-in, what to do in focus on
 the breath and in open awareness, what the tones and the voice mean, why a practice repeats,
-and the two ratings. Its quotes of the voice are checked against `app.js` in the tests.
+and the three ratings. Its quotes of the voice are checked against `app.js` in the tests.
 
 ## Meditation series
 

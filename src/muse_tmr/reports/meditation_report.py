@@ -61,7 +61,7 @@ def render_meditation_report(summary: Mapping[str, object], block_rows: Sequence
         _emg_timeline_section(summary, condition_a),
         _cardio_section(summary.get("cardio") or {}, all_rows),
         _paper_metrics_section(contrasts, condition_a, condition_b),
-        _blocks_section(clean_rows, all_rows),
+        _blocks_section(clean_rows, all_rows, _depth_label(summary)),
         _limitations_section(summary.get("limitations") or ()),
     ]
     body = "\n".join(section for section in sections if section)
@@ -109,10 +109,27 @@ def _ratings_section(summary: Mapping[str, object], condition_a: str, condition_
     rows = []
     for condition in (condition_a, condition_b):
         item = ratings.get(condition) or {}
-        rows.append([_e(condition), _fmt(item.get("depth"), 1), _fmt(item.get("sensory_fading"), 1)])
+        rows.append(
+            [
+                _e(condition),
+                _fmt(item.get("depth"), 1),
+                _fmt(item.get("sensory_fading"), 1),
+                _fmt(item.get("drowsiness"), 1),
+            ]
+        )
     if all(cell == "–" for row in rows for cell in row[1:]):
         return ""
-    return "<section><h2>Ratings</h2>" + _table(["Condition", "Depth", "Sensory fading"], rows) + "</section>"
+    return (
+        "<section><h2>Ratings</h2>"
+        + _table(["Condition", _depth_label(summary), "Sensory fading", "Drowsiness"], rows)
+        + "</section>"
+    )
+
+
+def _depth_label(summary: Mapping[str, object]) -> str:
+    """depth holds stability in plans made since the ratings changed; older blocks files rated depth."""
+    blocks_file = summary.get("blocks_file") or {}
+    return "Stability" if blocks_file.get("ratings_scale") == "stability" else "Depth"
 
 
 def _emg_section(emg: Mapping[str, object], condition_a: str, condition_b: str) -> str:
@@ -350,7 +367,7 @@ def _paper_metrics_section(contrasts, condition_a: str, condition_b: str) -> str
     )
 
 
-def _blocks_section(clean_rows, all_rows) -> str:
+def _blocks_section(clean_rows, all_rows, depth_label: str) -> str:
     clean = {int(row["block_index"]): row for row in clean_rows}
     rows = []
     for row in all_rows:
@@ -365,10 +382,12 @@ def _blocks_section(clean_rows, all_rows) -> str:
                 _fmt(clean.get(index, {}).get("lzc_all"), 4),
                 _fmt(row.get("depth"), 0),
                 _fmt(row.get("sensory_fading"), 0),
+                _fmt(row.get("drowsiness"), 0),
             ]
         )
     return "<section><h2>Blocks</h2>" + _table(
-        ["Block", "Condition", "Time", "Clean/all epochs", "LZC (clean)", "Depth", "Sensory fading"], rows
+        ["Block", "Condition", "Time", "Clean/all epochs", "LZC (clean)", depth_label, "Sensory fading", "Drowsiness"],
+        rows,
     ) + "</section>"
 
 

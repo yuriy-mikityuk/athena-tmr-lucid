@@ -11,6 +11,8 @@
   --open: #b45309;
   --open-soft: #fcefe0;
   --open-ink: #8a3f06;
+  --sleep: #4b5694;
+  --sleep-ink: #343c70;
   --settle: #6b7785;
   --settle-soft: #eceff3;
   --serif: "Iowan Old Style", Charter, Georgia, "Times New Roman", serif;
@@ -494,14 +496,20 @@ h4 {
   font-weight: 700;
 }
 
-/* Depth deepens to the right; sensory fading fades to the right. */
-.scale.depth .bar {
+/* Stability and drowsiness deepen to the right; sensory fading fades to the right. */
+.scale.stability .bar {
   background: linear-gradient(90deg, #eef7f5, var(--focus));
   color: var(--focus-ink);
 }
 
-.scale.depth .bar span:last-child {
+.scale.stability .bar span:last-child,
+.scale.drowsiness .bar span:last-child {
   color: #fff;
+}
+
+.scale.drowsiness .bar {
+  background: linear-gradient(90deg, #f0f1fa, var(--sleep));
+  color: var(--sleep-ink);
 }
 
 .scale.fading .bar {
@@ -513,17 +521,22 @@ h4 {
   color: #fff;
 }
 
+/* Two or three anchors under the bar: left, (middle,) right. */
 .ends {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
   gap: 24px;
   color: var(--muted);
   font-size: 0.92rem;
 }
 
 .ends p {
-  max-width: 45%;
   margin: 0;
+}
+
+.ends p:nth-child(2):not(:last-child) {
+  text-align: center;
 }
 
 .ends p:last-child {
@@ -657,14 +670,11 @@ h4 {
   }
 
   .ends {
-    flex-direction: column;
+    grid-auto-flow: row;
     gap: 4px;
   }
 
-  .ends p {
-    max-width: none;
-  }
-
+  .ends p:nth-child(2):not(:last-child),
   .ends p:last-child {
     text-align: left;
   }

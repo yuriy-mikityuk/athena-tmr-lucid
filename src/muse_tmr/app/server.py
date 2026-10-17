@@ -1121,14 +1121,15 @@ class LocalMuseAppState:
             path = handle.output_dir / "blocks.json"
             try:
                 index = int(body["block_index"])
-                depth, fading = rating("depth"), rating("sensory_fading")
+                # Every save carries all three ratings; depth holds stability.
+                ratings = {name: rating(name) for name in ("depth", "sensory_fading", "drowsiness")}
                 plan = load_meditation_blocks(path)
                 if not any(block.index == index for block in plan.blocks):
                     raise ValueError(f"no block {index}")
                 updated = replace(
                     plan,
                     blocks=tuple(
-                        replace(block, depth=depth, sensory_fading=fading) if block.index == index else block
+                        replace(block, **ratings) if block.index == index else block
                         for block in plan.blocks
                     ),
                 )
