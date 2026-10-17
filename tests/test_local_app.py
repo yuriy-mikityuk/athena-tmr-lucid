@@ -200,9 +200,11 @@ class TestLocalMuseApp(unittest.TestCase):
             "focus on the breath",
             "open awareness",
             "That's it, you can open your eyes",
+            "Sound on",
             "фокус на дыхании",
             "открытое внимание",
             "Всё, можно открыть глаза",
+            "Звук включён",
         ):
             self.assertIn(phrase.lower(), script.lower())
             self.assertIn(phrase.lower(), guide.lower())
