@@ -90,6 +90,22 @@ Replay speed is explicit:
 `start_seconds` and `end_seconds` are relative to the raw recording start, allowing
 feature code to replay a specific sleep segment without loading unrelated packets.
 
+## Repeated And Lost Subpackets
+
+The first byte of every Athena subpacket header is a counter the device keeps per TAG
+and wraps at 256. BLE sometimes delivers a notification twice, so `MuseRealtimeDecoder`,
+which both the live amused source and replay use, drops a subpacket whose counter and
+data bytes repeat one of the last 16 of its TAG. A counter that skips ahead means the
+device lost subpackets. Nothing is filled in for them: the rows stay joined, and
+`EEGSample.gaps` and `PPGSample.gaps` list `(index, missing)` pairs, meaning `missing`
+samples belong right before row `index` of that frame's series. `gaps` is written to
+`decoded_frames.jsonl` only when it is not empty. The decoder stats count both per
+sensor type as `repeated_subpackets` and `lost_subpackets`, which reach `progress.json`
+under `source_diagnostics.decoder`.
+
+`raw_amused.bin` keeps every notification as received, so replaying an older recording
+applies the same rule.
+
 ## Polar H10 Raw Notifications
 
 `muse-tmr record-polar` writes `<session_dir>/polar/raw_notifications.jsonl`, one JSON

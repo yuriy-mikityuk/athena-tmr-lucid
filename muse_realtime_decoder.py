@@ -8,7 +8,7 @@ Uses TAG-based subpacket parsing per the Athena protocol.
 
 import numpy as np
 from typing import Dict, List, Optional, Callable, Any, Deque, Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import datetime
 import logging
 from collections import deque
@@ -37,6 +37,8 @@ class DecodedData:
     heart_rate: Optional[float] = None
     battery: Optional[float] = None
     raw_bytes: bytes = b''
+    # 'eeg'/'ppg' -> (index, missing): samples lost right before row `index`
+    gaps: Dict[str, List[Tuple[int, int]]] = field(default_factory=dict)
 
 
 class MuseRealtimeDecoder:
@@ -80,6 +82,8 @@ class MuseRealtimeDecoder:
         self.ppg_buffer = []
         self.last_heart_rate = None
 
+        self.sequence = proto.SubpacketSequence()
+
     def register_callback(self, data_type: str, callback: Callable[[DecodedData], None]):
         """
         Register a callback for specific data type
@@ -121,6 +125,8 @@ class MuseRealtimeDecoder:
             'tag_counts': {},
             'tag_type_counts': {},
             'unknown_tag_counts': {},
+            'repeated_subpackets': {},
+            'lost_subpackets': {},
             'truncated_notifications': 0,
             'short_notifications': 0,
             'decode_errors': 0,
@@ -161,6 +167,7 @@ class MuseRealtimeDecoder:
         try:
             self._record_payload_inspection(proto.inspect_payload(data))
             parsed = proto.parse_payload(data)
+            self._drop_repeats(parsed)
             self._populate_decoded(parsed, decoded)
         except Exception as e:
             self.stats['decode_errors'] += 1
@@ -170,6 +177,33 @@ class MuseRealtimeDecoder:
         self._trigger_callbacks(decoded)
 
         return decoded
+
+    def _drop_repeats(self, parsed: Dict[str, list]):
+        """Drop repeated subpackets and note how many were lost before each kept one."""
+        for sensor_type, subpackets in parsed.items():
+            kept = []
+            for subpacket in subpackets:
+                lost = self.sequence.observe(
+                    subpacket["tag"], subpacket["counter"], subpacket["data_bytes"]
+                )
+                if lost is None:
+                    self._count_subpackets('repeated_subpackets', sensor_type, 1)
+                    continue
+                if lost:
+                    self._count_subpackets('lost_subpackets', sensor_type, lost)
+                subpacket["lost_before"] = lost
+                kept.append(subpacket)
+            subpackets[:] = kept
+
+    def _count_subpackets(self, key: str, sensor_type: str, count: int):
+        counts = self.stats[key]
+        counts[sensor_type] = counts.get(sensor_type, 0) + count
+
+    @staticmethod
+    def _mark_gap(decoded: DecodedData, modality: str, index: int, subpacket: dict):
+        missing = subpacket.get("lost_before", 0) * subpacket["n_samples"]
+        if missing:
+            decoded.gaps.setdefault(modality, []).append((index, missing))
 
     def _populate_decoded(self, parsed: Dict[str, list], decoded: DecodedData):
         """Populate DecodedData from parsed subpackets."""
@@ -193,6 +227,7 @@ class MuseRealtimeDecoder:
                     names = proto.EEG_CHANNELS_4
                 else:
                     names = proto.EEG_CHANNELS_8
+                self._mark_gap(decoded, 'eeg', len(decoded.eeg.get(names[0], ())), subpacket)
                 for ch_idx in range(n_channels):
                     ch_name = names[ch_idx] if ch_idx < len(names) else f"ch{ch_idx}"
                     decoded.eeg.setdefault(ch_name, []).extend(arr[:, ch_idx].tolist())
@@ -228,6 +263,7 @@ class MuseRealtimeDecoder:
                     names = proto.OPTICS_CHANNELS_8
                 else:
                     names = [f"opt{i}" for i in range(n_channels)]
+                self._mark_gap(decoded, 'ppg', len(decoded.ppg.get(names[0], ())), subpacket)
                 for ch_idx in range(n_channels):
                     ch_name = names[ch_idx] if ch_idx < len(names) else f"opt{ch_idx}"
                     decoded.ppg.setdefault(ch_name, []).extend(arr[:, ch_idx].tolist())
@@ -372,6 +408,8 @@ class MuseRealtimeDecoder:
             'tag_counts': dict(self.stats['tag_counts']),
             'tag_type_counts': dict(self.stats['tag_type_counts']),
             'unknown_tag_counts': dict(self.stats['unknown_tag_counts']),
+            'repeated_subpackets': dict(self.stats['repeated_subpackets']),
+            'lost_subpackets': dict(self.stats['lost_subpackets']),
             'truncated_notifications': self.stats['truncated_notifications'],
             'short_notifications': self.stats['short_notifications'],
             'rate_window_seconds': RATE_WINDOW_SECONDS,
