@@ -11,8 +11,9 @@ The target is protocol fidelity and measurable validation. Do not claim clinical
 ## Current Planning Source
 
 - EPIC: #1
-- Milestones: 0 through 9
+- Milestones: 0 through 10
 - Child issues: #3 through #42 are attached to the EPIC as sub-issues.
+- Issues from #100 on have no milestone.
 - Work one GitHub issue at a time unless the user explicitly asks for a cross-cutting change.
 - Keep labels minimal. Do not create a large label taxonomy unless requested.
 
@@ -28,6 +29,7 @@ Milestone themes:
 - M7: OpenMuse and SDK adapters
 - M8: validation and effectiveness criteria
 - M9: documentation and agent handoff
+- M10: local app UI and Muse contact gate
 
 ## Required Git Preflight
 
@@ -60,15 +62,25 @@ Repeat the same preflight before every commit and before every push.
 
 ## Repository Shape
 
-The current codebase is a Python BLE/Muse library derived from the amused-py direction:
+- `src/muse_tmr/` is the engine and everything built on it: `sources`, `data`,
+  `features`, `models`, `protocol`, `audio`, `reports`, `validation`, `annotations`,
+  the local app in `app` (page files in `app/static/`), and the `muse-tmr` CLI in
+  `cli/main.py`.
+- The top-level `amused.py` and `muse_*.py` modules are the forked amused-py BLE
+  layer, wrapped by `muse_tmr.sources.amused_source`. Change them only for BLE or
+  protocol fixes; see `docs/dependency_strategy.md`. `examples/` holds the amused-py
+  examples.
+- `scripts/` holds the nightly REM report, the REM detector check against a reference
+  stager, the macOS launcher installer and the forbidden-files check.
+- `docs/` holds the runbooks and references; `docs/USAGE.md` covers every command.
+- Tests live in `tests/`. CI runs `python -m pytest tests/`; `run_tests.py` runs a
+  fast unittest subset, and `run_tests.py --all` everything.
+- `pyproject.toml` lists the `muse_tmr` packages and the app's static file patterns
+  explicitly. A new subpackage has to go into `packages`, and a new kind of static
+  file into `package-data`, or a regular (non-editable) install leaves it out.
 
-- Core modules live as top-level `muse_*.py` files.
-- Examples live in `examples/`.
-- Tests live in `tests/`.
-- `run_tests.py` runs the existing unittest suites.
-- `pyproject.toml` defines package metadata and dev dependencies.
-
-Prefer the existing simple module style until an issue explicitly introduces a package layout or CLI structure.
+Put new engine code in the matching `muse_tmr` subpackage and new commands in
+`muse_tmr.cli.main`.
 
 ## Safety And Data Rules
 
