@@ -3,6 +3,10 @@
 All timestamps are Unix epoch seconds as floats. EEG values are microvolts,
 IMU acceleration is g, gyroscope values are degrees per second, PPG values are
 raw optics units, heart rate is beats per minute, and battery is percent.
+
+EEG and PPG samples may carry `gaps`, (index, missing) pairs: `missing` samples
+the device produced never arrived and belong right before row `index` of the
+series. The rows themselves stay joined.
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ from typing import Any, Dict, Iterable, Mapping, Optional, Tuple
 
 NumberSeries = Tuple[float, ...]
 AxisRows = Tuple[Mapping[str, float], ...]
+Gaps = Tuple[Tuple[int, int], ...]
 
 
 def _timestamp_seconds(value: Any) -> float:
@@ -32,6 +37,12 @@ def _series_mapping(values: Optional[Mapping[str, Any]]) -> Optional[Mapping[str
     if values is None:
         return None
     return {str(key): _series(value) for key, value in values.items()}
+
+
+def _gaps(value: Optional[Iterable[Any]]) -> Gaps:
+    if not value:
+        return ()
+    return tuple((int(index), int(missing)) for index, missing in value)
 
 
 def _axis_rows(rows: Optional[Iterable[Any]], axes: Tuple[str, ...]) -> Optional[AxisRows]:
@@ -68,17 +79,22 @@ class EEGSample:
     timestamp: float
     channels_uv: Mapping[str, NumberSeries]
     source: str = "unknown"
+    gaps: Gaps = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "timestamp", _timestamp_seconds(self.timestamp))
         object.__setattr__(self, "channels_uv", _series_mapping(self.channels_uv) or {})
+        object.__setattr__(self, "gaps", _gaps(self.gaps))
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        data = {
             "timestamp": self.timestamp,
             "channels_uv": {key: list(value) for key, value in self.channels_uv.items()},
             "source": self.source,
         }
+        if self.gaps:
+            data["gaps"] = [list(gap) for gap in self.gaps]
+        return data
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "EEGSample":
@@ -86,6 +102,7 @@ class EEGSample:
             timestamp=data["timestamp"],
             channels_uv=data.get("channels_uv", {}),
             source=data.get("source", "unknown"),
+            gaps=data.get("gaps", ()),
         )
 
 
@@ -132,17 +149,22 @@ class PPGSample:
     timestamp: float
     channels: Mapping[str, NumberSeries]
     source: str = "unknown"
+    gaps: Gaps = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "timestamp", _timestamp_seconds(self.timestamp))
         object.__setattr__(self, "channels", _series_mapping(self.channels) or {})
+        object.__setattr__(self, "gaps", _gaps(self.gaps))
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        data = {
             "timestamp": self.timestamp,
             "channels": {key: list(value) for key, value in self.channels.items()},
             "source": self.source,
         }
+        if self.gaps:
+            data["gaps"] = [list(gap) for gap in self.gaps]
+        return data
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "PPGSample":
@@ -150,6 +172,7 @@ class PPGSample:
             timestamp=data["timestamp"],
             channels=data.get("channels", {}),
             source=data.get("source", "unknown"),
+            gaps=data.get("gaps", ()),
         )
 
 
@@ -269,8 +292,17 @@ def frame_from_decoded(decoded: Any, source: str = "amused") -> MuseFrame:
     """Convert a `muse_realtime_decoder.DecodedData`-like object to a MuseFrame."""
 
     timestamp = _timestamp_seconds(decoded.timestamp)
-    eeg = EEGSample(timestamp, decoded.eeg, source=source) if decoded.eeg else None
-    ppg = PPGSample(timestamp, decoded.ppg, source=source) if decoded.ppg else None
+    gaps = getattr(decoded, "gaps", None) or {}
+    eeg = (
+        EEGSample(timestamp, decoded.eeg, source=source, gaps=gaps.get("eeg", ()))
+        if decoded.eeg
+        else None
+    )
+    ppg = (
+        PPGSample(timestamp, decoded.ppg, source=source, gaps=gaps.get("ppg", ()))
+        if decoded.ppg
+        else None
+    )
 
     imu = None
     if decoded.imu:

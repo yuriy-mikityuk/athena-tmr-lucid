@@ -49,6 +49,29 @@ class TestSampleTypes(unittest.TestCase):
         self.assertEqual(frame.battery.percent, 90.0)
         self.assertEqual(frame.raw_packet, b"\x11\x22")
 
+    def test_gaps_reach_the_frame_and_survive_json(self):
+        decoded = DecodedData(
+            timestamp=dt.datetime.fromtimestamp(3.0),
+            packet_type="MULTI",
+            eeg={"TP9": [1.0] * 8},
+            ppg={"LO_NIR": [10.0] * 2},
+            gaps={"eeg": [(4, 8)], "ppg": [(0, 2)]},
+        )
+
+        frame = frame_from_decoded(decoded, source="amused")
+        restored = MuseFrame.from_json(frame.to_json())
+
+        self.assertEqual(frame.eeg.gaps, ((4, 8),))
+        self.assertEqual(frame.ppg.gaps, ((0, 2),))
+        self.assertEqual(restored.eeg.gaps, ((4, 8),))
+        self.assertEqual(restored.ppg.gaps, ((0, 2),))
+
+    def test_no_gaps_key_without_gaps(self):
+        eeg = EEGSample(timestamp=1.0, channels_uv={"TP9": [0.1]})
+
+        self.assertNotIn("gaps", eeg.to_dict())
+        self.assertEqual(EEGSample.from_dict(eeg.to_dict()).gaps, ())
+
 
 if __name__ == "__main__":
     unittest.main()

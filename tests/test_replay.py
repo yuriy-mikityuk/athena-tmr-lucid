@@ -105,6 +105,24 @@ class TestReplaySession(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(modality_counts["imu"], 1)
             self.assertEqual(modality_counts["ppg"], 1)
 
+    async def test_replay_drops_a_repeated_notification_and_marks_a_gap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            raw_path = Path(tmp) / "raw_amused.bin"
+            stream = MuseRawStream(str(raw_path))
+            stream.open_write()
+            first = build_tag_packet(proto.TAG_EEG_4CH, bytes(28))
+            after_gap = bytearray(build_tag_packet(proto.TAG_EEG_4CH, bytes([1]) + bytes(27)))
+            after_gap[10] = 2  # counter 1 never arrived
+            for packet in (first, first, bytes(after_gap)):
+                stream.write_packet(packet, stream.session_start)
+            stream.close()
+
+            frames = [frame async for frame in ReplaySession(ReplayConfig(input_path=raw_path)).stream()]
+
+            self.assertEqual([len(frame.eeg.channels_uv["AF7"]) if frame.eeg else 0 for frame in frames], [4, 0, 4])
+            self.assertIsNotNone(frames[1].raw_packet)
+            self.assertEqual(frames[2].eeg.gaps, ((0, 4),))
+
     async def test_replay_speed_sleeps_between_packets(self):
         with tempfile.TemporaryDirectory() as tmp:
             recording_dir = Path(tmp)

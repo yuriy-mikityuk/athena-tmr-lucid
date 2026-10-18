@@ -235,6 +235,23 @@ class TestPayloadParsing(unittest.TestCase):
         self.assertEqual(len(result["ACCGYRO"]), 1)
         self.assertEqual(len(result["OPTICS"]), 1)
 
+    def test_subpacket_counter_and_data_bytes(self):
+        """The first byte of each subpacket header is that TAG's counter"""
+        eeg_data = bytes(range(28))
+        imu_data = bytes(range(36))
+        packet = bytearray(build_tag_packet(
+            proto.TAG_EEG_4CH, eeg_data,
+            extra_subpackets=[(proto.TAG_ACCGYRO, imu_data)],
+        ))
+        packet[10] = 0x2A  # first subpacket header: bytes 10-13
+        packet[14 + 28 + 1] = 0x07  # right after the next TAG
+        result = proto.parse_payload(bytes(packet))
+
+        self.assertEqual(result["EEG"][0]["counter"], 0x2A)
+        self.assertEqual(result["EEG"][0]["data_bytes"], eeg_data)
+        self.assertEqual(result["ACCGYRO"][0]["counter"], 0x07)
+        self.assertEqual(result["ACCGYRO"][0]["data_bytes"], imu_data)
+
     def test_inspect_payload_reports_tags_and_types(self):
         """Payload diagnostics should count TAGs without decoding values."""
         packet = build_tag_packet(

@@ -15,7 +15,8 @@ Protocol reverse-engineered via BLE packet capture analysis.
 """
 
 import numpy as np
-from typing import Dict, List, Optional, Tuple
+from collections import deque
+from typing import Deque, Dict, List, Optional, Tuple
 
 # ---------------------------------------------------------------------------
 # BLE UUIDs
@@ -96,6 +97,12 @@ OPTICS_CHANNELS_8 = [
 # Packet header
 # ---------------------------------------------------------------------------
 HEADER_SIZE = 14  # First 14 bytes of each BLE notification
+
+# Every subpacket has a 4-byte header (bytes 10-13 of the notification for the
+# first one, right after the TAG for the rest). Its first byte counts that TAG's
+# subpackets and wraps at 256.
+COUNTER_MODULO = 256
+REPEAT_WINDOW = 16  # subpackets per TAG remembered to recognise a repeat
 
 
 # ---------------------------------------------------------------------------
@@ -447,7 +454,8 @@ def parse_payload(payload: bytes) -> Dict[str, list]:
     """Parse a complete BLE notification payload into decoded subpackets.
 
     The payload structure:
-    - Bytes 0-13: 14-byte header (byte 9 = first subpacket TAG)
+    - Bytes 0-13: 14-byte header (byte 9 = first subpacket TAG, bytes 10-13
+      = its subpacket header)
     - Bytes 14+: First subpacket data (no TAG prefix, type from header byte 9)
     - After first subpacket: [TAG(1)][header(4)][data(N)] for each additional subpacket
 
@@ -456,7 +464,8 @@ def parse_payload(payload: bytes) -> Dict[str, list]:
 
     Returns:
         Dict with keys "EEG", "ACCGYRO", "OPTICS", "BATTERY", each
-        containing a list of decoded subpacket dicts.
+        containing a list of decoded subpacket dicts. Each dict also carries
+        the subpacket's "counter" and its undecoded "data_bytes".
     """
     result: Dict[str, list] = {
         "EEG": [],
@@ -479,6 +488,8 @@ def parse_payload(payload: bytes) -> Dict[str, list]:
             data_bytes = payload[HEADER_SIZE:data_end]
             decoded = decode_subpacket(first_tag, data_bytes)
             if decoded is not None:
+                decoded["counter"] = payload[10]
+                decoded["data_bytes"] = data_bytes
                 result[decoded["type"]].append(decoded)
             offset = data_end
         else:
@@ -503,11 +514,48 @@ def parse_payload(payload: bytes) -> Dict[str, list]:
         data_bytes = payload[data_start:data_end]
         decoded = decode_subpacket(tag, data_bytes)
         if decoded is not None:
+            decoded["counter"] = payload[offset + 1]
+            decoded["data_bytes"] = data_bytes
             result[decoded["type"]].append(decoded)
 
         offset = data_end
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Subpacket counters
+# ---------------------------------------------------------------------------
+class SubpacketSequence:
+    """Follow each TAG's subpacket counter across notifications.
+
+    BLE sometimes delivers a notification twice, right after the original. A
+    subpacket whose counter and data bytes both match one of the last
+    REPEAT_WINDOW subpackets of its TAG is such a copy. A counter that skips
+    ahead means the device lost subpackets in between. A counter that stays or
+    steps back with new data (a restarted stream) starts the count again.
+    """
+
+    def __init__(self, window: int = REPEAT_WINDOW):
+        self._window = window
+        self._last: Dict[int, int] = {}
+        self._recent: Dict[int, Deque[Tuple[int, bytes]]] = {}
+
+    def observe(self, tag: int, counter: int, data_bytes: bytes) -> Optional[int]:
+        """Return None for a repeat, else how many subpackets were lost before this one."""
+        recent = self._recent.setdefault(tag, deque(maxlen=self._window))
+        key = (counter, bytes(data_bytes))
+        if key in recent:
+            return None
+        recent.append(key)
+        last = self._last.get(tag)
+        self._last[tag] = counter
+        if last is None:
+            return 0
+        step = (counter - last) % COUNTER_MODULO
+        if step == 0 or step > COUNTER_MODULO // 2:
+            return 0
+        return step - 1
 
 
 def _payload_boundary(payload: bytes) -> int:

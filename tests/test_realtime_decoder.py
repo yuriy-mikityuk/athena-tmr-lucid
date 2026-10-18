@@ -12,14 +12,23 @@ from muse_realtime_decoder import MuseRealtimeDecoder, DecodedData
 import muse_athena_protocol as proto
 
 
-def build_tag_packet(first_tag, first_data, extra_subpackets=None):
-    """Build a synthetic TAG-based packet for testing."""
+def build_tag_packet(first_tag, first_data, extra_subpackets=None, counter=0):
+    """Build a synthetic TAG-based packet; each TAG's subpackets count up from `counter`."""
+    counters = {}
+
+    def next_counter(tag):
+        value = counters.get(tag, counter)
+        counters[tag] = value + 1
+        return value % 256
+
     header = bytearray(14)
     header[9] = first_tag
+    header[10] = next_counter(first_tag)
     packet = bytes(header) + first_data
     if extra_subpackets:
         for tag, data in extra_subpackets:
             sub_header = bytearray(4)
+            sub_header[0] = next_counter(tag)
             packet += bytes([tag]) + bytes(sub_header) + data
     return packet
 
@@ -122,8 +131,8 @@ class TestRealtimeDecoder(unittest.TestCase):
         self.assertEqual(stats['tag_type_counts']['OPTICS'], 1)
         self.assertEqual(stats['unknown_tag_counts'], {})
 
-    def test_repeated_eeg_subpackets_append_channel_samples(self):
-        """Repeated EEG subpackets in one notification should not overwrite."""
+    def test_several_eeg_subpackets_append_channel_samples(self):
+        """Several EEG subpackets in one notification should not overwrite."""
         packet = build_tag_packet(
             proto.TAG_EEG_4CH, bytes(28),
             extra_subpackets=[
@@ -142,8 +151,8 @@ class TestRealtimeDecoder(unittest.TestCase):
         self.assertEqual(stats['eeg_values'], 32)
         self.assertEqual(stats['eeg_samples'], 32)
 
-    def test_repeated_ppg_subpackets_append_channel_samples(self):
-        """Repeated PPG subpackets in one notification should not overwrite."""
+    def test_several_ppg_subpackets_append_channel_samples(self):
+        """Several PPG subpackets in one notification should not overwrite."""
         packet = build_tag_packet(
             proto.TAG_OPTICS_8CH, bytes(40),
             extra_subpackets=[
@@ -204,11 +213,13 @@ class TestRealtimeDecoder(unittest.TestCase):
     def test_effective_eeg_sample_rate_uses_sample_rows(self):
         """Sample-rate accounting is based on per-channel EEG sample rows."""
         self.decoder.reset_stats()
-        eeg_packet = build_tag_packet(proto.TAG_EEG_4CH, bytes(28))
         t0 = datetime.datetime(2026, 1, 1, 0, 0, 0)
 
-        self.decoder.decode(eeg_packet, timestamp=t0)
-        self.decoder.decode(eeg_packet, timestamp=t0 + datetime.timedelta(seconds=1))
+        for counter, seconds in enumerate((0, 1)):
+            self.decoder.decode(
+                build_tag_packet(proto.TAG_EEG_4CH, bytes(28), counter=counter),
+                timestamp=t0 + datetime.timedelta(seconds=seconds),
+            )
 
         stats = self.decoder.get_stats()
         self.assertEqual(stats['eeg_sample_rows'], 8)
@@ -217,13 +228,13 @@ class TestRealtimeDecoder(unittest.TestCase):
     def test_rolling_eeg_sample_rate_uses_recent_modality_window(self):
         """Rolling rate should avoid old startup samples."""
         self.decoder.reset_stats()
-        eeg_packet = build_tag_packet(proto.TAG_EEG_4CH, bytes(28))
         t0 = datetime.datetime(2026, 1, 1, 0, 0, 0)
 
-        self.decoder.decode(eeg_packet, timestamp=t0)
-        self.decoder.decode(eeg_packet, timestamp=t0 + datetime.timedelta(seconds=20))
-        self.decoder.decode(eeg_packet, timestamp=t0 + datetime.timedelta(seconds=21))
-        self.decoder.decode(eeg_packet, timestamp=t0 + datetime.timedelta(seconds=22))
+        for counter, seconds in enumerate((0, 20, 21, 22)):
+            self.decoder.decode(
+                build_tag_packet(proto.TAG_EEG_4CH, bytes(28), counter=counter),
+                timestamp=t0 + datetime.timedelta(seconds=seconds),
+            )
 
         stats = self.decoder.get_stats()
         self.assertEqual(stats['eeg_sample_rows'], 16)
@@ -295,6 +306,91 @@ class TestRealtimeDecoder(unittest.TestCase):
         self.assertGreaterEqual(stats['packets_decoded'], 3)
 
 
+class TestSubpacketCounters(unittest.TestCase):
+    """Repeated and lost subpackets, from the counter in each subpacket header."""
+
+    def setUp(self):
+        self.decoder = MuseRealtimeDecoder()
+
+    def test_repeated_notification_adds_no_samples(self):
+        packet = _notification((proto.TAG_EEG_4CH, 7, _eeg_data(1)))
+
+        first = self.decoder.decode(packet)
+        copy = self.decoder.decode(packet)
+
+        self.assertEqual(len(first.eeg['AF7']), 4)
+        self.assertIsNone(copy.eeg)
+        self.assertEqual(copy.raw_bytes, packet)
+        stats = self.decoder.get_stats()
+        self.assertEqual(stats['eeg_sample_rows'], 4)
+        self.assertEqual(stats['repeated_subpackets'], {'EEG': 1})
+        self.assertEqual(stats['lost_subpackets'], {})
+
+    def test_copy_of_an_earlier_notification_is_dropped(self):
+        packets = [_notification((proto.TAG_EEG_4CH, counter, _eeg_data(counter))) for counter in range(4)]
+
+        decoded = [self.decoder.decode(packet) for packet in packets[:3] + [packets[1], packets[3]]]
+
+        self.assertIsNone(decoded[3].eeg)
+        self.assertEqual(_levels(decoded[4]), [3] * 4)
+        self.assertEqual(decoded[4].gaps, {})
+        stats = self.decoder.get_stats()
+        self.assertEqual(stats['repeated_subpackets'], {'EEG': 1})
+        self.assertEqual(stats['lost_subpackets'], {})
+
+    def test_counter_gap_is_marked_not_filled(self):
+        self.decoder.decode(_notification((proto.TAG_EEG_4CH, 10, _eeg_data(1))))
+        decoded = self.decoder.decode(_notification((proto.TAG_EEG_4CH, 12, _eeg_data(2))))
+
+        self.assertEqual(_levels(decoded), [2] * 4)
+        self.assertEqual(decoded.gaps, {'eeg': [(0, 4)]})
+        self.assertEqual(self.decoder.get_stats()['lost_subpackets'], {'EEG': 1})
+
+    def test_gap_inside_one_notification_is_marked_at_its_row(self):
+        decoded = self.decoder.decode(_notification(
+            (proto.TAG_EEG_4CH, 5, _eeg_data(1)),
+            (proto.TAG_EEG_4CH, 8, _eeg_data(2)),
+        ))
+
+        self.assertEqual(len(decoded.eeg['AF7']), 8)
+        self.assertEqual(decoded.gaps, {'eeg': [(4, 8)]})
+        self.assertEqual(self.decoder.get_stats()['lost_subpackets'], {'EEG': 2})
+
+    def test_counter_wraps_at_256(self):
+        gaps = [
+            self.decoder.decode(_notification((proto.TAG_EEG_4CH, counter, _eeg_data(counter)))).gaps
+            for counter in (254, 255, 0, 2)
+        ]
+
+        self.assertEqual(gaps, [{}, {}, {}, {'eeg': [(0, 4)]}])
+        self.assertEqual(self.decoder.get_stats()['lost_subpackets'], {'EEG': 1})
+
+    def test_same_counter_with_new_data_is_kept(self):
+        for counter, level in ((8, 1), (9, 2), (8, 3), (9, 4)):
+            decoded = self.decoder.decode(_notification((proto.TAG_EEG_4CH, counter, _eeg_data(level))))
+            self.assertEqual(_levels(decoded), [level] * 4)
+            self.assertEqual(decoded.gaps, {})
+
+        stats = self.decoder.get_stats()
+        self.assertEqual(stats['eeg_sample_rows'], 16)
+        self.assertEqual(stats['repeated_subpackets'], {})
+        self.assertEqual(stats['lost_subpackets'], {})
+
+    def test_optics_and_imu_counters(self):
+        optics = (proto.TAG_OPTICS_8CH, 0, bytes(40))
+        imu = (proto.TAG_ACCGYRO, 4, bytes(36))
+        self.decoder.decode(_notification(optics, imu))
+
+        decoded = self.decoder.decode(_notification(optics, imu, (proto.TAG_OPTICS_8CH, 2, bytes([1]) + bytes(39))))
+
+        self.assertEqual(len(decoded.ppg['LO_NIR']), 2)
+        self.assertEqual(decoded.gaps, {'ppg': [(0, 2)]})
+        self.assertIsNone(decoded.imu)
+        stats = self.decoder.get_stats()
+        self.assertEqual(stats['repeated_subpackets'], {'OPTICS': 1, 'ACCGYRO': 1})
+        self.assertEqual(stats['lost_subpackets'], {'OPTICS': 1})
+
+
 class TestDecodedData(unittest.TestCase):
     """Test DecodedData dataclass"""
 
@@ -329,6 +425,28 @@ def _pack_14bit_lsb(values):
 
 def _uv(raw_count):
     return (float(raw_count) - proto.EEG_MID_COUNT) * proto.EEG_SCALE_UV_PER_COUNT
+
+
+def _eeg_data(level):
+    """4ch EEG data bytes with every sample at midscale + level."""
+    return _pack_14bit_lsb([proto.EEG_MID_COUNT + level] * 16)
+
+
+def _levels(decoded):
+    """The AF7 samples of a decoded notification as levels above midscale."""
+    return [round(value / proto.EEG_SCALE_UV_PER_COUNT) for value in decoded.eeg['AF7']]
+
+
+def _notification(*subpackets):
+    """One notification from (tag, counter, data) subpackets."""
+    (first_tag, first_counter, first_data), *rest = subpackets
+    header = bytearray(14)
+    header[9] = first_tag
+    header[10] = first_counter
+    packet = bytes(header) + first_data
+    for tag, counter, data in rest:
+        packet += bytes([tag, counter, 0, 0, 0]) + data
+    return packet
 
 
 if __name__ == '__main__':
