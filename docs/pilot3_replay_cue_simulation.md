@@ -31,9 +31,16 @@ cd /path/to/athena-tmr-lucid
   --session data/protocol/night-001_puzzles.json \
   --assignment data/protocol/night-001_assignment.json \
   --cue-library data/cues/starter.json \
+  --preset p21 \
   --output data/reports/pilot3_replay_cue_plan.json \
   --scheduler-events-output data/reports/pilot3_scheduler_events.jsonl
 ```
+
+Pass the preset the night was recorded with; it is in the recording's `metadata.json`
+under `source.metadata.preset` (the app's night sessions use `p21`; `record` and the
+Pilot 4 and 5 commands default to `p1034`). It sets the gate thresholds, `0.90`/`0.85`
+for `p21` and `0.80`/`0.70` for an optics preset, and on `p21` keeps the missing PPG
+from capping REM confidence. Without `--preset` the replay assumes an optics preset.
 
 Optional replay and gate tuning flags:
 
@@ -42,10 +49,11 @@ Optional replay and gate tuning flags:
   --end-seconds 7200 \
   --epoch-seconds 30 \
   --stride-seconds 30 \
-  --enter-threshold 0.70 \
-  --exit-threshold 0.45 \
   --min-stable-seconds 60
 ```
+
+`--enter-threshold` and `--exit-threshold` override the preset's pair. The old
+`0.70`/`0.45` kept the gate open about three quarters of a night (#115).
 
 ## Validate
 

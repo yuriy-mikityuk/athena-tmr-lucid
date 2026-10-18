@@ -8,6 +8,7 @@ Complete command and code reference for `muse-tmr`, organized by workflow stage.
 - [Acquisition: discover, stream, record](#acquisition-discover-stream-record)
 - [Alternative acquisition backends](#alternative-acquisition-backends)
 - [macOS BLE troubleshooting](#macos-ble-troubleshooting)
+- [Blink and artifact diagnostics](#blink-and-artifact-diagnostics)
 - [Offline replay](#offline-replay)
 - [Epoch building](#epoch-building)
 - [Feature extraction: EEG](#feature-extraction-eeg)
@@ -17,6 +18,7 @@ Complete command and code reference for `muse-tmr`, organized by workflow stage.
 - [Manual REM annotation templates](#manual-rem-annotation-templates)
 - [Personal REM classifier](#personal-rem-classifier)
 - [REM stable gate](#rem-stable-gate)
+- [Checking the REM detector against a reference stager](#checking-the-rem-detector-against-a-reference-stager)
 - [Low-volume test cue player](#low-volume-test-cue-player)
 - [Pre-sleep volume calibration](#pre-sleep-volume-calibration)
 - [Cue library metadata](#cue-library-metadata)
@@ -28,7 +30,7 @@ Complete command and code reference for `muse-tmr`, organized by workflow stage.
 - [Cued-vs-uncued analysis](#cued-vs-uncued-analysis)
 - [Meditation complexity analysis](#meditation-complexity-analysis)
 - [Polar H10 companion recording](#polar-h10-companion-recording)
-- [Local Muse contact setup app](#local-muse-contact-setup-app)
+- [Local app](#local-app)
 - [Validation plan and pilots](#validation-plan-and-pilots)
 
 ## Installation & local development
@@ -37,8 +39,11 @@ Complete command and code reference for `muse-tmr`, organized by workflow stage.
 pip install -e .
 python -m muse_tmr.cli.main --help
 muse-tmr --help
+muse-tmr status
 python scripts/check_forbidden_files.py
 ```
+
+`muse-tmr status` only prints a line confirming the package is installed.
 
 ## Acquisition: discover, stream, record
 
@@ -125,6 +130,16 @@ cat /tmp/muse-discover.err
 ```
 
 If using the `Python.app` workaround, keep the same `open ... "$PYAPP" --args` wrapper and replace only the command after `--args` with the `stream` or `record` invocation.
+
+## Blink and artifact diagnostics
+
+```bash
+muse-tmr diagnose-blink-artifacts --source amused --address "$MUSE_ADDR" [--output data/reports/<name>.json]
+muse-tmr compare-source-diagnostics data/reports/<a>.json data/reports/<b>.json [--output compare.md]
+muse-tmr inspect-blink-channels data/reports/<a>.json [--phase blink] [--output inspect.csv]
+```
+
+`diagnose-blink-artifacts` prompts through a short live protocol (settle, eyes open, blinks, recovery, jaw clench, head movement, eyes closed; about 3.5 min with the defaults) and writes a JSON report of amplitude and rate metrics per phase. Its `--source` defaults to `brainflow`, so pass `--source amused` for the default backend. `compare-source-diagnostics` puts several reports side by side as a source quality table, and `inspect-blink-channels` shows the per-channel metrics of the chosen phases. Both print markdown and can also write `.md`, `.csv` or `.json`.
 
 ## Offline replay
 
@@ -245,6 +260,18 @@ for prediction in rem_predictions:
 ```
 
 The gate requires stable REM confidence over time, uses hysteresis for closing, blocks motion/arousal reasons, and applies cooldown after arousal blocks. It still does not play audio; cue code must consume `gate_open` plus reason codes.
+
+`RemGateConfig()` opens at `P_REM` 0.80 and closes below 0.70. The pilot commands take the pair from `--preset` (`muse_tmr.presets.preset_gate_thresholds`): 0.90/0.85 on `p21`, 0.80/0.70 on an optics preset; `--enter-threshold` and `--exit-threshold` override it. On `p21` the gate also stops treating missing PPG as low confidence. Why these values and how far they are validated: `docs/data_model.md`.
+
+## Checking the REM detector against a reference stager
+
+```bash
+python -m venv .venv-gssc && .venv-gssc/bin/pip install gssc
+.venv/bin/python scripts/validate_rem_detection.py data/recordings/<session> --reference gssc --preset p21 \
+  [--output data/reports/rem_validation.json] [--html data/reports/rem_validation.html] [--dump-epochs epochs.csv]
+```
+
+Replays a recording through the heuristic detector and the gate, stages the same EEG with YASA (the default) or GSSC (`--reference gssc`), each from its own venv (`.venv-yasa`, `.venv-gssc`, both gitignored), and reports REM precision, recall, F1 and kappa at a few thresholds, a threshold sweep, ROC-AUC, and how often the reference calls REM while the gate is open. Both stagers are automated proxies, not PSG; GSSC was trained with frontal channels and fits the Muse montage better than YASA. The `p21` thresholds were checked this way against GSSC on one night.
 
 ## Low-volume test cue player
 
@@ -444,16 +471,16 @@ muse-tmr decode-polar data/recordings/session/<name>
 
 Records HR/RR, 130 Hz ECG and chest ACC from a Polar H10 into `<session>/polar/` in a separate process, so a strap problem never touches the Muse recording. Raw BLE payloads are kept and `decode-polar` rebuilds everything from them. `muse_tmr.data.polar_session.load_polar_session` maps the data onto the Muse wall-clock time base; `muse_tmr.features.cardio_resp_features` gives RR/HRV, breathing rate and RSA per window. Details and limitations: `docs/polar_h10.md`.
 
-## Local Muse contact setup app
+## Local app
 
 ```bash
 muse-tmr app --source mock --host 127.0.0.1 --port 8765
-muse-tmr app --source amused --address "$MUSE_ADDR" --host 127.0.0.1 --port 8765
+muse-tmr app --source amused --address "$MUSE_ADDR" --host 127.0.0.1 --port 8765 [--auto-update]
 muse-tmr stream --source amused --address "$MUSE_ADDR" --duration-seconds 30 --debug-stats
 .venv/bin/python scripts/install_macos_launcher.py --address "$MUSE_ADDR"
 ```
 
-See `docs/contact_setup_local_app.md` before overnight pilot sessions. The setup app is local-only, tracks `TP9`, `AF7`, `AF8`, and `TP10`, and uses a backend-enforced `Start when ready` contact gate before session start. Live app diagnostics are available at `/api/muse/diagnostics`. On macOS, the launcher installer creates `~/Desktop/Muse TMR Setup.app` for one-click local startup.
+The app is local-only. It shows live contact for `TP9`, `AF7`, `AF8` and `TP10`, and once all four are good it unlocks the record buttons: a session (`p1034`, up to 1 h), a night (`p21`, 8 h), a guided meditation, a meditation series and the calibration run. Each recording runs as its own `muse-tmr record` process under `caffeinate`, so closing the app or its terminal does not stop it, and its report is built from the app when it ends. `--auto-update` pulls a clean `main` checkout and restarts the app when it is idle. Live diagnostics: `/api/muse/diagnostics`. On macOS the launcher installer creates `~/Desktop/Muse TMR Setup.app`, which starts the app with `--auto-update`. Runbook: `docs/contact_setup_local_app.md`.
 
 ## Validation plan and pilots
 
@@ -487,11 +514,12 @@ muse-tmr simulate-replay-cues data/recordings/<pilot-session> \
   --session data/protocol/night-001_puzzles.json \
   --assignment data/protocol/night-001_assignment.json \
   --cue-library data/cues/starter.json \
+  --preset p21 \
   --output data/reports/pilot3_replay_cue_plan.json \
   --scheduler-events-output data/reports/pilot3_scheduler_events.jsonl
 ```
 
-See `docs/pilot3_replay_cue_simulation.md` for the replay-only runbook. The simulator runs epochs, REM detection, the stable gate, arousal guard, and scheduler on a recording with mocked audio. It writes an inspectable cue plan and fails if any uncued puzzle receives a scheduler `play` event. No real audio is played.
+See `docs/pilot3_replay_cue_simulation.md` for the replay-only runbook. The simulator runs epochs, REM detection, the stable gate, arousal guard, and scheduler on a recording with mocked audio. It writes an inspectable cue plan and fails if any uncued puzzle receives a scheduler `play` event. No real audio is played. Pass the preset the night was recorded with (`source.metadata.preset` in its `metadata.json`); without it the gate assumes an optics preset.
 
 ### Pilot 4: low-volume REM-gated cueing
 
@@ -511,7 +539,12 @@ muse-tmr run-pilot4-cueing \
   --default-volume 0.02
 ```
 
-See `docs/pilot4_low_volume_cueing.md` before using `--backend system`. Pilot 4 requires volume calibration, enforces the comfortable-volume cap, logs scheduler, arousal, audio, awakening, and emergency-stop artifacts, and only sends playback requests for scheduler `play` events after stable REM.
+See `docs/pilot4_low_volume_cueing.md` before using `--backend system`. Pilot 4 requires volume calibration, enforces the comfortable-volume cap, logs scheduler, arousal, audio, awakening, and emergency-stop artifacts, and only sends playback requests for scheduler `play` events after stable REM. `--preset` (default `p1034`) is the headband preset for the night and also picks the gate thresholds, as above. Mark an awakening with:
+
+```bash
+muse-tmr log-pilot4-awakening data/recordings/pilot4_low_volume_<timestamp>/awakening_events.jsonl \
+  --notes "woke briefly; no clear cue recall"
+```
 
 ### Pilot 5: full-night TLR plus puzzle cueing
 
@@ -532,4 +565,4 @@ muse-tmr run-pilot5-full-night \
   --default-volume 0.02
 ```
 
-See `docs/pilot5_full_night.md` for the full runbook. Pilot 5 requires the Pilot 4 safety setup plus a TLR block plan, writes `pilot5_summary.json`, and expects the morning dream report, blind puzzle retest, and cued-vs-uncued analysis before any behavioral interpretation.
+See `docs/pilot5_full_night.md` for the full runbook. Pilot 5 requires the Pilot 4 safety setup plus a TLR block plan, writes `pilot5_summary.json`, and expects the morning dream report, blind puzzle retest, and cued-vs-uncued analysis before any behavioral interpretation. `--preset` works as in Pilot 4.
