@@ -256,10 +256,19 @@ Each decision contains:
 - `cooldown_remaining_seconds`: remaining cooldown after motion/arousal blocks
 - `reason_codes`: threshold, stability, hysteresis, cooldown, and block reasons
 
-Default behavior uses an entry threshold of `0.70`, exit threshold of `0.45`, a
-60-second stability window, and a 120-second cooldown. Motion/arousal reason codes
-close the gate and start cooldown. Low feature-support reason codes cap confidence so
-single high-probability spikes do not open the gate by themselves.
+`RemGateConfig` defaults to an entry threshold of `0.80`, exit threshold of `0.70`, a
+60-second stability window, and a 120-second cooldown. The pilot commands and
+`scripts/validate_rem_detection.py` take their pair from the recording preset instead
+(`muse_tmr.presets.preset_gate_thresholds`): `p21` uses `0.90`/`0.85`, any optics preset
+`0.80`/`0.70`. The heuristic detector runs hot, so the earlier `0.70`/`0.45` left the
+gate open about 75% of a night. The `p21` pair was fitted against a GSSC reference on
+one night (n=1); the optics pair is provisional until a night with REM on an optics
+preset is recorded (#116).
+
+Motion/arousal reason codes close the gate and start cooldown. Low feature-support
+reason codes cap confidence so single high-probability spikes do not open the gate by
+themselves. On an EEG-only preset (`p21`) missing PPG is expected, so the gate is built
+with `optics_capable=False` and missing-cardiac reason codes do not lower confidence.
 
 ## Audio Playback
 

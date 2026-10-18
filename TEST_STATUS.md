@@ -1,22 +1,30 @@
 # Test Status
 
 ## Current Test Results
-- **434 tests passing**, 3 skipped ✅
+- **686 tests passing**, 5 skipped ✅
 - **0 tests failing** 🎉
-- **~89% line coverage** on the `muse_tmr` package
+- **88% line coverage** on the `muse_tmr` package
 
-Skipped tests require an optional pandas Parquet engine (`pyarrow` or
-`fastparquet`); install one to exercise the Parquet export paths.
+Measured on 2026-10-18 with Python 3.12 on macOS. Three skipped tests require an
+optional pandas Parquet engine (`pyarrow` or `fastparquet`) for the Parquet export
+paths; two cross-check the complexity metrics against `antropy` and `neurokit2` and
+run only when those are installed.
 
 ## Coverage Overview
 Well covered: REM detection (heuristic + personal classifier), the
 `StableRemGate` and `ArousalGuard` safety gates, the TMR cue scheduler,
 randomization, the staged pilots, audio playback safety branches
-(volume caps, fades, backend fallbacks), the ring buffer, and the
-acquisition sources' error/timeout paths.
+(volume caps, fades, backend fallbacks), the ring buffer, the
+acquisition sources' error/timeout paths, the recorder, contact quality,
+the meditation analysis and report, the calibration protocol, and the
+Polar H10 session and cardio-respiratory features (92-98% each). The local
+app server is at 87%.
 
 Lower coverage worth improving:
-- `data/watchdog.py` no-data timeout / reconnect logic
+- `cli/main.py` (66%), the largest module
+- `data/watchdog.py` no-data timeout / reconnect logic (78%)
+- `app/auto_update.py` (79%), `reports/source_diagnostics.py` (80%) and
+  `sources/polar_h10.py` (81%)
 - Legacy root-level modules (`muse_sleep_parser`, `muse_integrated_parser`,
   `muse_stream_client`, `muse_discovery`) if they remain on the live path
 

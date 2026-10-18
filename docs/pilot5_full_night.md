@@ -107,6 +107,7 @@ OUTDIR="data/recordings/pilot5_full_night_$(date +%Y%m%d_%H%M%S)"
 ```
 
 The default duration rules require 2-8 hours unless `--allow-short` is present.
+`--preset` sets the headband preset and the REM gate thresholds, as in Pilot 4.
 
 ## Emergency Stop
 

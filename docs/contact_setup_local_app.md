@@ -1,21 +1,21 @@
-# M10 Local App Contact Setup Runbook
+# Local App Runbook
 
-Use this local web app before overnight Pilot sessions to confirm Muse connection,
-EEG contact quality, and the backend-enforced pre-session start gate. This is a
-local-only tool served from your machine. It is not a cloud service and does not
-upload recordings, contact data, device identifiers, or reports.
+The local web app connects to the Muse, shows the contact of each sensor, starts and
+stops recordings (a session, a night, a guided meditation, a meditation series, the
+calibration run) and builds their reports. It is a local-only tool served from your
+machine. It is not a cloud service and does not upload recordings, contact data,
+device identifiers, or reports.
 
 ## Required Channels
 
-V1 contact setup tracks these Muse EEG contact channels:
+The app tracks these Muse EEG contact channels:
 
 - `TP9`: left rear/temporal contact.
 - `AF7`: left front contact.
 - `AF8`: right front contact.
 - `TP10`: right rear/temporal contact.
 
-The setup gate requires all four channels to be `good` for the stability window
-before a session start is allowed.
+The record buttons stay disabled until all four channels are `good`.
 
 ## Mock UI Smoke Test
 
@@ -42,6 +42,8 @@ Useful mock scenarios:
 - `flapping_af7`
 - `disconnect_after_good`
 - `stale_data`
+
+Nothing can be recorded in mock mode; recording needs the live source.
 
 Stop the app with `Ctrl-C` in the terminal running the command.
 
@@ -243,46 +245,50 @@ Adjust the Python.app path to your installed Homebrew Python version.
 - Move hair away from the right rear pad.
 - Reseat the band so the rear-right segment is not floating.
 
-## Start Gate Behavior
+## Starting a Recording
 
-Use the `Start when ready` button after the Muse is connected and the contact
-visualization is updating.
+Once the Muse is connected, the record buttons appear: Start session, Start night
+session, Meditation…, Meditation series… and Calibration run…. They stay disabled,
+with a hint to adjust the headband, until all four channels are `good`; there is no
+stability countdown. Only the page checks this: the record endpoints start the
+recorder whatever the contact.
 
-Backend behavior:
+Starting a recording releases the app's own connection, since the Muse takes only
+one, and launches `muse-tmr record` as a separate process under `caffeinate`, so
+closing the app or its terminal does not stop it. A session records on `p1034` for
+up to an hour, a night on `p21` for 8 hours, and the meditation, series and
+calibration recordings use `p21`. While it runs, the contact view and the diagnostics
+show what the recorder reports in its `progress.json` heartbeat, and the contact
+turns stale when the heartbeat is more than 10 s old. Contact drops never stop a
+recording. Stop recording sends SIGINT, so the recorder still writes `summary.json`.
 
-- The UI arms the backend gate; it is not a frontend-only state.
-- Any missing, poor, fair, stale, or disconnected required channel blocks start.
-- All four required channels must be `good` for the default `5s` stability window.
-- If any required channel drops before the window completes, the countdown resets.
-- A direct session-start request is rejected while the contact gate is not ready.
-- After a session is running, contact drops are warnings/log events only. They do
-  not automatically stop the session.
+The older `Start when ready` flow with its 5 s stability window
+(`/api/muse/start-when-ready`, `/api/session/start`, `--contact-stability-seconds`)
+is still in the server, but the page no longer uses it.
 
 ## UI Smoke Checklist
 
-- Discovery finds the Muse.
+- "Find headband" finds the Muse, or says what to try.
 - Connect succeeds.
 - Contact data updates live.
 - The source badge clearly shows `MOCK` or `LIVE Muse`.
 - The device card shows the headset name, address, source, connected duration,
-  and last packet age when available.
+  last packet age and battery when available.
 - Poor, fair, and good visual states are visible.
 - Fair/poor channels show their primary reason code in human-readable form.
 - Each channel maps to the expected segment: `TP9`, `AF7`, `AF8`, `TP10`.
 - Per-channel sparklines update for recent contact fill history.
 - All-good contact shows the centered check mark.
-- `Start when ready` arms the contact gate.
-- The stability progress bar counts toward the required contact window and
-  reports the channel that reset the countdown.
-- Session start remains blocked until all contacts are good for the stability
-  window.
-- Once running, the session strip shows elapsed time, warning count, and stream
-  rate.
-- In-session contact drops appear in the contact warning log but do not stop the
-  session.
+- The record buttons stay disabled until all four channels are good, and are
+  disabled again by a disconnect or stale contact.
+- Once recording, the strip shows the kind and preset, elapsed time, headband
+  battery, the H10 state when it is on, and the last recorder event.
+- Stop recording ends in "Recording finished." with "Build report" and "Back to
+  menu".
 - The diagnostics panel exposes notification rate, EEG rows/sec, EEG effective
   rate, decode errors, unknown TAG counts, and last packet age.
-- Disconnect or stale contact resets readiness before session start.
+
+Run this checklist before Pilot 4 or Pilot 5 overnight sessions.
 
 ## Live Diagnostics
 
@@ -297,5 +303,3 @@ TAG counts, unknown TAG counts, decode errors, telemetry/battery summaries,
 cumulative sample rates, and rolling sample rates over the decoder window. Use
 this when checking whether a short live smoke is seeing startup jitter or
 steady-state EEG/PPG rates.
-
-Run this checklist before Pilot 4 or Pilot 5 overnight sessions.

@@ -72,6 +72,11 @@ OUTDIR="data/recordings/pilot4_low_volume_$(date +%Y%m%d_%H%M%S)"
 
 The default duration rules require 2-8 hours unless `--allow-short` is present.
 
+`--preset` (default `p1034`) is the headband preset and also picks the REM gate
+thresholds: 0.80/0.70 on `p1034`, still provisional, and 0.90/0.85 on `p21`, where
+the gate does not count the missing PPG against REM confidence. `--enter-threshold`
+and `--exit-threshold` override the pair; see `docs/data_model.md`.
+
 ## Emergency Stop
 
 The summary prints an `emergency_stop` path. Creating that file blocks future playback

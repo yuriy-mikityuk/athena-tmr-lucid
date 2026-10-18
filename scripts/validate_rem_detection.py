@@ -20,11 +20,14 @@ Pipeline
                           align 30s epochs by time  ->  agreement metrics
 
 What it reports
-    * REM precision / recall / F1 / Cohen's kappa of the heuristic vs YASA-REM,
-      at the live gate's operating thresholds (enter=0.70, exit=0.45), at 0.50,
-      and at the best-F1 threshold; plus a full threshold sweep and ROC-AUC.
+    * REM precision / recall / F1 / Cohen's kappa of the heuristic vs the
+      reference's REM (YASA or GSSC, --reference), at RemGateConfig's default
+      thresholds (enter=0.80, exit=0.70), at 0.50, and at the best-F1 threshold;
+      plus a full threshold sweep and ROC-AUC.
     * The *system* view: the actual StableRemGate simulated over the p_rem series
-      -- when the gate would open (i.e. fire a cue), how often is YASA calling REM?
+      with the --preset thresholds (p21 0.90/0.85, optics presets 0.80/0.70)
+      -- when the gate would open (i.e. fire a cue), how often is the reference
+      calling REM?
 
 Honest caveats (printed in the summary too)
     YASA is a PROXY, not PSG truth. Its model wants central electrodes (C3/C4);

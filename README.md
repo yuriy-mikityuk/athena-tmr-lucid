@@ -17,9 +17,10 @@ The system records sleep biosignals all night (EEG, IMU, PPG), detects REM in re
 - **Trainable personal REM classifier:** class-balanced logistic regression on hand-annotated epochs, saved as a versioned JSON artifact with calibration metrics, feature importance, and training metrics — on top of a transparent non-ML heuristic baseline
 - **Safety-first cueing:** model probabilities never reach the audio path directly; a `StableRemGate` (minimum stable time, hysteresis, cooldown) and an `ArousalGuard` (motion, alpha, HR-jump, artifact proxies) decide, with hard volume caps, fade in/out, and emergency-stop artifacts
 - **Blind experimental protocol:** seeded randomization into cued/uncued puzzle groups, uncued puzzles are never schedulable, the condition is hidden from the subject during morning retests
-- **Pluggable acquisition:** amused-py BLE (default), OpenMuse LSL, and BrainFlow backends, all mapped to one `MuseFrame` contract; plus a local web app for sensor-contact setup before bed
+- **Pluggable acquisition:** amused-py BLE (default), OpenMuse LSL, and BrainFlow backends, all mapped to one `MuseFrame` contract; a Polar H10 chest strap can record ECG, RR and chest motion alongside, in its own process
+- **Local app:** live contact check per sensor, one-click session, night, guided-meditation and calibration recordings that run as their own process, reports built from the page, and auto-update from `main`
 - **Reproducible validation:** five staged pilots, each with a runbook and an automated validator
-- **Engineering hygiene:** 28 CLI commands, pytest suite with CI on GitHub Actions, and a privacy-aware gitignore — volume calibration, puzzle content, and dream reports never leave the machine
+- **Engineering hygiene:** 41 CLI commands, pytest suite with CI on GitHub Actions, and a privacy-aware gitignore — volume calibration, puzzle content, and dream reports never leave the machine
 
 ## Architecture
 
@@ -73,6 +74,8 @@ A Konkoly-style targeted-lucidity protocol combined with puzzle-based TMR, run e
 
 The REM detector ships in two layers. A transparent **heuristic baseline** (`HeuristicRemDetector`) scores each epoch from EEG/IMU/PPG feature rows and returns `P_REM` with human-readable reason codes — no ML, fully inspectable. On top of it, `annotate-template` exports per-epoch CSVs overlaid with `P_REM` and features for manual labeling (`wake` / `nrem` / `probable_rem`), and `train-rem-classifier` fits a **class-balanced logistic regression** on those labels. The saved artifact is versioned JSON containing the coefficients, **calibration metrics, feature importance, and training metrics** — so every model used at night is auditable. By design, model probabilities never reach the audio path directly; only the stable gate plus arousal guard can authorize a cue.
 
+There is no PSG ground truth here, so `scripts/validate_rem_detection.py` replays a night through the detector and the gate and scores them against an automated stager (YASA or GSSC). The gate thresholds were raised after that check: the detector runs hot, and at the old 0.70/0.45 the gate stayed open about 75% of a night. They now depend on the recording preset (0.90/0.85 on the EEG-only `p21`, fitted on one night; 0.80/0.70 on optics presets, provisional).
+
 ## Validation pilots
 
 Each stage has a runbook in `docs/` and an automated validator, so a failed precondition is caught before a night is wasted.
@@ -85,6 +88,10 @@ Each stage has a runbook in `docs/` and an automated validator, so a failed prec
 | 4 | Low-volume REM-gated cueing (~2 h) with full safety logging | `run-pilot4-cueing` · `docs/pilot4_low_volume_cueing.md` |
 | 5 | Full night (~8 h): TLR block + puzzle cueing + morning artifacts | `run-pilot5-full-night` · `docs/pilot5_full_night.md` |
 
+## Meditation side track
+
+The same headband also runs guided A/B meditation sessions from the local app: a counterbalanced plan of focus-on-the-breath and open-awareness blocks, a tone and a short voice cue (English or Russian) at every change, and three self-ratings per block (stability, sensory fading, drowsiness). Each session gets an HTML report with complexity metrics (LZC, entropies, Hjorth, 1/f, DFA, Lyapunov), an EMG check and, with a Polar H10, breathing and HRV. `aggregate-meditation` pools a series and reports p-values only from 8 sessions on. A 23-minute voice-guided calibration run measures what jaw tension and paced breathing do to these numbers. Protocol, metrics and limitations: [`docs/meditation_metrics.md`](docs/meditation_metrics.md) and [`docs/calibration_run.md`](docs/calibration_run.md).
+
 ## CLI overview
 
 41 commands under one `muse-tmr` entry point. Full invocations with all flags: [`docs/USAGE.md`](docs/USAGE.md).
@@ -92,13 +99,14 @@ Each stage has a runbook in `docs/` and an automated validator, so a failed prec
 | Group | Commands |
 | ----- | -------- |
 | Acquisition | `discover` · `stream` · `record` · `replay` · `app` · `record-polar` · `decode-polar` |
+| Diagnostics | `status` · `diagnose-blink-artifacts` · `compare-source-diagnostics` · `inspect-blink-channels` |
 | Annotation & training | `annotate-template` · `train-rem-classifier` |
 | Audio & cue libraries | `play-test-cue` · `calibrate-volume` · `create-cue-library` · `validate-cue-library` · `list-cues` |
 | TLR cues | `create-tlr-cue` · `train-tlr-cue` · `plan-tlr-block` |
 | Puzzle protocol | `import-puzzles` · `record-puzzle-attempt` · `generate-puzzle-session` · `assign-puzzle-cues` · `record-association-check` |
 | Morning & analysis | `record-dream-report` · `record-puzzle-retest` · `analyze-cued-uncued` |
 | Meditation (side track) | `meditation-plan` · `analyze-meditation` · `aggregate-meditation` · `calibration-run` · `calibration-guide` · `calibration-report` |
-| Pilots & validation | `validate-pilot1-recording` · `validate-pilot2-calibration` · `simulate-replay-cues` · `run-pilot4-cueing` · `run-pilot5-full-night` |
+| Pilots & validation | `validate-pilot1-recording` · `validate-pilot2-calibration` · `simulate-replay-cues` · `run-pilot4-cueing` · `log-pilot4-awakening` · `run-pilot5-full-night` |
 
 ## Quick start
 
@@ -112,6 +120,7 @@ muse-tmr discover --source amused
 muse-tmr stream --source amused --duration-seconds 3600
 muse-tmr record --source amused --duration-hours 8
 muse-tmr replay data/recordings/<session> --speed 20
+muse-tmr app --source amused --address <muse-address>   # local app on http://127.0.0.1:8765
 ```
 
 Recordings land in `data/recordings/<timestamp>/`; overnight sessions are constrained to 2–8 hours, and short smoke tests need `--allow-short`. Optional acquisition backends (`pip install -e ".[openmuse]"` / `".[brainflow]"`), the macOS CoreBluetooth workaround, and every protocol command are covered step by step in [`docs/USAGE.md`](docs/USAGE.md).
@@ -119,10 +128,10 @@ Recordings land in `data/recordings/<timestamp>/`; overnight sessions are constr
 ## Testing
 
 ```bash
-python run_tests.py
+python -m pytest tests/
 ```
 
-Pytest suite under `tests/`, current coverage notes in [`TEST_STATUS.md`](TEST_STATUS.md), CI via GitHub Actions (`.github/workflows/`). Pilot 3 doubles as an end-to-end regression: the whole detection → gating → scheduling chain runs against a recorded night with mocked audio.
+`python run_tests.py` runs a faster subset. Pytest suite under `tests/`, current coverage notes in [`TEST_STATUS.md`](TEST_STATUS.md), CI via GitHub Actions (`.github/workflows/`). Pilot 3 doubles as an end-to-end regression: the whole detection → gating → scheduling chain runs against a recorded night with mocked audio.
 
 ## Data source layer & attribution
 

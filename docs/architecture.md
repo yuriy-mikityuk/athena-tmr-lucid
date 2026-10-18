@@ -33,4 +33,21 @@ BrainFlow path is more reliable for Muse S Athena.
 or bundling any proprietary SDK files. Runtime SDK operations fail with a policy error
 until a local-only integration is explicitly implemented.
 
-`OvernightRecorder` consumes any `BaseMuseSource`, writes `raw_amused.bin`, `metadata.json`, `events.jsonl`, and `summary.json`, and uses `RecordingWatchdog` to detect no-data timeouts and modality dropouts.
+`OvernightRecorder` consumes any `BaseMuseSource`, writes `raw_amused.bin`, `metadata.json`, `events.jsonl`, and `summary.json`, and uses `RecordingWatchdog` to detect no-data timeouts and modality dropouts. While it runs it rewrites `progress.json` about every 2 s with the contact quality and source diagnostics.
+
+## Polar H10
+
+With `--with-polar` the recorder starts `record-polar` as a child process. `muse_tmr.sources.polar_h10` and `muse_tmr.data.polar_recorder` write the raw BLE notifications and the decoded HR/RR, ECG and chest ACC to `<recording>/polar/`, and a strap failure is only logged, never stops the Muse recording. `muse_tmr.data.polar_session` puts the data on the Muse time base and `muse_tmr.features.cardio_resp_features` derives RR/HRV, breathing rate and RSA. None of it feeds REM detection, the gate, the arousal guard or the scheduler.
+
+## Local App
+
+`muse_tmr.app.server` serves the page in `muse_tmr/app/static/` and a JSON API on `127.0.0.1:8765`. Its own BLE connection only feeds the contact view (`muse_tmr.contact`). To record, it drops that connection, since the Muse takes one, and starts `caffeinate -s python -m muse_tmr.cli.main record ...` as a separate process group writing to `data/recordings/{session,night}/<timestamp>/`, so the recording outlives the app. During the recording the page shows what the recorder writes to `progress.json`. `launch.json` keeps the recorder's PID and command, so after a restart the app can still tell whether a folder is being written. Report builds, meditation analyses and the calibration guide run as further background processes with their logs next to the recording. `muse_tmr.app.auto_update` checks `origin/main` every two minutes, fast-forwards a clean `main` checkout and restarts the app once it is idle.
+
+## Reports
+
+- `scripts/generate_nightly_report.py`: the REM report of a night or session as `data/reports/<kind>/<name>.html`, with a heart and breathing section from `muse_tmr.reports.night_cardio` when the recording has `polar/`.
+- `muse_tmr.reports.meditation_analysis` and `muse_tmr.reports.meditation_report`: cut a recording into the blocks of its `blocks.json`, compute the metrics of `muse_tmr.features.complexity_features` per epoch, compare conditions and write `data/reports/meditation/<recording>/`; `aggregate-meditation` pools the sessions of one series.
+- `muse_tmr.protocol.calibration` speaks the calibration run and logs when each cue was spoken; `muse_tmr.reports.calibration_report` cuts its blocks at those logged times, and `muse_tmr.reports.line_check` measures the 64 Hz line for `--line-check`.
+- `muse_tmr.reports.dream_report`, `muse_tmr.reports.morning_retest` and `muse_tmr.reports.analysis`: the morning side of the TMR protocol.
+
+`scripts/validate_rem_detection.py` sits outside the package: it replays a recording through the detector and the gate and scores them against an automated sleep stager (YASA or GSSC) run in its own venv.
