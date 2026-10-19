@@ -270,7 +270,10 @@ try {
       fakeBuild = "next";
       await send("Fetch.enable", { patterns: [{ urlPattern: "*/api/muse/ui-state*", requestStage: "Response" }] });
     },
-    `window.notReloaded !== true || "the page stayed on the old build"`
+    // Done only once the reloaded page has taken "next" as its build, so the next step
+    // cannot end the fake while the new page's first poll is still held.
+    `(window.notReloaded !== true && document.querySelector("#app-version").textContent.includes("build next")) ||
+      "the page stayed on the old build"`
   );
   await step(
     "but not over a dream report being written",
