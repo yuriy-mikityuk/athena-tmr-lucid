@@ -343,7 +343,8 @@ function renderContact(snapshot) {
     contactList.appendChild(contactRow(channel, status, fill, reason, state.reason_codes || []));
   });
 
-  allGoodCheck.hidden = !snapshot.all_good;
+  // An SVG element has no hidden property; setting one leaves the attribute in place.
+  allGoodCheck.toggleAttribute("hidden", !snapshot.all_good);
   if (snapshot.stale) {
     contactSummary.textContent = "Contact data stale";
   } else if (snapshot.connection_state === "disconnected") {
