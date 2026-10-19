@@ -1554,19 +1554,30 @@ let historyRecordings = [];
 let historyFilter = "all";
 
 function showScreen(name) {
-  const recordings = name === "recordings";
-  screenRecord.hidden = recordings;
-  screenRecordings.hidden = !recordings;
-  tabRecord.toggleAttribute("aria-current", !recordings);
-  tabRecordings.toggleAttribute("aria-current", recordings);
-  (recordings ? tabRecordings : tabRecord).setAttribute("aria-current", "page");
+  const screens = {
+    record: [tabRecord, screenRecord],
+    morning: [tabMorning, screenMorning],
+    recordings: [tabRecordings, screenRecordings]
+  };
+  const shown = screens[name] ? name : "record";
+  Object.entries(screens).forEach(([key, [tab, screen]]) => {
+    screen.hidden = key !== shown;
+    if (key === shown) {
+      tab.setAttribute("aria-current", "page");
+    } else {
+      tab.removeAttribute("aria-current");
+    }
+  });
   try {
-    window.history.replaceState(null, "", recordings ? "#recordings" : window.location.pathname);
+    window.history.replaceState(null, "", shown === "record" ? window.location.pathname : `#${shown}`);
   } catch (error) {
     // the tab just won't survive a reload
   }
-  if (recordings) {
+  if (shown === "recordings") {
     loadHistory();
+  }
+  if (shown === "morning") {
+    loadMorning();
   }
 }
 
@@ -1731,8 +1742,353 @@ function formatStart(startedAt, fallback) {
   return date.toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
+// --- the morning after a puzzle night --------------------------------------------
+// The dream report and the blind retest save through the same code as the CLI. The
+// server never sends which puzzles were cued, so the page cannot give it away.
+
+const tabMorning = document.querySelector("#tab-morning");
+const screenMorning = document.querySelector("#screen-morning");
+const morningNightSelect = document.querySelector("#morning-night");
+const morningEmpty = document.querySelector("#morning-empty");
+const morningWarning = document.querySelector("#morning-warning");
+const morningForms = document.querySelector("#morning-forms");
+const dreamForm = document.querySelector("#dream-form");
+const dreamStatus = document.querySelector("#dream-status");
+const dreamConfidence = document.querySelector("#dream-confidence");
+const dreamText = document.querySelector("#dream-text");
+const dreamLinks = document.querySelector("#dream-links");
+const dreamNotes = document.querySelector("#dream-notes");
+const dreamError = document.querySelector("#dream-error");
+const retestForm = document.querySelector("#retest-form");
+const retestStatus = document.querySelector("#retest-status");
+const retestList = document.querySelector("#retest-list");
+const retestNotes = document.querySelector("#retest-notes");
+const retestError = document.querySelector("#retest-error");
+const retestSave = document.querySelector("#retest-save");
+let morningNight = null;
+// Per puzzle: the seconds spent so far and when its running timer started.
+const retestTimers = new Map();
+
+tabMorning.addEventListener("click", () => showScreen("morning"));
+
+async function loadMorning() {
+  let nights = [];
+  try {
+    nights = (await requestJson("/api/morning/nights")).nights || [];
+  } catch (error) {
+    showMorningWarning(`Could not list the puzzle nights: ${error.message}`);
+    return;
+  }
+  const current = morningNightSelect.value;
+  morningNightSelect.innerHTML = "";
+  nights.forEach((night) => {
+    const option = document.createElement("option");
+    option.value = night.name;
+    const done = night.dream_report_saved && night.retest_saved ? " · done" : "";
+    option.textContent = `${night.name} · ${night.puzzle_count} puzzles${done}`;
+    morningNightSelect.appendChild(option);
+  });
+  morningEmpty.hidden = nights.length > 0;
+  morningNightSelect.parentElement.hidden = nights.length === 0;
+  morningForms.hidden = nights.length === 0;
+  if (nights.length === 0) {
+    showMorningWarning("");
+    return;
+  }
+  morningNightSelect.value = nights.some((night) => night.name === current) ? current : nights[0].name;
+  await loadMorningNight(morningNightSelect.value);
+}
+
+morningNightSelect.addEventListener("change", () => loadMorningNight(morningNightSelect.value));
+
+async function loadMorningNight(name) {
+  stopRetestTimers();
+  try {
+    morningNight = await requestJson(`/api/morning/night?name=${encodeURIComponent(name)}`);
+  } catch (error) {
+    showMorningWarning(`Could not load ${name}: ${error.message}`);
+    return;
+  }
+  renderDreamForm(morningNight);
+  renderRetestForm(morningNight);
+  const missing = [];
+  if (!morningNight.catalog_file) {
+    missing.push("no puzzle catalog in data/protocol holds this night's puzzles, so their text is missing");
+  }
+  if (!morningNight.assignment_found) {
+    missing.push("its cue assignment is missing");
+  }
+  showMorningWarning(missing.length ? `The retest cannot be saved: ${missing.join(", and ")}.` : "");
+}
+
+function showMorningWarning(text) {
+  morningWarning.hidden = !text;
+  morningWarning.textContent = text;
+}
+
+function savedText(saved) {
+  if (!saved) {
+    return "Not saved yet.";
+  }
+  const at = saved.reported_at_utc ? new Date(saved.reported_at_utc) : null;
+  const when = at && !Number.isNaN(at.getTime())
+    ? at.toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })
+    : "earlier";
+  return `Saved ${when}. Saving again replaces it.`;
+}
+
+function confidenceOptions(select, value) {
+  select.innerHTML = "";
+  ["", ...Array.from({ length: 11 }, (_, index) => String(index))].forEach((option) => {
+    const element = document.createElement("option");
+    element.value = option;
+    element.textContent = option === "" ? "-" : option;
+    select.appendChild(element);
+  });
+  select.value = value == null ? "" : String(Math.round(value * 10));
+}
+
+function renderDreamForm(night) {
+  const saved = night.dream_report;
+  dreamStatus.textContent = savedText(saved);
+  setRadio("dream-lucid", saved ? (saved.lucid ? "yes" : "no") : "");
+  setRadio("dream-cues", saved ? (saved.cues_heard ? "yes" : "no") : "");
+  confidenceOptions(dreamConfidence, saved ? saved.confidence : null);
+  dreamText.value = saved ? saved.dream_text : "";
+  dreamNotes.value = saved ? saved.notes : "";
+  dreamLinks.innerHTML = "";
+  const intro = document.createElement("p");
+  intro.className = "muted";
+  intro.textContent = "If the dream touched one of last night's puzzles, say how:";
+  dreamLinks.appendChild(intro);
+  night.puzzles.forEach((puzzle) => {
+    const label = document.createElement("label");
+    label.className = "field";
+    const title = document.createElement("span");
+    title.textContent = `Puzzle ${puzzle.position}: ${puzzle.prompt || puzzle.puzzle_id}`;
+    const area = document.createElement("textarea");
+    area.rows = 2;
+    area.dataset.puzzleId = puzzle.puzzle_id;
+    area.value = (saved && saved.puzzle_links[puzzle.puzzle_id]) || "";
+    label.append(title, area);
+    dreamLinks.appendChild(label);
+  });
+  dreamError.hidden = true;
+}
+
+function setRadio(name, value) {
+  document.querySelectorAll(`input[name="${name}"]`).forEach((input) => {
+    input.checked = input.value === value;
+  });
+}
+
+function radioValue(name) {
+  const checked = document.querySelector(`input[name="${name}"]:checked`);
+  return checked ? checked.value : "";
+}
+
+dreamForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const links = {};
+  dreamLinks.querySelectorAll("textarea").forEach((area) => {
+    if (area.value.trim()) {
+      links[area.dataset.puzzleId] = area.value.trim();
+    }
+  });
+  await saveMorningForm(
+    "/api/morning/dream-report",
+    {
+      night: morningNight.name,
+      lucid: radioValue("dream-lucid"),
+      cues_heard: radioValue("dream-cues"),
+      confidence: dreamConfidence.value === "" ? "" : Number(dreamConfidence.value) / 10,
+      dream_text: dreamText.value,
+      puzzle_links: links,
+      notes: dreamNotes.value
+    },
+    dreamError,
+    "dream report"
+  );
+});
+
+function renderRetestForm(night) {
+  const saved = night.retest;
+  retestStatus.textContent = savedText(saved);
+  retestNotes.value = saved ? saved.notes : "";
+  retestTimers.clear();
+  retestList.innerHTML = "";
+  night.puzzles.forEach((puzzle) => {
+    retestList.appendChild(retestItem(puzzle, saved ? saved.results[puzzle.puzzle_id] : null));
+  });
+  retestError.hidden = true;
+  retestSave.disabled = !night.catalog_file || !night.assignment_found;
+}
+
+function retestItem(puzzle, saved) {
+  const item = document.createElement("li");
+  item.className = "retest-item";
+  item.dataset.puzzleId = puzzle.puzzle_id;
+
+  const head = document.createElement("div");
+  head.className = "retest-head";
+  const title = document.createElement("b");
+  title.textContent = `Puzzle ${puzzle.position}`;
+  const elapsed = document.createElement("span");
+  elapsed.className = "elapsed";
+  const timer = document.createElement("button");
+  timer.type = "button";
+  head.append(title, elapsed, timer);
+
+  const prompt = document.createElement("p");
+  prompt.className = "prompt";
+  prompt.textContent = puzzle.prompt || `(${puzzle.puzzle_id}: not in any catalog)`;
+
+  const answerLabel = document.createElement("label");
+  answerLabel.className = "field";
+  answerLabel.textContent = "Your answer";
+  const answer = document.createElement("textarea");
+  answer.rows = 3;
+  answer.value = saved ? saved.response : "";
+  answerLabel.appendChild(answer);
+
+  const row = document.createElement("div");
+  row.className = "retest-row";
+  const solvedLabel = document.createElement("label");
+  const solved = document.createElement("input");
+  solved.type = "checkbox";
+  solved.checked = Boolean(saved && saved.solved);
+  solvedLabel.append(solved, "Solved");
+  const confidenceLabel = document.createElement("label");
+  confidenceLabel.textContent = "Confidence (0-10) ";
+  const confidence = document.createElement("select");
+  confidenceOptions(confidence, saved ? saved.confidence : null);
+  confidenceLabel.appendChild(confidence);
+  const secondsLabel = document.createElement("label");
+  secondsLabel.textContent = "Seconds ";
+  const seconds = document.createElement("input");
+  seconds.type = "number";
+  seconds.min = "0";
+  seconds.step = "1";
+  seconds.value = saved ? String(Math.round(saved.duration_seconds)) : "";
+  secondsLabel.appendChild(seconds);
+  row.append(solvedLabel, confidenceLabel, secondsLabel);
+
+  item.append(head, prompt, answerLabel, row);
+
+  const state = { item, timer, elapsed, seconds, spent: saved ? Number(saved.duration_seconds) || 0 : 0, startedAt: null };
+  retestTimers.set(puzzle.puzzle_id, state);
+  timer.addEventListener("click", () => toggleRetestTimer(state));
+  seconds.addEventListener("change", () => {
+    state.spent = Number(seconds.value) || 0;
+    renderRetestTimer(state);
+  });
+  renderRetestTimer(state);
+  return item;
+}
+
+function retestSeconds(state) {
+  return state.spent + (state.startedAt == null ? 0 : (Date.now() - state.startedAt) / 1000);
+}
+
+function renderRetestTimer(state) {
+  const running = state.startedAt != null;
+  state.timer.textContent = running ? "Done" : state.spent > 0 ? "Resume" : "Start";
+  state.elapsed.textContent = formatDuration(retestSeconds(state));
+  state.item.classList.toggle("timing", running);
+  if (running) {
+    state.seconds.value = String(Math.round(retestSeconds(state)));
+  }
+}
+
+// One puzzle at a time: starting a timer stops the one that was running.
+function toggleRetestTimer(state) {
+  const running = state.startedAt != null;
+  stopRetestTimers();
+  if (!running) {
+    state.startedAt = Date.now();
+  }
+  renderRetestTimer(state);
+}
+
+function stopRetestTimers() {
+  retestTimers.forEach((state) => {
+    if (state.startedAt != null) {
+      state.spent = retestSeconds(state);
+      state.startedAt = null;
+      state.seconds.value = String(Math.round(state.spent));
+      renderRetestTimer(state);
+    }
+  });
+}
+
+window.setInterval(() => {
+  retestTimers.forEach((state) => {
+    if (state.startedAt != null) {
+      renderRetestTimer(state);
+    }
+  });
+}, 1000);
+
+retestForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  stopRetestTimers();
+  const results = [];
+  let incomplete = false;
+  retestTimers.forEach((state, puzzleId) => {
+    const confidence = state.item.querySelector("select").value;
+    if (state.seconds.value === "" || confidence === "") {
+      incomplete = true;
+    }
+    results.push({
+      puzzle_id: puzzleId,
+      response: state.item.querySelector("textarea").value,
+      solved: state.item.querySelector('input[type="checkbox"]').checked,
+      duration_seconds: Number(state.seconds.value),
+      confidence: confidence === "" ? "" : Number(confidence) / 10
+    });
+  });
+  if (incomplete) {
+    retestError.hidden = false;
+    retestError.textContent = "Every puzzle needs its time and a confidence, even with no answer.";
+    return;
+  }
+  await saveMorningForm(
+    "/api/morning/retest",
+    { night: morningNight.name, results, notes: retestNotes.value },
+    retestError,
+    "retest"
+  );
+});
+
+function postJson(url, body) {
+  return fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+}
+
+async function saveMorningForm(url, body, errorBox, what) {
+  errorBox.hidden = true;
+  let response = await postJson(url, body);
+  let payload = await response.json().catch(() => ({}));
+  if (response.status === 409 && payload.exists) {
+    if (!window.confirm(`Replace the saved ${what}?`)) {
+      return;
+    }
+    response = await postJson(url, { ...body, replace: true });
+    payload = await response.json().catch(() => ({}));
+  }
+  if (!response.ok) {
+    errorBox.hidden = false;
+    errorBox.textContent = payload.error || `${response.status} ${response.statusText}`;
+    return;
+  }
+  await loadMorning();
+}
+
 window.setInterval(loadHistory, 5000);
-showScreen(window.location.hash === "#recordings" ? "recordings" : "record");
+showScreen(window.location.hash.slice(1) || "record");
 
 refreshUiState();
 window.setInterval(refreshUiState, 1000);

@@ -21,6 +21,7 @@
         </a>
         <nav class="nav" aria-label="App">
           <button type="button" class="nav-tab" id="tab-record" aria-controls="screen-record" aria-current="page">Record</button>
+          <button type="button" class="nav-tab" id="tab-morning" aria-controls="screen-morning">Morning</button>
           <button type="button" class="nav-tab" id="tab-recordings" aria-controls="screen-recordings">Recordings</button>
           <a class="nav-tab" href="/guide.html" target="_blank" rel="noopener">Guide</a>
         </nav>
@@ -301,6 +302,57 @@
             <ol id="warning-log"></ol>
           </section>
         </section>
+      </main>
+
+      <main class="screen morning-screen" id="screen-morning" hidden>
+        <div class="work-head">
+          <h1>After a puzzle night</h1>
+          <p>Write down the dream first, then give the puzzles another go. Nothing here says which ones were cued.</p>
+        </div>
+        <label class="night-picker">Night
+          <select id="morning-night"></select>
+        </label>
+        <p class="record-hint" id="morning-empty" hidden>No puzzle nights yet. A night's puzzles come from <code>muse-tmr generate-puzzle-session</code> into <code>data/protocol</code>; see the Pilot 5 runbook.</p>
+        <p class="form-error" id="morning-warning" role="alert" hidden></p>
+        <div class="morning-grid" id="morning-forms" hidden>
+          <form class="panel morning-form" id="dream-form">
+            <h2>Dream report</h2>
+            <p class="muted" id="dream-status"></p>
+            <fieldset class="choice">
+              <legend>Lucid at any point?</legend>
+              <label><input type="radio" name="dream-lucid" value="yes" required> Yes</label>
+              <label><input type="radio" name="dream-lucid" value="no"> No</label>
+            </fieldset>
+            <fieldset class="choice">
+              <legend>Heard any of the cues?</legend>
+              <label><input type="radio" name="dream-cues" value="yes" required> Yes</label>
+              <label><input type="radio" name="dream-cues" value="no"> No</label>
+            </fieldset>
+            <label class="field">How sure are you of what you remember? (0-10)
+              <select id="dream-confidence" required><option value="">-</option><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option></select>
+            </label>
+            <label class="field">What you remember
+              <textarea id="dream-text" rows="6"></textarea>
+            </label>
+            <div class="dream-links" id="dream-links"></div>
+            <label class="field">Notes
+              <input id="dream-notes" maxlength="500">
+            </label>
+            <p class="form-error" id="dream-error" role="alert" hidden></p>
+            <div class="form-actions"><button type="submit" class="primary">Save dream report</button></div>
+          </form>
+          <form class="panel morning-form" id="retest-form">
+            <h2>Blind retest</h2>
+            <p class="muted">Try each puzzle again; its timer runs while you work on it. Leave an answer empty if nothing comes.</p>
+            <p class="muted" id="retest-status"></p>
+            <ol class="retest-list" id="retest-list"></ol>
+            <label class="field">Notes
+              <input id="retest-notes" maxlength="500">
+            </label>
+            <p class="form-error" id="retest-error" role="alert" hidden></p>
+            <div class="form-actions"><button type="submit" class="primary" id="retest-save">Save retest</button></div>
+          </form>
+        </div>
       </main>
 
       <main class="screen recordings-screen" id="screen-recordings" hidden>

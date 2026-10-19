@@ -1199,3 +1199,179 @@ summary:focus-visible {
     transition: none;
   }
 }
+
+/* the morning after a puzzle night */
+
+.morning-screen {
+  display: grid;
+  gap: 14px;
+}
+
+.night-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.night-picker select,
+.field select,
+.field input,
+.field textarea,
+.retest-item textarea,
+.retest-item input[type="number"],
+.retest-item select {
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--sheet);
+  color: var(--ink);
+  padding: 6px 8px;
+  font: inherit;
+}
+
+.morning-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.morning-form {
+  display: grid;
+  gap: 12px;
+}
+
+.morning-form h2 {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.morning-form p {
+  margin: 0;
+}
+
+.field {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.field textarea,
+.retest-item textarea {
+  resize: vertical;
+}
+
+.choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.choice legend {
+  margin-bottom: 4px;
+  padding: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.choice label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.choice input,
+.retest-row input[type="checkbox"] {
+  accent-color: var(--focus);
+}
+
+.dream-links {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.dream-links .field span {
+  color: var(--ink);
+}
+
+.retest-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.retest-item {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+  padding: 12px;
+}
+
+.retest-item.timing {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px var(--focus-soft);
+}
+
+.retest-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.retest-head b {
+  flex: 1;
+}
+
+.retest-head .elapsed {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.retest-head button {
+  min-height: 32px;
+  padding: 0 12px;
+}
+
+.retest-item .prompt {
+  color: var(--ink);
+  font-size: 0.95rem;
+}
+
+.retest-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.retest-row label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.retest-row input[type="number"] {
+  width: 6em;
+}
+
+@media (max-width: 820px) {
+  .morning-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
