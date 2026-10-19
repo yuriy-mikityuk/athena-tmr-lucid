@@ -1187,7 +1187,9 @@ class TestLocalMuseAppMeditationSeries(TestLocalMuseAppReport):
         self.state._contact_provider = MockContactProvider.for_scenario("all_good")
         self.state._connection_state = "connected"
         self.state.arm_recording_gate()
-        clock[0] = 5.0
+        for second in range(1, 6):
+            clock[0] = float(second)
+            self.state.gate()
         started = call("/start", self.FIRST)
         self.assertEqual(started["meditation"]["plan"]["series"], call()["series"]["id"])
         self.assertEqual([session["state"] for session in call()["sessions"]], ["recording"])
@@ -1489,6 +1491,12 @@ class TestLocalMuseAppRecordingGate(unittest.TestCase):
         with urllib.request.urlopen(f"{self.base_url}/api/muse/gate", timeout=2) as response:
             return json.loads(response.read().decode("utf-8"))
 
+    def watch(self, first, last):
+        """Look at the gate every second, the way the page polls it."""
+        for second in range(first, last + 1):
+            gate = self.gate_at(second)
+        return gate
+
     def record_at(self, seconds):
         self.now = 1000.0 + seconds
         return self.post("/api/session/record", {"kind": "night"})
@@ -1505,6 +1513,7 @@ class TestLocalMuseAppRecordingGate(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(armed["state"], "ready_countdown")
 
+        self.watch(1, 4)
         status, payload = self.record_at(4.9)
         self.assertEqual(status, 409)
         self.assertIn("stability_window_pending", payload["gate"]["reason_codes"])
@@ -1528,28 +1537,44 @@ class TestLocalMuseAppRecordingGate(unittest.TestCase):
 
     def test_a_contact_drop_restarts_the_countdown(self):
         self.post("/api/session/record/arm")
-        self.gate_at(1)
+        self.watch(1, 2)
         self.contact("flapping_af7", 1)
         self.assertEqual(self.gate_at(3)["state"], "armed_waiting_contact")
         self.contact("flapping_af7", 2)
         self.assertEqual(self.gate_at(4)["state"], "ready_countdown")
 
+        self.watch(5, 8)
         status, _payload = self.record_at(8.5)
         self.assertEqual(status, 409)
         status, _payload = self.record_at(9)
         self.assertEqual(status, 200)
         self.assertEqual(len(self.launcher.calls), 1)
 
+    def test_a_pause_in_polling_does_not_count_as_good_contact(self):
+        self.post("/api/session/record/arm")
+        self.watch(1, 3)
+        # The page stops polling (a background tab) while the contact drops and
+        # comes back; the gate never sees the drop.
+        status, payload = self.record_at(5.1)
+        self.assertEqual(status, 409)
+        self.assertEqual(payload["gate"]["stable_for_seconds"], 0.0)
+
+        self.watch(6, 10)
+        status, _payload = self.record_at(10.1)
+        self.assertEqual(status, 200)
+        self.assertEqual(len(self.launcher.calls), 1)
+
     def test_disconnect_and_cancel_drop_the_armed_start(self):
         self.post("/api/session/record/arm")
-        self.assertEqual(self.gate_at(5)["state"], "ready")
+        self.assertEqual(self.watch(1, 5)["state"], "ready")
         self.post("/api/session/record/disarm")
         status, payload = self.record_at(6)
         self.assertEqual(status, 409)
         self.assertFalse(payload["gate"]["armed"])
 
+        self.now = 1006.0
         self.post("/api/session/record/arm")
-        self.assertEqual(self.gate_at(11)["state"], "ready")
+        self.assertEqual(self.watch(7, 11)["state"], "ready")
         self.state.disconnect()
         self.state._connection_state = "connected"
         status, payload = self.record_at(12)
@@ -1570,7 +1595,7 @@ class TestLocalMuseAppRecordingGate(unittest.TestCase):
         self.assertEqual(self.launcher.calls, [])
 
         self.post("/api/session/record/arm")
-        self.now = 1005.0
+        self.watch(1, 5)
         status, payload = self.post("/api/meditation/start", meditation)
         self.assertEqual(status, 200)
         self.assertTrue(payload["meditation"]["plan"])

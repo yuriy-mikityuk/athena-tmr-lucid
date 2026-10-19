@@ -60,6 +60,11 @@ RECORDING_KINDS: Dict[str, Tuple[str, float, bool]] = {
 # channel (32-47 dB above its neighbours on the 2026-10-09 line check, gone on
 # p21), so these record without the optics.
 EEG_ONLY_PRESET = "p21"
+# The gate sees the contact only when the page asks for it, every second. The
+# contact monitor judges each channel over its last 2 s, so looks at most 2 s
+# apart cover every moment; a longer gap (a throttled background tab) restarts
+# the stability window instead of counting the unseen time as good contact.
+CONTACT_GATE_MAX_GAP_SECONDS = 2.0
 # A meditation series keeps its practices and block layout, so its sessions pool
 # in aggregate-meditation. Only the settle-in may change between sessions: it is
 # read off the EMG timeline of the reports. Kept with the other protocol data.
@@ -446,7 +451,10 @@ class LocalMuseAppState:
             else None
         )
         self._contact_gate = ContactGate(
-            ContactGateConfig(required_stability_seconds=config.gate_stability_seconds)
+            ContactGateConfig(
+                required_stability_seconds=config.gate_stability_seconds,
+                max_observation_gap_seconds=CONTACT_GATE_MAX_GAP_SECONDS,
+            )
         )
         self._start_when_ready_requested = False
         self._last_contact_snapshot = None

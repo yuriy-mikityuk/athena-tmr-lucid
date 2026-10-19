@@ -37,6 +37,25 @@ class TestContactGate(unittest.TestCase):
         self.assertTrue(ready.ready)
         self.assertEqual(ready.stable_for_seconds, 5.0)
 
+    def test_an_unwatched_gap_restarts_the_stability_window(self):
+        gate = ContactGate(
+            ContactGateConfig(required_stability_seconds=5.0, max_observation_gap_seconds=2.0)
+        )
+        good = scenario("all_good")
+
+        gate.arm(good, now_seconds=0.0)
+        for second in (1.0, 2.0, 3.0):
+            gate.update(good, now_seconds=second)
+        # Nothing looked at the contact between 3 s and 5.1 s.
+        after_gap = gate.update(good, now_seconds=5.1)
+        self.assertEqual(after_gap.state, "ready_countdown")
+        self.assertEqual(after_gap.stable_for_seconds, 0.0)
+
+        for second in (6.0, 7.0, 8.0, 9.0):
+            gate.update(good, now_seconds=second)
+        self.assertFalse(gate.update(good, now_seconds=10.0).ready)
+        self.assertTrue(gate.update(good, now_seconds=10.1).ready)
+
     def test_poor_channel_blocks_and_resets_countdown(self):
         gate = ContactGate(ContactGateConfig(required_stability_seconds=5.0))
         poor = scenario("one_channel_poor")
