@@ -58,6 +58,8 @@ const chrome = spawn(
 );
 
 const problems = [];
+// Set while the page is cut off on purpose; its failed requests are expected then.
+let offline = false;
 let socket = null;
 let nextId = 1;
 const pending = new Map();
@@ -160,6 +162,9 @@ try {
     } else if (message.method === "Runtime.consoleAPICalled" && message.params.type === "error") {
       problems.push(`console.error: ${message.params.args.map((arg) => arg.value ?? arg.description).join(" ")}`);
     } else if (message.method === "Log.entryAdded" && message.params.entry.level === "error") {
+      if (offline && message.params.entry.source === "network") {
+        return;
+      }
       problems.push(`${message.params.entry.source}: ${message.params.entry.text} ${message.params.entry.url || ""}`.trim());
     }
   });
@@ -201,6 +206,24 @@ try {
     },
     `!document.querySelector("#screen-recordings").hidden || "reload lost the tab"`
   );
+  const network = (cutOff) =>
+    send("Network.emulateNetworkConditions", { offline: cutOff, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+  await step(
+    "cut off from the app, the page says it is out of date",
+    async () => {
+      await click("#tab-record")();
+      await send("Network.enable");
+      offline = true;
+      await network(true);
+    },
+    `!document.querySelector("#app-lost").hidden || "no banner after the app went silent"`
+  );
+  await step(
+    "and drops that once the app answers again",
+    () => network(false),
+    `document.querySelector("#app-lost").hidden || "the banner stayed"`
+  );
+  offline = false;
   await step(
     "the meditation guide loads",
     visit("/guide.html"),
