@@ -2,7 +2,7 @@
 
 Versions follow `muse_tmr.__version__`; the app shows the running version and build at the bottom of the page.
 
-## Unreleased
+## 0.3.0 (2026-10-19)
 
 ### Local app
 
@@ -18,6 +18,11 @@ Versions follow `muse_tmr.__version__`; the app shows the running version and bu
 
 - The meditation and calibration reports give the time they were made in local time, like the REM report, instead of UTC (#210).
 - The Athena TMR mark at the top of a report takes its colours from the theme, so it stays clear in dark mode (#213).
+
+### Development and docs
+
+- CI's page check also cuts the page off the network, fakes an app update and freezes the page, so the not-answering banner and the hold on updates are tried in a real browser (#212, #214, #220).
+- The local app runbook describes the hold on updates and the not-answering banner (#222).
 
 ## 0.2.0 (2026-10-19)
 

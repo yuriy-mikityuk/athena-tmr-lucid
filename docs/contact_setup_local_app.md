@@ -202,9 +202,15 @@ window.
 The launcher runs the app with `--auto-update`. Every two minutes the app fetches
 `origin/main`; if the checkout is on `main` with no tracked changes and can
 fast-forward, it pulls and restarts itself once it is idle (no recording, not
-scanning or connected), and the open page reloads. A checkout on another branch
-or with local edits is never touched. New dependencies still need a manual
-`pip install`. Pass `--no-auto-update` to the installer to turn this off.
+scanning or connected), and the open page reloads. If the Morning tab holds answers
+that are not saved yet, the reload waits until they are, and the bottom of the page
+says so. A checkout on another branch or with local edits is never touched. New
+dependencies still need a manual `pip install`. Pass `--no-auto-update` to the
+installer to turn this off.
+
+When the app stops answering for more than 5 s (quit, crashed, or a restart that
+takes long), the page says it is out of date and dims what it last saw. A running
+recording keeps going on its own; the page catches up once the app is back.
 
 Use `--force` to replace an existing launcher after changing the Muse address,
 repo path, or port:
