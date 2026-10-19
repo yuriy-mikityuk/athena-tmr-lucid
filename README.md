@@ -22,6 +22,46 @@ The system records sleep biosignals all night (EEG, IMU, PPG), detects REM in re
 - **Reproducible validation:** five staged pilots, each with a runbook and an automated validator
 - **Engineering hygiene:** 41 CLI commands, pytest suite with CI on GitHub Actions, and a privacy-aware gitignore — volume calibration, puzzle content, and dream reports never leave the machine
 
+## Quick start
+
+You need a Muse S Athena and Python 3.8 or newer. The app launcher is for macOS.
+
+```bash
+git clone https://github.com/yuriy-mikityuk/athena-tmr-lucid.git
+cd athena-tmr-lucid
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+```
+
+### First recording from the app (macOS)
+
+```bash
+python scripts/install_macos_launcher.py
+```
+
+This puts `Muse TMR Setup.app` on the Desktop; it starts the local app from this checkout's `.venv` and opens http://127.0.0.1:8765. The app keeps itself on the latest `main` (pass `--no-auto-update` to the installer if you don't want that). Put the headband on, press Find headband and Connect Muse, and adjust the band until all four channels are good. Start session records an hour, Start night session eight. When the recording ends, Build report turns it into an HTML report of the REM probability over time, and Recent recordings keeps the earlier ones.
+
+### First recording from the terminal
+
+```bash
+muse-tmr discover --source amused
+muse-tmr record --source amused --duration-hours 1 --allow-short
+```
+
+Overnight recordings are 2 to 8 hours, so anything shorter needs `--allow-short`. The recording goes to `data/recordings/<timestamp>/`: `raw_amused.bin` with every BLE notification as it arrived, `metadata.json`, `events.jsonl`, and `summary.json` with the duration, the stop reason and the frame count per modality.
+
+```bash
+# replay as fast as possible; prints the frames per modality
+muse-tmr replay data/recordings/<timestamp> --speed 0
+# one row per 30 s epoch: P_REM, its reason codes and the EEG, IMU and PPG features
+muse-tmr annotate-template data/recordings/<timestamp> --output data/reports/<timestamp>_epochs.csv
+# the same chain as an HTML report under data/reports/
+python scripts/generate_nightly_report.py data/recordings/<timestamp>
+```
+
+If `discover` finds nothing on macOS, the terminal running Python may lack Bluetooth permission; [`docs/USAGE.md`](docs/USAGE.md) has the workaround, the optional OpenMuse and BrainFlow backends (`pip install -e ".[openmuse]"` / `".[brainflow]"`) and every protocol command.
+
 ## Architecture
 
 ```
@@ -107,23 +147,6 @@ The same headband also runs guided A/B meditation sessions from the local app: a
 | Morning & analysis | `record-dream-report` · `record-puzzle-retest` · `analyze-cued-uncued` |
 | Meditation (side track) | `meditation-plan` · `analyze-meditation` · `aggregate-meditation` · `calibration-run` · `calibration-guide` · `calibration-report` |
 | Pilots & validation | `validate-pilot1-recording` · `validate-pilot2-calibration` · `simulate-replay-cues` · `run-pilot4-cueing` · `log-pilot4-awakening` · `run-pilot5-full-night` |
-
-## Quick start
-
-```bash
-git clone https://github.com/yuriy-mikityuk/athena-tmr-lucid.git
-cd athena-tmr-lucid
-pip install -e .
-
-muse-tmr --help
-muse-tmr discover --source amused
-muse-tmr stream --source amused --duration-seconds 3600
-muse-tmr record --source amused --duration-hours 8
-muse-tmr replay data/recordings/<session> --speed 20
-muse-tmr app --source amused --address <muse-address>   # local app on http://127.0.0.1:8765
-```
-
-Recordings land in `data/recordings/<timestamp>/`; overnight sessions are constrained to 2–8 hours, and short smoke tests need `--allow-short`. Optional acquisition backends (`pip install -e ".[openmuse]"` / `".[brainflow]"`), the macOS CoreBluetooth workaround, and every protocol command are covered step by step in [`docs/USAGE.md`](docs/USAGE.md).
 
 ## Testing
 
