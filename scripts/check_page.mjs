@@ -275,10 +275,18 @@ try {
     `(window.notReloaded !== true && document.querySelector("#app-version").textContent.includes("build next")) ||
       "the page stayed on the old build"`
   );
+  // The tab draws the night's forms once they have loaded, over anything typed into
+  // them before, and counts them as saved then. Only a checkout with a night in
+  // data/protocol shows this; CI has none, so there the forms are never drawn.
+  await step(
+    "the Morning tab has loaded its nights",
+    click("#tab-morning"),
+    `!document.querySelector("#morning-empty").hidden || document.querySelector("#dream-status").textContent !== "" ||
+      "the Morning tab did not finish loading"`
+  );
   await step(
     "but not over a dream report being written",
     async () => {
-      await click("#tab-morning")();
       await evaluate(`(() => {
         window.notReloaded = true;
         const text = document.querySelector("#dream-text");
