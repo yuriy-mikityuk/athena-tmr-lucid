@@ -179,6 +179,9 @@ class TestLocalMuseApp(unittest.TestCase):
         self.assertIn("active-warning-status", script)
         self.assertIn('scanButton.hidden = connection === "connected"', script)
         self.assertIn("startSessionButton.hidden = !canRecord", script)
+        # The all-good check mark is an SVG path, which has no hidden property.
+        self.assertIn('allGoodCheck.toggleAttribute("hidden", !snapshot.all_good)', script)
+        self.assertNotIn("allGoodCheck.hidden", script)
 
     def test_meditation_guide_is_linked_and_quotes_the_voice(self):
         with urllib.request.urlopen(f"{self.base_url}/", timeout=2) as response:
