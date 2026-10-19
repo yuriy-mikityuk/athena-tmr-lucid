@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 from urllib.parse import parse_qs, urlparse
 
+from muse_tmr import __version__
 from muse_tmr.contact import (
     ContactGate,
     ContactGateConfig,
@@ -498,6 +499,7 @@ class LocalMuseAppState:
 
         return {
             "service": "muse-tmr-local-app",
+            "version": __version__,
             "build": self.build,
             "generated_at_seconds": generated_at_seconds,
             "state": state,

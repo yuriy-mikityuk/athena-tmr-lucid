@@ -1,11 +1,11 @@
 # Test Status
 
 ## Current Test Results
-- **686 tests passing**, 5 skipped ✅
+- **706 tests passing**, 5 skipped ✅
 - **0 tests failing** 🎉
 - **88% line coverage** on the `muse_tmr` package
 
-Measured on 2026-10-18 with Python 3.12 on macOS. Three skipped tests require an
+Measured in CI on 2026-10-19 with Python 3.11 on Ubuntu. Three skipped tests require an
 optional pandas Parquet engine (`pyarrow` or `fastparquet`) for the Parquet export
 paths; two cross-check the complexity metrics against `antropy` and `neurokit2` and
 run only when those are installed.

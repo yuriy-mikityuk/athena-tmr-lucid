@@ -668,6 +668,14 @@ button:disabled {
   font-weight: 700;
 }
 
+.app-version {
+  margin: 20px 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 @media (max-width: 420px) {
   .app-shell {
     padding: 12px;
