@@ -154,7 +154,7 @@ The same headband also runs guided A/B meditation sessions from the local app: a
 python -m pytest tests/
 ```
 
-`python run_tests.py` runs a faster subset. Pytest suite under `tests/`, current coverage notes in [`TEST_STATUS.md`](TEST_STATUS.md), CI via GitHub Actions (`.github/workflows/`). Pilot 3 doubles as an end-to-end regression: the whole detection → gating → scheduling chain runs against a recorded night with mocked audio.
+`python run_tests.py` runs a faster subset, and `node scripts/check_page.mjs <app URL>` opens the app's page in headless Chrome against a mock app and fails on any page error. Pytest suite under `tests/`, current coverage notes in [`TEST_STATUS.md`](TEST_STATUS.md), CI via GitHub Actions (`.github/workflows/`). Pilot 3 doubles as an end-to-end regression: the whole detection → gating → scheduling chain runs against a recorded night with mocked audio.
 
 ## Data source layer & attribution
 
