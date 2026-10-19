@@ -716,8 +716,12 @@ summary:focus-visible {
 }
 
 .record-option select {
-  font: inherit;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--sheet);
   color: var(--ink);
+  padding: 4px 8px;
+  font: inherit;
 }
 
 /* forms and the meditation and calibration panels */

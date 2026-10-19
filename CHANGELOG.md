@@ -2,6 +2,14 @@
 
 Versions follow `muse_tmr.__version__`; the app shows the running version and build at the bottom of the page.
 
+## Unreleased
+
+### Local app
+
+- The Recordings tab lists 30 recordings at a time with Show older, orders them by the start in the folder name (also behind a prefix like `smoke_muse_h10_`), and no longer redraws every 5 s when nothing changed (#204).
+- After a meditation each block's ratings sit on a line of their own, and a disconnected headband shows a hint instead of four "missing" channel rows (#206).
+- A setup form scrolls into view when it opens, and its voice language select looks like the other fields (#208).
+
 ## 0.2.0 (2026-10-19)
 
 ### Local app
