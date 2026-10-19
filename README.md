@@ -107,7 +107,7 @@ A Konkoly-style targeted-lucidity protocol combined with puzzle-based TMR, run e
 1. **Pre-sleep:** timed puzzle attempts against a private catalog, cue–solution association checks, TLR cue familiarization, and per-device volume calibration (detectable / identifiable / comfortable thresholds — the comfortable level becomes the hard scheduler cap).
 2. **Session generation:** a seeded night session of four eligible unsolved puzzles; a second seeded step assigns half to the **cued** group. The scheduler only ever sees the cued IDs, so uncued puzzles physically cannot be played.
 3. **Night:** overnight recording (2–8 h) with real-time REM detection. When the stable gate opens and the arousal guard allows it, the scheduler optionally plays a TLR block, then cued puzzle cues — respecting per-cue intervals, cooldowns, and max-per-block limits, and logging structured `play` / `skip` / `pause` / `stop` events.
-4. **Morning:** dream report (lucidity, cues heard, confidence, free recall, validated per-puzzle links) and a **blind** puzzle retest where the cued/uncued condition is never revealed to the subject.
+4. **Morning:** dream report (lucidity, cues heard, confidence, free recall, validated per-puzzle links) and a **blind**, timed puzzle retest where the cued/uncued condition is never revealed to the subject, from the CLI or the app's Morning tab.
 5. **Analysis:** cued-vs-uncued solve rates, dream-incorporation rates, retest durations and confidence, and cue timing — intentionally descriptive, with explicit small-sample limitations.
 
 ## ML pipeline: personal REM classifier
