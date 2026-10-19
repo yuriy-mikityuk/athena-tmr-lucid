@@ -160,6 +160,25 @@ def _read_json_tolerant(path: Path) -> Mapping[str, Any]:
         return {}
 
 
+def _signal_numbers(progress: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
+    """The EEG numbers from the recorder's last heartbeat, for the recordings list.
+
+    Lost and repeated subpackets are summed over the sensor types; recordings made
+    before the decoder counted them carry only the rate.
+    """
+    decoder = (progress.get("source_diagnostics") or {}).get("decoder") or {}
+    rate = decoder.get("eeg_effective_sample_rate_hz")
+    if rate is None:
+        return None
+    lost = decoder.get("lost_subpackets")
+    repeated = decoder.get("repeated_subpackets")
+    return {
+        "eeg_rate_hz": rate,
+        "lost_subpackets": sum(int(count) for count in lost.values()) if isinstance(lost, dict) else None,
+        "repeated_subpackets": sum(int(count) for count in repeated.values()) if isinstance(repeated, dict) else None,
+    }
+
+
 def _folder_start(output_dir: Path) -> Optional[str]:
     """Recording folders are named after their start time."""
     try:
@@ -1084,6 +1103,7 @@ class LocalMuseAppState:
             "duration_seconds": summary.get("duration_seconds", progress.get("elapsed_seconds")),
             "stop_reason": summary.get("stop_reason") or ("recording" if live else None),
             "frame_count": summary.get("frame_count", progress.get("frame_count")),
+            "signal": _signal_numbers(progress),
             "with_polar": (output_dir / "polar").is_dir(),
             "meditation": meditation,
             "report": None if live else self.report_status(output_dir),
@@ -1932,7 +1952,7 @@ def run_local_app(config: AppConfig) -> int:
     server = create_local_app_server(config, build=build)
     host, port = server.server_address
     print(
-        f"Muse TMR local app serving at http://{host}:{port} (build {build or 'unknown'})",
+        f"Athena TMR serving at http://{host}:{port} (build {build or 'unknown'})",
         flush=True,
     )
     updater = None
