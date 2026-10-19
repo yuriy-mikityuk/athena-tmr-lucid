@@ -22,7 +22,6 @@
       <symbol id="i-repeat" viewBox="0 0 24 24"><path d="M17 3l3 3-3 3"/><path d="M4 11V9.5A3.5 3.5 0 0 1 7.5 6H20"/><path d="M7 21l-3-3 3-3"/><path d="M20 13v1.5a3.5 3.5 0 0 1-3.5 3.5H4"/></symbol>
       <symbol id="i-pair" viewBox="0 0 24 24"><circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/></symbol>
       <symbol id="i-mute" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></symbol>
-      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
       <symbol id="art-focus" viewBox="0 0 160 110">
         <g fill="currentColor" stroke="none" opacity=".28">
           <circle cx="24" cy="26" r="2.4"/><circle cx="34" cy="86" r="3"/><circle cx="52" cy="14" r="1.8"/>
@@ -62,12 +61,12 @@
       <header class="hero">
         <p class="eyebrow">Guided meditation · for newcomers</p>
         <h1>How a meditation session goes</h1>
-        <p class="lede">You sit with your eyes closed for about half an hour and switch between two ways of paying attention. A soft tone and a voice tell you when to switch, so there is no order to remember and no clock to watch.</p>
+        <p class="lede">You sit with your eyes closed for about half an hour and switch between two ways of paying attention. The headband records your brain activity the whole time, and afterwards the app compares the two. A soft tone and a voice tell you when to switch, so there is no order to remember and no clock to watch.</p>
       </header>
 
       <section class="glance" aria-labelledby="en-glance">
         <h2 id="en-glance"><span class="kicker">01</span>The session at a glance</h2>
-        <div class="timeline" role="img" aria-label="One minute to settle in, then four 8-minute blocks: focus, open, open, focus. A tone and the voice at every change, two tones at the end.">
+        <div class="timeline" role="img" aria-label="One minute to settle in, then four 8-minute blocks: focus, open, open, focus, so the middle two are the same practice. A tone and the voice at every change, two tones at the end. One of the two possible orders; the other starts with open awareness.">
           <div class="seg settle"><svg class="icon"><use href="#i-leaf"/></svg></div>
           <div class="seg focus"><svg class="icon bell"><use href="#i-bell"/></svg><svg class="icon"><use href="#i-dot"/></svg><span class="seg-label">Focus</span></div>
           <div class="seg open"><svg class="icon bell"><use href="#i-bell"/></svg><svg class="icon"><use href="#i-rings"/></svg><span class="seg-label">Open</span></div>
@@ -76,13 +75,15 @@
           <div class="seg finish"><span class="bells"><svg class="icon"><use href="#i-bell"/></svg><svg class="icon"><use href="#i-bell"/></svg></span><svg class="icon"><use href="#i-eye"/></svg></div>
         </div>
         <div class="ticks" aria-hidden="true"><span>0</span><span>1</span><span>9</span><span>17</span><span>25</span><span>33 min</span></div>
+        <div class="same" aria-hidden="true"><div><i></i><span>the same practice twice in a row</span></div></div>
         <ul class="legend">
           <li><i class="swatch settle"></i>Settle in, 1 min</li>
           <li><i class="swatch focus"></i>Focus on the breath, 8 min</li>
           <li><i class="swatch open"></i>Open awareness, 8 min</li>
           <li><svg class="icon"><use href="#i-bell"/></svg>A tone, then the voice</li>
+          <li><svg class="icon"><use href="#i-eye"/></svg>Two tones: open your eyes</li>
         </ul>
-        <p class="note">These are the default settings, about 33 minutes in all. The order is drawn anew for every session: focus, open, open, focus, or open, focus, focus, open.</p>
+        <p class="note">One of the two possible orders: the other starts with open awareness, and every session picks one of them at random. The voice names each block, so there is nothing to remember. These are the default settings, about 33 minutes in all.</p>
       </section>
 
       <section aria-labelledby="en-practices">
@@ -129,11 +130,7 @@
           </li>
           <li class="block">
             <h3>Blocks <small>8 min each</small></h3>
-            <p>A soft tone, then the voice names the practice. Stay with it until the next tone, with your eyes closed the whole time.</p>
-          </li>
-          <li class="block">
-            <h3>The same practice again</h3>
-            <p>Sometimes the voice says “again”, as in “Open awareness again.” Then the same practice simply goes on for another block. That is on purpose, see below.</p>
+            <p>A soft tone, then the voice names the practice. Stay with it until the next tone, with your eyes closed the whole time. Halfway through, the third block repeats the second: the voice says “Open awareness again” or “Focus on the breath again”, and you simply carry on. That is on purpose, see below. No need to switch instantly: the first 30 seconds of every block are not analysed.</p>
           </li>
           <li>
             <h3>The end</h3>
@@ -179,15 +176,26 @@
             <h3>Both practices in one sitting</h3>
             <p>The app compares the headband's recording of brain activity (EEG) between the two practices. With both in the same session, the same day and the same fit of the headband, the comparison is fair.</p>
           </div>
-          <div>
+          <div class="mirror">
             <svg class="icon"><use href="#i-repeat"/></svg>
-            <h3>Why a practice repeats</h3>
-            <p>Over half an hour you slowly relax and may get a little drowsy. The order A, B, B, A gives both practices the same share of early and late minutes, so that slow change does not pass for a difference between them.</p>
-          </div>
-          <div>
-            <svg class="icon"><use href="#i-clock"/></svg>
-            <h3>The first 30 seconds don't count</h3>
-            <p>The analysis skips the first 30 seconds of every block and the whole settle-in minute, so there is no need to switch instantly.</p>
+            <h3>Why the middle two blocks are the same</h3>
+            <svg class="drift" viewBox="0 0 320 96" role="img" aria-label="A line sloping from alert to drowsy over the four blocks: focus, open, open, focus. Each practice has one early block and one late block.">
+              <text x="10" y="12">alert</text>
+              <text x="308" y="32" text-anchor="end">drowsy</text>
+              <path class="line" d="M10 18C110 20 210 32 308 40"/>
+              <rect class="f" x="10" y="44" width="70" height="26" rx="6"/>
+              <rect class="o" x="86" y="44" width="70" height="26" rx="6"/>
+              <rect class="o" x="162" y="44" width="70" height="26" rx="6"/>
+              <rect class="f" x="238" y="44" width="70" height="26" rx="6"/>
+              <text class="on" x="45" y="61" text-anchor="middle">Focus</text>
+              <text class="on" x="121" y="61" text-anchor="middle">Open</text>
+              <text class="on" x="197" y="61" text-anchor="middle">Open</text>
+              <text class="on" x="273" y="61" text-anchor="middle">Focus</text>
+              <path class="brace" d="M10 76v4h146v-4M162 76v4h146v-4"/>
+              <text x="83" y="92" text-anchor="middle">early</text>
+              <text x="235" y="92" text-anchor="middle">late</text>
+            </svg>
+            <p>Over half an hour you slowly relax and may get drowsy. If one practice always came first, it would get the alert minutes and the other the sleepy ones. So each practice gets one early block and one late block: focus, open, open, focus, or the other way round. The slow change then cancels out instead of looking like a difference between the practices.</p>
           </div>
         </div>
       </section>
@@ -211,12 +219,12 @@
       <header class="hero">
         <p class="eyebrow">Медитация с голосом · для новичков</p>
         <h1>Как проходит сессия медитации</h1>
-        <p class="lede">Около получаса ты сидишь с закрытыми глазами и чередуешь два способа направлять внимание. Когда переключаться, подскажут тихий сигнал и голос, так что не нужно ни запоминать порядок, ни следить за временем.</p>
+        <p class="lede">Около получаса ты сидишь с закрытыми глазами и чередуешь два способа направлять внимание. Обруч всё это время записывает активность мозга, а потом приложение сравнивает две практики между собой. Когда переключаться, подскажут тихий сигнал и голос, так что не нужно ни запоминать порядок, ни следить за временем.</p>
       </header>
 
       <section class="glance" aria-labelledby="ru-glance">
         <h2 id="ru-glance"><span class="kicker">01</span>Вся сессия на одной картинке</h2>
-        <div class="timeline" role="img" aria-label="Минута, чтобы успокоиться, потом четыре блока по 8 минут: фокус, открытое, открытое, фокус. Сигнал и голос на каждой смене, в конце два сигнала.">
+        <div class="timeline" role="img" aria-label="Минута, чтобы успокоиться, потом четыре блока по 8 минут: фокус, открытое, открытое, фокус, то есть два средних блока одна и та же практика. Сигнал и голос на каждой смене, в конце два сигнала. Один из двух возможных порядков, второй начинается с открытого внимания.">
           <div class="seg settle"><svg class="icon"><use href="#i-leaf"/></svg></div>
           <div class="seg focus"><svg class="icon bell"><use href="#i-bell"/></svg><svg class="icon"><use href="#i-dot"/></svg><span class="seg-label">Фокус</span></div>
           <div class="seg open"><svg class="icon bell"><use href="#i-bell"/></svg><svg class="icon"><use href="#i-rings"/></svg><span class="seg-label">Открытое</span></div>
@@ -225,13 +233,15 @@
           <div class="seg finish"><span class="bells"><svg class="icon"><use href="#i-bell"/></svg><svg class="icon"><use href="#i-bell"/></svg></span><svg class="icon"><use href="#i-eye"/></svg></div>
         </div>
         <div class="ticks" aria-hidden="true"><span>0</span><span>1</span><span>9</span><span>17</span><span>25</span><span>33 мин</span></div>
+        <div class="same" aria-hidden="true"><div><i></i><span>одна и та же практика два раза подряд</span></div></div>
         <ul class="legend">
           <li><i class="swatch settle"></i>Успокоиться, 1 мин</li>
           <li><i class="swatch focus"></i>Фокус на дыхании, 8 мин</li>
           <li><i class="swatch open"></i>Открытое внимание, 8 мин</li>
           <li><svg class="icon"><use href="#i-bell"/></svg>Сигнал, потом голос</li>
+          <li><svg class="icon"><use href="#i-eye"/></svg>Два сигнала: можно открыть глаза</li>
         </ul>
-        <p class="note">Это настройки по умолчанию, всего около 33 минут. Порядок выбирается заново в каждой сессии: фокус, открытое, открытое, фокус или открытое, фокус, фокус, открытое.</p>
+        <p class="note">Один из двух возможных порядков: второй начинается с открытого внимания, и каждая сессия выбирает один из них случайно. Голос называет каждый блок, так что запоминать ничего не нужно. Это настройки по умолчанию, всего около 33 минут.</p>
       </section>
 
       <section aria-labelledby="ru-practices">
@@ -278,11 +288,7 @@
           </li>
           <li class="block">
             <h3>Блоки <small>по 8 мин</small></h3>
-            <p>Тихий сигнал, потом голос называет практику. Занимайся ею до следующего сигнала, глаза всё время закрыты.</p>
-          </li>
-          <li class="block">
-            <h3>Та же практика ещё раз</h3>
-            <p>Иногда голос говорит «снова», например «Снова открытое внимание». Значит, та же практика просто продолжается ещё один блок. Так задумано, объяснение ниже.</p>
+            <p>Тихий сигнал, потом голос называет практику. Занимайся ею до следующего сигнала, глаза всё время закрыты. На середине третий блок повторяет второй: голос скажет «Снова открытое внимание» или «Снова фокус на дыхании», и ты просто продолжаешь. Так задумано, объяснение ниже. Переключаться мгновенно не нужно: первые 30 секунд каждого блока в анализ не идут.</p>
           </li>
           <li>
             <h3>Конец</h3>
@@ -328,15 +334,26 @@
             <h3>Обе практики за один раз</h3>
             <p>Приложение сравнивает запись активности мозга (ЭЭГ) с обруча в двух практиках. Если обе идут в одной сессии, в один день и при том же положении обруча, сравнение честное.</p>
           </div>
-          <div>
+          <div class="mirror">
             <svg class="icon"><use href="#i-repeat"/></svg>
-            <h3>Почему практика повторяется</h3>
-            <p>За полчаса человек понемногу расслабляется и может слегка задремать. Порядок А, Б, Б, А даёт обеим практикам поровну ранних и поздних минут, и это медленное изменение не выдаёт себя за разницу между ними.</p>
-          </div>
-          <div>
-            <svg class="icon"><use href="#i-clock"/></svg>
-            <h3>Первые 30 секунд не считаются</h3>
-            <p>Анализ пропускает первые 30 секунд каждого блока и всю минуту в начале, так что переключаться мгновенно не нужно.</p>
+            <h3>Почему два средних блока одинаковые</h3>
+            <svg class="drift" viewBox="0 0 320 96" role="img" aria-label="Линия от «бодро» к «сонно» над четырьмя блоками: фокус, открытое, открытое, фокус. У каждой практики один ранний блок и один поздний.">
+              <text x="10" y="12">бодро</text>
+              <text x="308" y="32" text-anchor="end">сонно</text>
+              <path class="line" d="M10 18C110 20 210 32 308 40"/>
+              <rect class="f" x="10" y="44" width="70" height="26" rx="6"/>
+              <rect class="o" x="86" y="44" width="70" height="26" rx="6"/>
+              <rect class="o" x="162" y="44" width="70" height="26" rx="6"/>
+              <rect class="f" x="238" y="44" width="70" height="26" rx="6"/>
+              <text class="on" x="45" y="61" text-anchor="middle">Фокус</text>
+              <text class="on" x="121" y="61" text-anchor="middle">Открытое</text>
+              <text class="on" x="197" y="61" text-anchor="middle">Открытое</text>
+              <text class="on" x="273" y="61" text-anchor="middle">Фокус</text>
+              <path class="brace" d="M10 76v4h146v-4M162 76v4h146v-4"/>
+              <text x="83" y="92" text-anchor="middle">ранние</text>
+              <text x="235" y="92" text-anchor="middle">поздние</text>
+            </svg>
+            <p>За полчаса ты понемногу расслабляешься и можешь слегка задремать. Если бы одна практика всегда шла первой, ей достались бы бодрые минуты, а другой сонные. Поэтому у каждой практики один ранний блок и один поздний: фокус, открытое, открытое, фокус, или наоборот. Медленное изменение тогда сокращается, а не выглядит как разница между практиками.</p>
           </div>
         </div>
       </section>

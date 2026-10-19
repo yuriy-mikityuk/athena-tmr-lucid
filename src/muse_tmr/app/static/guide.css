@@ -235,7 +235,8 @@ p {
 /* --- the session at a glance --------------------------------------------- */
 
 .timeline,
-.ticks {
+.ticks,
+.same {
   display: grid;
   grid-template-columns: 52px repeat(4, minmax(0, 1fr)) 64px;
   gap: 4px;
@@ -315,6 +316,31 @@ p {
 
 .ticks span:first-child {
   transform: none;
+}
+
+/* A bracket under the two middle blocks: the one thing about the order worth knowing. */
+.same {
+  margin-top: 8px;
+}
+
+.same > div {
+  grid-column: 3 / 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.same i {
+  display: block;
+  width: calc(100% - 20px);
+  height: 9px;
+  border: 1px solid var(--swatch-line);
+  border-top: 0;
+  border-radius: 0 0 8px 8px;
 }
 
 .legend {
@@ -591,7 +617,7 @@ h4 {
 
 .why {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
   gap: 18px;
 }
 
@@ -617,6 +643,45 @@ h4 {
   margin: 0;
   color: var(--body-ink);
   font-size: 0.95rem;
+}
+
+/* The drift drawing: a slow slide from alert to drowsy over the four blocks. */
+.drift {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 4px 0 14px;
+}
+
+.drift text {
+  font: 600 11px var(--sans);
+  fill: var(--muted);
+}
+
+.drift .on {
+  fill: #fff;
+}
+
+.drift .f {
+  fill: var(--focus);
+}
+
+.drift .o {
+  fill: var(--open);
+}
+
+.drift .line {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 4;
+  stroke-linecap: round;
+}
+
+.drift .brace {
+  fill: none;
+  stroke: var(--swatch-line);
+  stroke-width: 1.2;
 }
 
 .tips {
@@ -685,7 +750,8 @@ h4 {
   }
 
   .timeline,
-  .ticks {
+  .ticks,
+  .same {
     grid-template-columns: 34px repeat(4, minmax(0, 1fr)) 46px;
     gap: 3px;
   }
