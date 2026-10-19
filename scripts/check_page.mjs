@@ -68,10 +68,21 @@ async function finish(code) {
   } catch (error) {
     // already closed
   }
-  // Chrome keeps writing to its profile until it has exited.
+  // Closed through its own protocol, Chrome and its helpers are done with the profile
+  // once it exits; a plain kill leaves helpers writing to it for a while.
   const exited = once(chrome, "exit");
-  chrome.kill();
+  try {
+    const { webSocketDebuggerUrl } = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json();
+    const browser = new WebSocket(webSocketDebuggerUrl);
+    await new Promise((resolve) => browser.addEventListener("open", resolve, { once: true }));
+    browser.send(JSON.stringify({ id: 1, method: "Browser.close" }));
+  } catch (error) {
+    chrome.kill();
+  }
   await Promise.race([exited, sleep(5000)]);
+  if (chrome.exitCode === null) {
+    chrome.kill();
+  }
   try {
     // Its helper processes can still be writing for a moment after it exits.
     rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
@@ -110,10 +121,18 @@ async function evaluate(expression) {
   return reply.result?.result?.value;
 }
 
+// Each check is asked again until it holds or 10 s pass, so a slow runner is not a failure.
 async function step(name, action, check) {
   await action();
-  await sleep(1500);
-  const verdict = await evaluate(check);
+  let verdict = null;
+  for (let attempt = 0; attempt < 40 && verdict !== true; attempt += 1) {
+    await sleep(250);
+    try {
+      verdict = await evaluate(check);
+    } catch (error) {
+      verdict = String(error.message || error); // the page is still loading
+    }
+  }
   if (verdict !== true) {
     problems.push(`${name}: ${verdict}`);
   }
