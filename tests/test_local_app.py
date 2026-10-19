@@ -12,6 +12,7 @@ import urllib.error
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+from muse_tmr import __version__
 from muse_tmr.app import AppConfig, create_local_app_server
 from muse_tmr.app.server import CAFFEINATE
 from muse_tmr.contact import MockContactProvider, builtin_contact_snapshots
@@ -98,6 +99,7 @@ class TestLocalMuseApp(unittest.TestCase):
         self.assertEqual(contact["channels"]["AF7"]["status"], "missing")
         self.assertEqual(contact["channels"]["AF7"]["quality_score"], contact["channels"]["AF7"]["fill"])
         self.assertEqual(ui_state["service"], "muse-tmr-local-app")
+        self.assertEqual(ui_state["version"], __version__)
         self.assertIn("generated_at_seconds", ui_state)
         self.assertEqual(ui_state["state"]["connection_state"], "disconnected")
         self.assertEqual(ui_state["contact"]["connection_state"], "disconnected")
@@ -167,6 +169,8 @@ class TestLocalMuseApp(unittest.TestCase):
         self.assertIn('id="back-to-menu-button"', body)
         self.assertEqual(body.count('class="voice-language"'), 3)
         self.assertIn("/api/muse/ui-state", script)
+        self.assertIn('id="app-version"', body)
+        self.assertIn("Version ${payload.version}", script)
         self.assertNotIn('requestJson("/api/muse/state"', script)
         self.assertNotIn('requestJson("/api/muse/contact"', script)
         self.assertNotIn('requestJson("/api/muse/gate"', script)

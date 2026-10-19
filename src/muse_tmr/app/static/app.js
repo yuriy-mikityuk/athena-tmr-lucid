@@ -9,6 +9,7 @@ const deviceLastPacket = document.querySelector("#device-last-packet");
 const deviceBattery = document.querySelector("#device-battery");
 const scanResult = document.querySelector("#scan-result");
 const errorBox = document.querySelector("#error-box");
+const appVersion = document.querySelector("#app-version");
 const scanButton = document.querySelector("#scan-button");
 const connectButton = document.querySelector("#connect-button");
 const startSessionButton = document.querySelector("#start-session-button");
@@ -155,6 +156,9 @@ function renderUiState(payload) {
       return;
     }
   }
+  appVersion.textContent = [payload.version && `Version ${payload.version}`, payload.build && `build ${payload.build}`]
+    .filter(Boolean)
+    .join(" · ");
   latestDiagnostics = { source_diagnostics: payload.source_diagnostics || null };
   latestRecording = payload.recording || {};
   latestContact = payload.contact || {};
