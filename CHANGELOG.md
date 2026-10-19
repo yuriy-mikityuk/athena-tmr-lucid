@@ -2,6 +2,12 @@
 
 Versions follow `muse_tmr.__version__`; the app shows the running version and build at the bottom of the page.
 
+## Unreleased
+
+### Local app
+
+- The app is called Athena TMR and shares the meditation guide's look. The Record tab puts the headband on the left and the five recording modes on the right, each saying what it records; a running recording shows its progress, battery, EEG rate and lost subpackets; the Recordings tab lists every recording with its reports and the same EEG numbers. The page, the guide and the macOS launcher share one icon (#185).
+
 ## 0.1.0 (2026-10-19)
 
 The first tagged version. It covers what `main` could do on that date.

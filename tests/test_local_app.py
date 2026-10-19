@@ -145,6 +145,8 @@ class TestLocalMuseApp(unittest.TestCase):
             body = response.read().decode("utf-8")
         with urllib.request.urlopen(f"{self.base_url}/app.js", timeout=2) as response:
             script = response.read().decode("utf-8")
+        with urllib.request.urlopen(f"{self.base_url}/icon.svg", timeout=2) as response:
+            self.assertEqual(response.headers.get_content_type(), "image/svg+xml")
 
         self.assertIn("Connect Muse", body)
         self.assertIn("headband-title", body)
@@ -162,7 +164,11 @@ class TestLocalMuseApp(unittest.TestCase):
         self.assertIn("data-channel=\"TP10\"", body)
         self.assertIn('id="start-session-button"', body)
         self.assertIn('id="start-night-button"', body)
-        self.assertIn("Start night session", body)
+        self.assertIn("Start night", body)
+        self.assertIn("<title>Athena TMR</title>", body)
+        self.assertIn('href="/icon.svg"', body)
+        self.assertIn('id="screen-recordings"', body)
+        self.assertIn('id="mode-calibration"', body)
         self.assertIn('id="stop-recording-button"', body)
         self.assertIn('id="recording-strip"', body)
         self.assertIn('id="meditation-sound"', body)
@@ -188,7 +194,9 @@ class TestLocalMuseApp(unittest.TestCase):
         self.assertIn("contact-sparkline", script)
         self.assertIn("active-warning-status", script)
         self.assertIn('scanButton.hidden = connection === "connected"', script)
-        self.assertIn("startSessionButton.hidden = !canRecord", script)
+        # The mode cards stay in view and only their buttons wait for a connection.
+        self.assertIn("modes.hidden = recordingActive || finished", script)
+        self.assertNotIn("startSessionButton.hidden", script)
         # The all-good check mark is an SVG path, which has no hidden property.
         self.assertIn('allGoodCheck.toggleAttribute("hidden", !snapshot.all_good)', script)
         self.assertNotIn("allGoodCheck.hidden", script)
@@ -204,8 +212,8 @@ class TestLocalMuseApp(unittest.TestCase):
         with urllib.request.urlopen(f"{self.base_url}/guide.css", timeout=2) as response:
             self.assertEqual(response.headers.get_content_type(), "text/css")
 
-        # Linked from the meditation and the series form.
-        self.assertEqual(body.count('href="/guide.html"'), 2)
+        # Linked from the top bar and from the meditation and the series form.
+        self.assertEqual(body.count('href="/guide.html"'), 3)
         self.assertIn('data-lang="en"', guide)
         self.assertIn('data-lang="ru"', guide)
         # The guide quotes what the voice says, in both languages.
@@ -1216,11 +1224,13 @@ class TestLocalMuseAppMeditationSeries(TestLocalMuseAppReport):
 
 
 class TestLocalMuseAppRecentRecordings(TestLocalMuseAppReport):
-    def make_recording(self, kind, name, summary=None, blocks=False, polar=False):
+    def make_recording(self, kind, name, summary=None, blocks=False, polar=False, progress=None):
         folder = self.state._recordings_base_resolved() / kind / name
         folder.mkdir(parents=True)
         if summary is not None:
             (folder / "summary.json").write_text(json.dumps(summary))
+        if progress is not None:
+            (folder / "progress.json").write_text(json.dumps(progress))
         if blocks:
             (folder / "blocks.json").write_text("{}")
         if polar:
@@ -1242,6 +1252,22 @@ class TestLocalMuseAppRecentRecordings(TestLocalMuseAppReport):
         self.assertEqual(newest["meditation_report"]["state"], "none")
         self.assertEqual(older["report"]["url"], "/reports/night/20261007_230000.html")
         self.assertIsNone(older["meditation_report"])
+
+    def test_lists_the_eeg_numbers_from_the_last_heartbeat(self):
+        decoder = {
+            "eeg_effective_sample_rate_hz": 254.6,
+            "lost_subpackets": {"EEG": 888, "ACCGYRO": 70},
+            "repeated_subpackets": {"EEG": 43, "ACCGYRO": 22},
+        }
+        self.make_recording("night", "20261009_010000", {"duration_seconds": 1380}, progress={"source_diagnostics": {"decoder": decoder}})
+        # Before the decoder counted subpackets, the heartbeat had only the rate.
+        self.make_recording("night", "20261008_010000", {}, progress={"source_diagnostics": {"decoder": {"eeg_effective_sample_rate_hz": 253.8}}})
+        self.make_recording("night", "20261007_010000", {})
+
+        newest, older, oldest = self.state.list_recordings()["recordings"]
+        self.assertEqual(newest["signal"], {"eeg_rate_hz": 254.6, "lost_subpackets": 958, "repeated_subpackets": 65})
+        self.assertEqual(older["signal"], {"eeg_rate_hz": 253.8, "lost_subpackets": None, "repeated_subpackets": None})
+        self.assertIsNone(oldest["signal"])
 
     def test_builds_for_an_older_recording_and_rejects_bad_input(self):
         folder = self.make_recording("session", "20261008_235854", {"stop_reason": "user_stopped"})

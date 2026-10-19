@@ -18,7 +18,7 @@ The system records sleep biosignals all night (EEG, IMU, PPG), detects REM in re
 - **Safety-first cueing:** model probabilities never reach the audio path directly; a `StableRemGate` (minimum stable time, hysteresis, cooldown) and an `ArousalGuard` (motion, alpha, HR-jump, artifact proxies) decide, with hard volume caps, fade in/out, and emergency-stop artifacts
 - **Blind experimental protocol:** seeded randomization into cued/uncued puzzle groups, uncued puzzles are never schedulable, the condition is hidden from the subject during morning retests
 - **Pluggable acquisition:** amused-py BLE (default), OpenMuse LSL, and BrainFlow backends, all mapped to one `MuseFrame` contract; a Polar H10 chest strap can record ECG, RR and chest motion alongside, in its own process
-- **Local app:** live contact check per sensor, one-click session, night, guided-meditation and calibration recordings that run as their own process, reports built from the page, and auto-update from `main`
+- **Local app, Athena TMR:** live contact check per sensor, session, night, guided-meditation and calibration recordings that start once the contact holds and run as their own process, a recordings page with the reports and EEG numbers, and auto-update from `main`
 - **Reproducible validation:** five staged pilots, each with a runbook and an automated validator
 - **Engineering hygiene:** 41 CLI commands, pytest suite with CI on GitHub Actions, and a privacy-aware gitignore — volume calibration, puzzle content, and dream reports never leave the machine
 
@@ -40,7 +40,7 @@ pip install -e .
 python scripts/install_macos_launcher.py
 ```
 
-This puts `Muse TMR Setup.app` on the Desktop; it starts the local app from this checkout's `.venv` and opens http://127.0.0.1:8765. The app keeps itself on the latest `main` (pass `--no-auto-update` to the installer if you don't want that). Put the headband on, press Find headband and Connect Muse, and adjust the band until all four channels are good. Start session records an hour, Start night session eight. When the recording ends, Build report turns it into an HTML report of the REM probability over time, and Recent recordings keeps the earlier ones.
+This puts `Athena TMR.app` on the Desktop; it starts the local app from this checkout's `.venv` and opens http://127.0.0.1:8765. The app keeps itself on the latest `main` (pass `--no-auto-update` to the installer if you don't want that). Put the headband on, press Find headband and Connect Muse, and adjust the band until all four channels are good. Start night records eight hours, Start session one; either starts once the contact has been good for 5 s. When the recording ends, Build report turns it into an HTML report of the REM probability over time, and the Recordings tab keeps the earlier ones.
 
 ### First recording from the terminal
 

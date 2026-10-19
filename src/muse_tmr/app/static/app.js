@@ -1,4 +1,3 @@
-const stateLabel = document.querySelector("#status-line");
 const appTitle = document.querySelector("#app-title");
 const sourceLabel = document.querySelector("#source-label");
 const deviceName = document.querySelector("#device-name");
@@ -52,6 +51,26 @@ const recordingElapsed = document.querySelector("#recording-elapsed");
 const recordingBattery = document.querySelector("#recording-battery");
 const recordingLastEvent = document.querySelector("#recording-last-event");
 const recordingPolar = document.querySelector("#recording-polar");
+const recordingProgressBar = document.querySelector("#recording-progress-bar");
+const recordingStarted = document.querySelector("#recording-started");
+const recordingEnds = document.querySelector("#recording-ends");
+const recordingEeg = document.querySelector("#recording-eeg");
+const recordingLost = document.querySelector("#recording-lost");
+const recordingReconnects = document.querySelector("#recording-reconnects");
+const modes = document.querySelector("#modes");
+const workNote = document.querySelector("#work-note");
+const tabRecord = document.querySelector("#tab-record");
+const tabRecordings = document.querySelector("#tab-recordings");
+const screenRecord = document.querySelector("#screen-record");
+const screenRecordings = document.querySelector("#screen-recordings");
+// The card each kind of start highlights while it waits for contact.
+const modeCards = {
+  night: document.querySelector("#mode-night"),
+  session: document.querySelector("#mode-session"),
+  meditation: document.querySelector("#mode-meditation"),
+  series: document.querySelector("#mode-series"),
+  calibration: document.querySelector("#mode-calibration")
+};
 const polarOption = document.querySelector("#polar-option");
 const withPolarCheckbox = document.querySelector("#with-polar-checkbox");
 const contactSummary = document.querySelector("#contact-summary");
@@ -80,7 +99,7 @@ let latestContact = {};
 let latestGate = {};
 let latestDiagnostics = {};
 let latestRecording = {};
-// A start waiting for the contact gate: { label, url, body, done }.
+// A start waiting for the contact gate: { label, card, url, body, done }.
 let pendingStart = null;
 let pendingSending = false;
 let startError = "";
@@ -122,14 +141,7 @@ function renderState(state) {
   if (latestState.connection_state !== "connected" && !pendingSending) {
     pendingStart = null;
   }
-  const connection = displayConnection();
-  stateLabel.textContent = connectionLabel();
   renderSourceBadge(latestState.source || "unknown");
-
-  document.querySelectorAll(".status-meter span").forEach((item) => {
-    item.classList.toggle("active", item.dataset.state === connection);
-    item.classList.toggle("good", connection === "connected" && item.dataset.state === "connected");
-  });
 
   errorBox.hidden = !latestState.error_message;
   errorBox.textContent = latestState.error_message || "";
@@ -196,16 +208,30 @@ function connectionLabel() {
   return stateText[connection] || connection;
 }
 
-function renderAppTitle() {
-  const connection = latestState.connection_state || "disconnected";
-  if (latestRecording && latestRecording.active) {
-    appTitle.textContent = latestRecording.kind === "night" ? "Night Recording" : "Recording";
-    return;
+function recordingTitle(recording) {
+  if (recording.calibration) {
+    return "Calibration run";
   }
-  if (connection === "connected") {
-    appTitle.textContent = "Check Contact";
+  if (recording.meditation) {
+    return "Meditation";
+  }
+  return recording.kind === "night" ? "Night recording" : "One-hour session";
+}
+
+// A finished recording stays on the Record tab until "Back to menu" puts it away.
+function finishedRecordingShown() {
+  const state = latestRecording.state;
+  const outputDir = latestRecording.output_dir;
+  return (state === "completed" || state === "failed") && Boolean(outputDir) && outputDir !== dismissedRecording;
+}
+
+function renderAppTitle() {
+  if (latestRecording && latestRecording.active) {
+    appTitle.textContent = recordingTitle(latestRecording);
+  } else if (finishedRecordingShown()) {
+    appTitle.textContent = latestRecording.state === "completed" ? "Recording finished" : "Recording ended";
   } else {
-    appTitle.textContent = "Connect Muse";
+    appTitle.textContent = "Start a recording";
   }
 }
 
@@ -219,18 +245,21 @@ function renderActions() {
   connectButton.hidden = connection === "connected" || recordingActive;
   disconnectButton.hidden = connection !== "connected" || recordingActive;
 
+  // The modes stay in view, so it is clear what each one records; they start nothing until connected.
   const canRecord = connection === "connected" && !recordingActive;
-  startSessionButton.hidden = !canRecord;
-  startNightButton.hidden = !canRecord;
-  startMeditationButton.hidden = !(canRecord && isAmused);
-  startSeriesButton.hidden = !(canRecord && isAmused);
-  startCalibrationButton.hidden = !(canRecord && isAmused);
+  const finished = finishedRecordingShown();
+  modes.hidden = recordingActive || finished;
+  workNote.hidden = modes.hidden;
+  workNote.textContent =
+    connection === "connected"
+      ? `Each one starts once all four channels have been good for ${stabilitySeconds()} s.`
+      : "Connect the headband to start one.";
   if (!canRecord) {
     meditationForm.hidden = true;
     seriesForm.hidden = true;
     calibrationForm.hidden = true;
   }
-  polarOption.hidden = !(canRecord && isAmused);
+  polarOption.hidden = !(canRecord && isAmused) || modes.hidden;
   stopRecordingButton.hidden = !(
     recordingActive && latestRecording.state !== "stopping" && latestRecording.state !== "finishing"
   );
@@ -238,6 +267,9 @@ function renderActions() {
   // Recording needs the live headband. A start waits for good contact itself.
   const recordEnabled = canRecord && isAmused && !pendingStart;
   cancelStartButton.hidden = !(canRecord && pendingStart);
+  Object.entries(modeCards).forEach(([key, card]) => {
+    card.classList.toggle("waiting", Boolean(pendingStart) && pendingStart.card === key);
+  });
   for (const form of [meditationForm, seriesForm, calibrationForm]) {
     form.querySelector('button[type="submit"]').disabled = Boolean(pendingStart);
   }
@@ -304,6 +336,9 @@ function renderDeviceCard() {
 
   if (device.name || device.address) {
     deviceName.textContent = device.name || "Muse";
+  } else if (latestRecording.active) {
+    // The app handed the headband to the recorder and no longer knows its name.
+    deviceName.textContent = "Headband";
   } else if (candidates.length > 0) {
     deviceName.textContent = candidates[0].name || "Muse";
   } else {
@@ -314,6 +349,7 @@ function renderDeviceCard() {
     connection === "connected" && !latestRecording.active
       ? `Connected ${formatDuration(latestState.connected_elapsed_seconds)}`
       : connectionLabel();
+  deviceConnectionAge.className = `connection-pill ${connectionPillState(connection)}`;
   deviceAddress.textContent = device.address || "-";
   deviceSource.textContent = latestState.source || "unknown";
   deviceLastPacket.textContent =
@@ -324,6 +360,19 @@ function renderDeviceCard() {
   deviceBattery.textContent = battery == null ? "-" : `${Math.round(battery)}%`;
   deviceBattery.classList.toggle("low", battery != null && battery < 30);
   renderScanResult();
+}
+
+function connectionPillState(connection) {
+  if (latestRecording.active) {
+    return "recording";
+  }
+  if (connection === "connected") {
+    return "connected";
+  }
+  if (connection === "scanning" || connection === "connecting") {
+    return "busy";
+  }
+  return connection === "error" ? "error" : "";
 }
 
 function renderContact(snapshot) {
@@ -365,10 +414,14 @@ function renderContact(snapshot) {
   } else if (snapshot.connection_state === "disconnected") {
     contactSummary.textContent = "Headset disconnected";
   } else if (snapshot.all_good) {
-    contactSummary.textContent = "All required contacts good";
+    contactSummary.textContent = "All four channels good";
   } else {
     contactSummary.textContent = badChannels.length > 0 ? `Adjust ${badChannels.join(", ")}` : "Checking contact";
   }
+  contactSummary.classList.toggle(
+    "adjust",
+    !snapshot.all_good && !snapshot.stale && snapshot.connection_state === "connected" && badChannels.length > 0
+  );
 }
 
 function contactRow(channel, status, fill, reason, reasonCodes) {
@@ -428,39 +481,48 @@ function renderRecording(recording) {
   const state = latestRecording.state;
   const connection = latestState.connection_state || "disconnected";
   const isAmused = latestState.source === "amused";
-  const contactReady = Boolean(latestContact.all_good);
 
   recordingStrip.hidden = !active;
   if (active) {
-    const kindLabel = latestRecording.kind === "night" ? "Night session" : "Session";
     recordingStatus.textContent =
       state === "launching"
-        ? "Starting recording"
+        ? "Starting"
         : state === "stopping"
-        ? "Stopping recording"
+        ? "Stopping"
         : state === "finishing"
         ? "Finishing (stopping the H10)"
         : "Recording";
-    recordingKind.textContent = [kindLabel, latestRecording.preset].filter(Boolean).join(" · ");
+    recordingKind.textContent = latestRecording.preset || "";
     recordingElapsed.textContent = formatDuration(latestRecording.elapsed_seconds);
+    const fraction = numberOrNull(latestRecording.progress_fraction);
+    recordingProgressBar.style.width = `${(clamp(fraction || 0, 0, 1) * 100).toFixed(1)}%`;
+    const started = numberOrNull(latestRecording.started_at_seconds);
+    const duration = numberOrNull(latestRecording.duration_seconds);
+    recordingStarted.textContent = started == null ? "" : `Started ${formatTimeOfDay(started)}`;
+    recordingEnds.textContent = started == null || duration == null ? "" : `Ends about ${formatTimeOfDay(started + duration)}`;
     const battery = numberOrNull(latestRecording.battery_percent);
-    recordingBattery.textContent = battery == null ? "battery --" : `battery ${Math.round(battery)}%`;
+    recordingBattery.textContent = battery == null ? "--" : `${Math.round(battery)}%`;
+    // While recording, the diagnostics are the recorder's own heartbeat.
+    const decoder = (latestDiagnostics.source_diagnostics || {}).decoder || {};
+    recordingEeg.textContent = formatRate(decoder.eeg_effective_sample_rate_hz);
+    const lost = subpacketTotal(decoder.lost_subpackets);
+    recordingLost.textContent = lost == null ? "--" : String(lost);
+    recordingReconnects.textContent = String(numberOrNull(latestRecording.reconnect_attempts) || 0);
     recordingLastEvent.textContent = latestRecording.last_event
       ? String(latestRecording.last_event).replaceAll("_", " ")
-      : "";
+      : "streaming";
     const polarText = polarStatusText(latestRecording.polar);
     recordingPolar.hidden = !polarText;
-    recordingPolar.textContent = polarText;
+    recordingPolar.textContent = polarText ? ` · ${polarText}` : "";
   }
 
   stopRecordingButton.textContent = state === "stopping" ? "Stopping" : "Stop recording";
   stopRecordingButton.disabled = state === "stopping";
 
-  const outputDir = latestRecording.output_dir;
-  // Once put away, the page is back to the buttons; the recording stays under Recent recordings.
-  const finished = (state === "completed" || state === "failed") && outputDir !== dismissedRecording;
-  recordReport.hidden = !(finished && outputDir);
-  if (finished && outputDir) {
+  // Once put away, the page is back to the modes; the recording stays on the Recordings tab.
+  const finished = finishedRecordingShown();
+  recordReport.hidden = !finished;
+  if (finished) {
     const report = latestRecording.report || { state: "none" };
     const ended = state === "completed" ? "Recording finished." : "Recording ended without a summary.";
     const reportText = {
@@ -481,27 +543,25 @@ function renderRecording(recording) {
     recordReportPath.textContent = latestRecording.report_command || "";
   }
 
-  const showHint = connection === "connected" && !active && !finished;
-  recordHint.hidden = !showHint;
-  if (showHint) {
+  // The hint speaks only when there is something to say: a start waiting, a failed start, a mock source.
+  let hint = "";
+  if (connection === "connected" && !active && !finished) {
     if (!isAmused) {
-      recordHint.textContent = "Recording needs the live Muse source (run the app with --source amused).";
+      hint = "Recording needs the live Muse source (run the app with --source amused).";
     } else if (pendingStart) {
-      recordHint.textContent = pendingStartText();
+      hint = pendingStartText();
     } else if (startError) {
-      recordHint.textContent = `Could not start: ${startError}`;
-    } else if (!contactReady) {
-      recordHint.textContent = `Adjust the headband until all four channels are good. A start waits for that and goes ahead after ${stabilitySeconds()} s of good contact.`;
-    } else {
-      recordHint.textContent =
-        "Contact looks good — ready to record. Keep the Mac plugged in and the lid open for a night session.";
+      hint = `Could not start: ${startError}`;
     }
   }
+  recordHint.hidden = !hint;
+  recordHint.textContent = hint;
 
   const shown = active || finished ? latestRecording : {};
   renderMeditation(shown);
   renderCalibration(shown);
   renderActions();
+  renderAppTitle();
 }
 
 function renderDiagnostics(diagnostics) {
@@ -709,7 +769,8 @@ function sendPendingStartWhenReady() {
 
 function startRecording(kind) {
   startWhenReady({
-    label: kind === "night" ? "night session" : "session",
+    label: kind === "night" ? "night recording" : "session",
+    card: kind === "night" ? "night" : "session",
     url: "/api/session/record",
     body: { kind, with_polar: withPolarCheckbox.checked },
     done: (response, payload) => {
@@ -1186,6 +1247,7 @@ meditationForm.addEventListener("submit", async (event) => {
   };
   startWhenReady({
     label: "meditation",
+    card: "meditation",
     url: "/api/meditation/start",
     body,
     done: (response, payload) => {
@@ -1224,6 +1286,8 @@ const seriesConditionB = document.querySelector("#series-condition-b");
 const seriesBlocks = document.querySelector("#series-blocks");
 const seriesBlockMinutes = document.querySelector("#series-block-minutes");
 const seriesSettle = document.querySelector("#series-settle");
+const seriesDots = document.querySelector("#series-dots");
+const seriesCardTarget = document.querySelector("#series-card-target");
 let seriesStatus = null;
 let seriesSawRecording = false;
 
@@ -1250,9 +1314,10 @@ function renderSeries() {
   const series = status.series;
   const counted = status.counted || 0;
   const target = status.target || 8;
-  const tally = counted < target ? `${counted}/${target}` : String(counted);
-  startSeriesButton.textContent = series ? `Meditation series ${tally}…` : "Meditation series…";
+  startSeriesButton.textContent = series ? `Session ${counted + 1}…` : "Set up…";
   seriesTarget.textContent = String(target);
+  seriesCardTarget.textContent = String(target);
+  renderSeriesDots(series, counted, target);
   seriesCount.textContent = !series
     ? "no sessions yet"
     : counted < target
@@ -1287,6 +1352,23 @@ function renderSeries() {
   });
   seriesStart.textContent = `Start session ${counted + 1}`;
   seriesNew.hidden = !series;
+}
+
+function renderSeriesDots(series, counted, target) {
+  seriesDots.innerHTML = "";
+  if (!series) {
+    seriesDots.textContent = "No series yet";
+    return;
+  }
+  for (let index = 0; index < target; index += 1) {
+    const dot = document.createElement("i");
+    dot.className = index < counted ? "on" : "";
+    seriesDots.appendChild(dot);
+  }
+  const label = document.createElement("span");
+  label.textContent = counted < target ? `${counted} of ${target}` : `${counted} counted`;
+  seriesDots.appendChild(label);
+  seriesDots.setAttribute("aria-label", `${counted} of ${target} sessions counted`);
 }
 
 function seriesSessionText(session) {
@@ -1343,6 +1425,7 @@ seriesForm.addEventListener("submit", async (event) => {
   }
   startWhenReady({
     label: "series session",
+    card: "series",
     url: "/api/meditation/series/start",
     body: {
       conditions: [seriesConditionA.value, seriesConditionB.value],
@@ -1437,6 +1520,7 @@ calibrationForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   startWhenReady({
     label: "calibration run",
+    card: "calibration",
     url: "/api/calibration/start",
     body: { language: voiceLanguage },
     done: (response, payload) => {
@@ -1461,13 +1545,46 @@ calibrationReportButton.addEventListener("click", async () => {
   }
 });
 
-// --- recent recordings ------------------------------------------------------------
+// --- tabs and the recordings list ------------------------------------------------
 
-const historyPanel = document.querySelector("#history-panel");
 const historyList = document.querySelector("#history-list");
+const historyCount = document.querySelector("#history-count");
+const recordingFilters = document.querySelector("#recording-filters");
+let historyRecordings = [];
+let historyFilter = "all";
+
+function showScreen(name) {
+  const recordings = name === "recordings";
+  screenRecord.hidden = recordings;
+  screenRecordings.hidden = !recordings;
+  tabRecord.toggleAttribute("aria-current", !recordings);
+  tabRecordings.toggleAttribute("aria-current", recordings);
+  (recordings ? tabRecordings : tabRecord).setAttribute("aria-current", "page");
+  try {
+    window.history.replaceState(null, "", recordings ? "#recordings" : window.location.pathname);
+  } catch (error) {
+    // the tab just won't survive a reload
+  }
+  if (recordings) {
+    loadHistory();
+  }
+}
+
+tabRecord.addEventListener("click", () => showScreen("record"));
+tabRecordings.addEventListener("click", () => showScreen("recordings"));
+
+recordingFilters.querySelectorAll(".chip").forEach((chip) => {
+  chip.addEventListener("click", () => {
+    historyFilter = chip.dataset.filter;
+    recordingFilters.querySelectorAll(".chip").forEach((other) => {
+      other.setAttribute("aria-pressed", String(other === chip));
+    });
+    renderHistory(historyRecordings);
+  });
+});
 
 async function loadHistory() {
-  if (!historyPanel.open) {
+  if (screenRecordings.hidden) {
     return;
   }
   try {
@@ -1477,52 +1594,102 @@ async function loadHistory() {
   }
 }
 
+function recordingCategory(recording) {
+  if (recording.calibration) {
+    return "calibration";
+  }
+  if (recording.meditation) {
+    return "meditation";
+  }
+  return recording.kind === "night" ? "night" : "session";
+}
+
 function renderHistory(recordings) {
+  historyRecordings = recordings;
+  const shown = recordings.filter((recording) => historyFilter === "all" || recordingCategory(recording) === historyFilter);
+  historyCount.textContent = recordings.length === 1 ? "1 recording" : `${recordings.length} recordings`;
   historyList.innerHTML = "";
-  if (recordings.length === 0) {
-    historyList.textContent = "No recordings yet.";
+  if (shown.length === 0) {
+    const item = document.createElement("li");
+    item.className = "empty";
+    item.textContent = recordings.length === 0 ? "No recordings yet." : "No recordings of this kind yet.";
+    historyList.appendChild(item);
     return;
   }
-  recordings.forEach((recording) => {
-    const item = document.createElement("li");
-    const title = document.createElement("strong");
-    title.textContent = `${formatStart(recording.started_at, recording.name)} · ${recording.kind}`;
-    const meta = document.createElement("span");
-    meta.className = "meta";
-    const minutes = numberOrNull(recording.duration_seconds);
-    meta.textContent = [
-      minutes == null ? null : `${Math.round(minutes / 60)} min`,
-      recording.live ? "recording now" : recording.stop_reason ? String(recording.stop_reason).replaceAll("_", " ") : "no summary",
-      recording.with_polar ? "H10" : null,
-      recording.meditation ? "meditation" : null,
-      recording.calibration ? "calibration" : null
-    ]
-      .filter(Boolean)
-      .join(" · ");
-    const links = document.createElement("span");
-    links.className = "links";
-    if (!recording.live) {
-      links.append(jobControl(recording, recording.report, "REM report", "Build REM report", "/api/recordings/report"));
-      if (recording.meditation) {
-        links.append(
-          jobControl(recording, recording.meditation_report, "Meditation report", "Analyze meditation", "/api/recordings/analyze")
-        );
-      }
-      if (recording.calibration) {
-        links.append(
-          jobControl(
-            recording,
-            recording.calibration_report,
-            "Calibration report",
-            "Build calibration report",
-            "/api/recordings/calibration-report"
-          )
-        );
-      }
+  shown.forEach((recording) => historyList.appendChild(historyRow(recording)));
+}
+
+function historyRow(recording) {
+  const item = document.createElement("li");
+
+  const when = document.createElement("div");
+  when.className = "rec-when";
+  const started = recording.started_at ? new Date(recording.started_at) : null;
+  when.textContent = started
+    ? started.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" })
+    : recording.name;
+  const time = document.createElement("small");
+  time.textContent = [
+    started ? started.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : null,
+    formatMinutes(recording.duration_seconds)
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  when.appendChild(time);
+
+  const what = document.createElement("div");
+  what.className = "rec-what";
+  const category = recordingCategory(recording);
+  const chip = document.createElement("span");
+  chip.className = `kind-chip ${recording.live ? "live" : category}`;
+  chip.textContent = recording.live ? "Recording now" : titleCase(category);
+  const detail = document.createElement("span");
+  detail.textContent = [
+    recording.live ? null : recording.stop_reason ? String(recording.stop_reason).replaceAll("_", " ") : "no summary",
+    recording.with_polar ? "H10" : null
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  what.append(chip, detail);
+
+  const signal = document.createElement("div");
+  signal.className = "rec-signal";
+  signal.textContent = signalText(recording.signal);
+
+  const actions = document.createElement("div");
+  actions.className = "rec-actions";
+  if (!recording.live) {
+    actions.append(jobControl(recording, recording.report, "REM report", "Build REM report", "/api/recordings/report"));
+    if (recording.meditation) {
+      actions.append(
+        jobControl(recording, recording.meditation_report, "Meditation report", "Analyze", "/api/recordings/analyze")
+      );
     }
-    item.append(title, meta, links);
-    historyList.appendChild(item);
-  });
+    if (recording.calibration) {
+      actions.append(
+        jobControl(
+          recording,
+          recording.calibration_report,
+          "Calibration report",
+          "Build calibration report",
+          "/api/recordings/calibration-report"
+        )
+      );
+    }
+  }
+  item.append(when, what, signal, actions);
+  return item;
+}
+
+function signalText(signal) {
+  if (!signal) {
+    return "";
+  }
+  const rate = numberOrNull(signal.eeg_rate_hz);
+  const lost = numberOrNull(signal.lost_subpackets);
+  return [rate == null ? null : `EEG ${rate.toFixed(1)} Hz`, lost == null ? null : `${lost} lost`]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function jobControl(recording, status, openLabel, buildLabel, endpoint) {
@@ -1564,8 +1731,8 @@ function formatStart(startedAt, fallback) {
   return date.toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
-historyPanel.addEventListener("toggle", loadHistory);
 window.setInterval(loadHistory, 5000);
+showScreen(window.location.hash === "#recordings" ? "recordings" : "record");
 
 refreshUiState();
 window.setInterval(refreshUiState, 1000);
@@ -1645,6 +1812,34 @@ function formatDuration(seconds) {
     return `${hours}:${pad(minutes)}:${pad(secs)}`;
   }
   return `${pad(minutes)}:${pad(secs)}`;
+}
+
+function formatTimeOfDay(timestampSeconds) {
+  return new Date(timestampSeconds * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatMinutes(seconds) {
+  const value = numberOrNull(seconds);
+  if (value == null) {
+    return null;
+  }
+  const minutes = Math.round(value / 60);
+  if (minutes < 1) {
+    return "under a minute";
+  }
+  if (minutes < 60) {
+    return `${minutes} min`;
+  }
+  const rest = minutes % 60;
+  return rest ? `${Math.floor(minutes / 60)} h ${rest} min` : `${Math.floor(minutes / 60)} h`;
+}
+
+// Lost or repeated subpackets per sensor type, summed; null before the decoder counted them.
+function subpacketTotal(counts) {
+  if (!counts || typeof counts !== "object") {
+    return null;
+  }
+  return Object.values(counts).reduce((sum, count) => sum + (Number(count) || 0), 0);
 }
 
 function formatSeconds(seconds) {

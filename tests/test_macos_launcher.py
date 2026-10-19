@@ -26,13 +26,13 @@ class MacosLauncherTest(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as temp_dir_name:
                 temp_dir = Path(temp_dir_name)
-                target = temp_dir / "Muse TMR Setup.app"
+                target = temp_dir / "Athena TMR.app"
                 repo_root = temp_dir / "repo"
                 repo_root.mkdir()
 
                 installer.create_launcher_app(
                     target=target,
-                    app_name="Muse TMR Setup",
+                    app_name="Athena TMR",
                     repo_root=repo_root,
                     source="mock",
                     address="",
@@ -41,7 +41,7 @@ class MacosLauncherTest(unittest.TestCase):
                 )
 
                 info = plistlib.loads((target / "Contents" / "Info.plist").read_bytes())
-                self.assertEqual(info["CFBundleName"], "Muse TMR Setup")
+                self.assertEqual(info["CFBundleName"], "Athena TMR")
                 self.assertEqual(info["CFBundleExecutable"], "launch")
                 self.assertNotIn("CFBundleIconFile", info)
 
@@ -55,6 +55,9 @@ class MacosLauncherTest(unittest.TestCase):
                 self.assertIn('RUNNER="$SCRIPT_DIR/../Resources/run-local-app.command"', launcher_text)
                 self.assertIn("--source mock", runner_text)
                 self.assertNotIn("--address", runner_text)
+                # The alerts and the log carry the app's own name.
+                self.assertIn('display alert "Athena TMR"', runner_text)
+                self.assertIn("Athena TMR.log", runner_text)
         finally:
             installer._install_icon = original_install_icon
 
@@ -65,10 +68,10 @@ class MacosLauncherTest(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as temp_dir_name:
                 temp_dir = Path(temp_dir_name)
-                target = temp_dir / "Muse TMR Setup.app"
+                target = temp_dir / "Athena TMR.app"
                 installer.create_launcher_app(
                     target=target,
-                    app_name="Muse TMR Setup",
+                    app_name="Athena TMR",
                     repo_root=temp_dir,
                     source="mock",
                     address="",
@@ -90,13 +93,13 @@ class MacosLauncherTest(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as temp_dir_name:
                 temp_dir = Path(temp_dir_name)
-                target = temp_dir / "Muse TMR Setup.app"
+                target = temp_dir / "Athena TMR.app"
                 repo_root = temp_dir / "repo"
                 repo_root.mkdir()
 
                 installer.create_launcher_app(
                     target=target,
-                    app_name="Muse TMR Setup",
+                    app_name="Athena TMR",
                     repo_root=repo_root,
                     source="amused",
                     address="2C48FFC8-A1C5-BDFD-A5A4-EEA280A7BBA6",

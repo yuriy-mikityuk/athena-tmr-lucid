@@ -1,8 +1,10 @@
 # Local App Runbook
 
-The local web app connects to the Muse, shows the contact of each sensor, starts and
-stops recordings (a session, a night, a guided meditation, a meditation series, the
-calibration run) and builds their reports. It is a local-only tool served from your
+Athena TMR, the local web app, connects to the Muse, shows the contact of each sensor,
+starts and stops recordings (a session, a night, a guided meditation, a meditation
+series, the calibration run) and builds their reports. Its Record tab has the headband
+on the left and the recording modes on the right; the Recordings tab lists what has
+been recorded. It is a local-only tool served from your
 machine. It is not a cloud service and does not upload recordings, contact data,
 device identifiers, or reports.
 
@@ -83,16 +85,18 @@ you intentionally pass an explicit host such as `--host 0.0.0.0`.
 
 Stop the app with `Ctrl-C`.
 
-## Recent recordings
+## Recordings tab
 
-"Recent recordings" lists the newest folders under `data/recordings/{session,night}/`
-with their length, stop reason, H10 data and meditation plan, and links each one's REM
-report and meditation report, or offers to build them. It is read from disk, so it survives
+The Recordings tab lists the newest folders under `data/recordings/{session,night}/`,
+filtered by kind if you like, with their start, length, stop reason, H10 data, the EEG
+rate and lost subpackets from the recorder's last heartbeat (lost subpackets only for
+recordings made since the decoder counted them), and links each one's REM, meditation or
+calibration report, or offers to build it. It is read from disk, so it survives
 app restarts (auto-update restarts the app after every merge).
 
 ## Guided meditation
 
-Once connected, "Meditation…" opens a small form: two practice labels, number of blocks,
+"Set up…" on the Meditation card opens a small form: two practice labels, number of blocks,
 minutes per block and settle-in time. Starting it builds the same counterbalanced plan as
 `muse-tmr meditation-plan` (random seed), starts a session recording long enough for it
 (plus a minute of slack) and stores `blocks.json` in the recording folder. While it runs the
@@ -119,7 +123,7 @@ and the three ratings. Its quotes of the voice are checked against `app.js` in t
 
 ## Meditation series
 
-"Meditation series…" is for the sessions that get pooled by `aggregate-meditation`,
+The Meditation series card is for the sessions that get pooled by `aggregate-meditation`,
 which needs the same two practices in every session and reports p-values only from 8
 sessions. The first session of a series sets the practices, block count and block
 length, and they stay locked after that. The settle-in can still change between
@@ -140,20 +144,20 @@ count, e.g. "Meditation series 3/8…". "New series" renames the file to
 
 ## Reports
 
-When a recording ends, the box under the buttons offers "Build report". It runs
+When a recording ends, the Record tab says "Recording finished" and offers "Build report". It runs
 `scripts/generate_nightly_report.py` for that recording in the background with the app's
 own Python and writes `data/reports/<kind>/<name>.html`; when it is done the box shows an
 "Open report" link served by the app (only `.html` files from `data/reports/`). If the
 build fails, the box points to `report.log` next to the recording and shows the command to
 run by hand. "Back to menu" in the same box puts the finished recording away, with its
-meditation or calibration panel, until the next one (it stays under Recent recordings). The
-app lets go of the headband for every recording, so afterwards "Connect Muse" brings the
-record buttons back.
+meditation or calibration panel, until the next one (it stays on the Recordings tab). The
+app lets go of the headband for every recording, so the next start needs "Connect Muse"
+first.
 
 ## Recording with a Polar H10
 
-Tick "Also record Polar H10" under the record buttons to start the recorder with
-`--with-polar` (the choice is remembered in this browser). During the recording the strip
+Tick "Also record the Polar H10 chest strap" under the modes to start the recorder with
+`--with-polar` (the choice is remembered in this browser). During the recording the panel
 shows the strap's state: streaming with the last HR, no skin contact, no data for N s,
 reconnecting, or failed (see `polar/record-polar.log`). Stop works as before; with Polar on
 the app waits up to 50 s instead of 5 s before force-killing, so the child can stop the
@@ -172,7 +176,7 @@ export MUSE_ADDR="<MUSE_BLE_ADDRESS>"
 This installs:
 
 ```text
-~/Desktop/Muse TMR Setup.app
+~/Desktop/Athena TMR.app
 ```
 
 Double-clicking the app starts the local setup server through Terminal and opens
@@ -247,9 +251,9 @@ Adjust the Python.app path to your installed Homebrew Python version.
 
 ## Starting a Recording
 
-Once the Muse is connected, the record buttons appear: Start session, Start night
-session, Meditation…, Meditation series… and Calibration run…. A start does not need
-good contact yet. It arms the contact gate (`/api/session/record/arm`), and the page
+The Record tab shows five modes and what each records: Night (8 h on `p21`), One-hour
+session (`p1034`, with the optics), Meditation, Meditation series and Calibration run.
+Their buttons work once the Muse is connected. A start does not need good contact yet. It arms the contact gate (`/api/session/record/arm`), and the page
 shows what it is waiting for: all four channels `good`, then a countdown over the
 stability window (5 s, `--contact-stability-seconds`). Any channel that turns poor,
 missing or stale, or a disconnect, starts the count again. When the window is full the
@@ -265,8 +269,10 @@ Starting a recording releases the app's own connection, since the Muse takes onl
 one, and launches `muse-tmr record` as a separate process under `caffeinate`, so
 closing the app or its terminal does not stop it. A session records on `p1034` for
 up to an hour, a night on `p21` for 8 hours, and the meditation, series and
-calibration recordings use `p21`. While it runs, the contact view and the diagnostics
-show what the recorder reports in its `progress.json` heartbeat, and the contact
+calibration recordings use `p21`. While it runs, the recording panel shows the elapsed
+time against the planned length, the battery, the EEG rate, lost subpackets and
+reconnects, and the contact view and the diagnostics show what the recorder reports in
+its `progress.json` heartbeat, and the contact
 turns stale when the heartbeat is more than 10 s old. Contact drops never stop a
 recording. Stop recording sends SIGINT, so the recorder still writes `summary.json`.
 
@@ -288,8 +294,9 @@ is still in the server, but the page no longer uses it.
 - All-good contact shows the centered check mark.
 - A start with poor contact waits and says so, counts down 5 s once all four
   channels are good, restarts the count when one drops, and Cancel start stops it.
-- Once recording, the strip shows the kind and preset, elapsed time, headband
-  battery, the H10 state when it is on, and the last recorder event.
+- Once recording, the panel shows the kind and preset, elapsed time and progress,
+  headband battery, EEG rate, lost subpackets, reconnects, the H10 state when it is
+  on, and the last recorder event.
 - Stop recording ends in "Recording finished." with "Build report" and "Back to
   menu".
 - The diagnostics panel exposes notification rate, EEG rows/sec, EEG effective

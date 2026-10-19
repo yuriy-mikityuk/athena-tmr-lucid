@@ -3,68 +3,61 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Muse TMR Setup</title>
+    <title>Athena TMR</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
-    <main class="app-shell">
-      <section class="setup-panel" aria-labelledby="app-title">
-        <div class="topline">
+    <div class="app">
+      <header class="topbar">
+        <a class="brand" href="/">
+          <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+            <path d="M5 23 C6 13 11 7 16 7 C21 7 26 13 27 23" fill="none" stroke="#0f766e" stroke-width="3.2" stroke-linecap="round"></path>
+            <circle cx="5" cy="23.5" r="2.6" fill="#4b5694"></circle>
+            <circle cx="27" cy="23.5" r="2.6" fill="#4b5694"></circle>
+            <circle cx="16" cy="7" r="2.2" fill="#b45309"></circle>
+          </svg>
+          <span>Athena TMR</span>
+        </a>
+        <nav class="nav" aria-label="App">
+          <button type="button" class="nav-tab" id="tab-record" aria-controls="screen-record" aria-current="page">Record</button>
+          <button type="button" class="nav-tab" id="tab-recordings" aria-controls="screen-recordings">Recordings</button>
+          <a class="nav-tab" href="/guide.html" target="_blank" rel="noopener">Guide</a>
+        </nav>
+        <div class="badges">
           <span class="local-badge">Local only</span>
           <span class="source-badge mock" id="source-label">MOCK</span>
         </div>
-        <h1 id="app-title">Connect Muse</h1>
-        <p class="status-line" id="status-line">Disconnected</p>
-        <div class="session-strip" id="session-strip" hidden>
-          <strong id="session-status">Session running</strong>
-          <span id="session-elapsed">00:00</span>
-          <span id="session-warnings">contact warnings: 0</span>
-          <span id="session-stream-rate">stream: -- Hz</span>
-        </div>
-        <div class="session-strip recording-strip" id="recording-strip" hidden>
-          <strong id="recording-status">Recording</strong>
-          <span id="recording-kind"></span>
-          <span id="recording-elapsed">00:00</span>
-          <span id="recording-battery"></span>
-          <span id="recording-polar" hidden></span>
-          <span id="recording-last-event"></span>
-        </div>
-        <div class="status-meter" aria-hidden="true">
-          <span data-state="disconnected"></span>
-          <span data-state="scanning"></span>
-          <span data-state="connecting"></span>
-          <span data-state="connected"></span>
-        </div>
-        <div class="device-card" id="device-summary">
-          <div class="device-main">
-            <strong id="device-name">No headset selected</strong>
-            <span id="device-connection-age">Disconnected</span>
+      </header>
+
+      <main class="screen record-screen" id="screen-record">
+        <aside class="panel headband-panel" aria-label="Headband">
+          <div class="device-card" id="device-summary">
+            <div class="device-main">
+              <h2 id="device-name">No headset selected</h2>
+              <span class="connection-pill" id="device-connection-age">Disconnected</span>
+            </div>
+            <dl class="device-meta">
+              <div>
+                <dt>Battery</dt>
+                <dd id="device-battery">-</dd>
+              </div>
+              <div>
+                <dt>Last packet</dt>
+                <dd id="device-last-packet">-</dd>
+              </div>
+              <div>
+                <dt>Address</dt>
+                <dd id="device-address">-</dd>
+              </div>
+              <div>
+                <dt>Source</dt>
+                <dd id="device-source">mock</dd>
+              </div>
+            </dl>
           </div>
-          <dl class="device-meta">
-            <div>
-              <dt>Address</dt>
-              <dd id="device-address">-</dd>
-            </div>
-            <div>
-              <dt>Source</dt>
-              <dd id="device-source">mock</dd>
-            </div>
-            <div>
-              <dt>Last packet</dt>
-              <dd id="device-last-packet">-</dd>
-            </div>
-            <div>
-              <dt>Battery</dt>
-              <dd id="device-battery">-</dd>
-            </div>
-          </dl>
-        </div>
-        <section class="contact-panel" aria-labelledby="contact-title">
-          <div class="contact-heading">
-            <h2 id="contact-title">Contact Quality</h2>
-            <span id="contact-summary">Waiting for contact data</span>
-          </div>
-          <div class="headband-layout">
+          <section class="contact-panel" aria-labelledby="contact-title">
+            <h3 class="eyebrow" id="contact-title">Contact</h3>
             <svg class="headband-svg" viewBox="0 0 320 210" role="img" aria-labelledby="headband-title headband-desc">
               <title id="headband-title">Muse contact quality</title>
               <desc id="headband-desc">Contact status for TP9, AF7, AF8, and TP10.</desc>
@@ -84,149 +77,251 @@
               <text class="side-label" x="278" y="188" text-anchor="middle">Right</text>
               <path id="all-good-check" class="all-good-check" d="M132 118 L151 137 L190 82" hidden></path>
             </svg>
+            <p class="contact-summary" id="contact-summary">Waiting for contact data</p>
             <ul class="contact-list" id="contact-list" aria-label="Contact channel statuses"></ul>
+          </section>
+          <div class="actions headband-actions">
+            <button type="button" id="scan-button" title="Check that the headband is on and in Bluetooth range">Find headband</button>
+            <button type="button" id="connect-button">Connect Muse</button>
+            <button type="button" id="disconnect-button" hidden>Disconnect</button>
           </div>
+          <div class="record-hint" id="scan-result" role="status" hidden></div>
+          <div class="error" id="error-box" role="alert" hidden></div>
+          <details class="diagnostics-panel" id="diagnostics-panel">
+            <summary>Diagnostics</summary>
+            <dl class="diagnostics-grid">
+              <div>
+                <dt>Notifications/sec</dt>
+                <dd id="diag-notifications-rate">-</dd>
+              </div>
+              <div>
+                <dt>EEG rows/sec</dt>
+                <dd id="diag-eeg-rows-rate">-</dd>
+              </div>
+              <div>
+                <dt>EEG effective Hz</dt>
+                <dd id="diag-eeg-effective-rate">-</dd>
+              </div>
+              <div>
+                <dt>Decode errors</dt>
+                <dd id="diag-decode-errors">-</dd>
+              </div>
+              <div>
+                <dt>Unknown tags</dt>
+                <dd id="diag-unknown-tags">-</dd>
+              </div>
+              <div>
+                <dt>Last packet age</dt>
+                <dd id="diag-last-packet-age">-</dd>
+              </div>
+            </dl>
+          </details>
+        </aside>
+
+        <section class="work" aria-labelledby="app-title">
+          <div class="work-head">
+            <h1 id="app-title">Start a recording</h1>
+            <p id="work-note">Each one starts once all four channels have been good for 5 s.</p>
+          </div>
+
+          <div class="session-strip" id="session-strip" hidden>
+            <strong id="session-status">Session running</strong>
+            <span id="session-elapsed">00:00</span>
+            <span id="session-warnings">contact warnings: 0</span>
+            <span id="session-stream-rate">stream: -- Hz</span>
+          </div>
+
+          <div class="start-status" id="start-status">
+            <div class="record-hint" id="record-hint" role="status" hidden></div>
+            <button type="button" id="cancel-start-button" hidden>Cancel start</button>
+          </div>
+
+          <div class="modes" id="modes">
+            <article class="mode night" id="mode-night">
+              <div class="mode-top">
+                <span class="mode-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"></path></svg></span>
+                <h2>Night</h2>
+              </div>
+              <p>Overnight recording; keep the Mac on power with the lid open. Build the REM report in the morning.</p>
+              <div class="facts"><span class="fact">8 h</span><span class="fact mono">p21</span><span class="fact">EEG and motion</span></div>
+              <div class="mode-foot"><button type="button" id="start-night-button" class="primary">Start night</button></div>
+            </article>
+            <article class="mode session" id="mode-session">
+              <div class="mode-top">
+                <span class="mode-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"></circle><path d="M12 9v4l2.5 2M9 2h6"></path></svg></span>
+                <h2>One-hour session</h2>
+              </div>
+              <p>A shorter test recording, with heart rate from the headband's optics.</p>
+              <div class="facts"><span class="fact">1 h</span><span class="fact mono">p1034</span><span class="fact">EEG, motion, PPG</span></div>
+              <div class="mode-foot"><button type="button" id="start-session-button">Start session</button></div>
+            </article>
+            <article class="mode meditation" id="mode-meditation">
+              <div class="mode-top">
+                <span class="mode-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><circle cx="12" cy="12" r="7.5"></circle></svg></span>
+                <h2>Meditation</h2>
+              </div>
+              <p>Focus on the breath and open awareness in ABBA or BAAB order, with a voice at each change.</p>
+              <div class="facts"><span class="fact">about 33 min</span><span class="fact mono">p21</span><span class="fact">H10 optional</span></div>
+              <div class="mode-foot"><button type="button" id="start-meditation-button">Set up…</button></div>
+            </article>
+            <article class="mode series" id="mode-series">
+              <div class="mode-top">
+                <span class="mode-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 18h16M7 14v4M12 10v8M17 6v12"></path></svg></span>
+                <h2>Meditation series</h2>
+              </div>
+              <p>The same plan every session; p-values from <span id="series-card-target">8</span> counted sessions on.</p>
+              <div class="mode-foot">
+                <div class="dots" id="series-dots" aria-live="polite"></div>
+                <button type="button" id="start-series-button">Set up…</button>
+              </div>
+            </article>
+            <article class="mode calibration wide" id="mode-calibration">
+              <div class="mode-top">
+                <span class="mode-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 12h3l2-6 4 12 2-6h5"></path></svg></span>
+                <h2>Calibration run</h2>
+              </div>
+              <p>23 minutes, voice-guided: jaw tension and paced breathing, to see what they do to the meditation numbers.</p>
+              <div class="mode-foot">
+                <div class="facts"><span class="fact">23 min</span><span class="fact mono">p21</span><span class="fact">with H10</span></div>
+                <button type="button" id="start-calibration-button">Set up…</button>
+              </div>
+            </article>
+          </div>
+
+          <label class="record-option" id="polar-option" hidden>
+            <input type="checkbox" id="with-polar-checkbox">
+            Also record the Polar H10 chest strap (ECG, RR, breathing)
+          </label>
+
+          <form class="meditation-form" id="meditation-form" hidden>
+            <h2>Guided meditation</h2>
+            <p class="muted">Two practices in ABBA or BAAB order (random), so slow drift cancels out. Eyes closed in both. The headband records EEG only (its optics add a 64 Hz line to the EEG), so heart rate and breathing come from the Polar H10 when it is on.</p>
+            <p class="guide-link"><a href="/guide.html" target="_blank" rel="noopener">New here? How a session goes (English · Русский)</a></p>
+            <div class="form-grid">
+              <label>Practice A<input id="med-condition-a" value="focus" required maxlength="40"></label>
+              <label>Practice B<input id="med-condition-b" value="open" required maxlength="40"></label>
+              <label>Blocks<input id="med-blocks" type="number" min="4" max="12" step="4" value="4" required></label>
+              <label>Minutes per block<input id="med-block-minutes" type="number" min="0.5" max="60" step="0.5" value="8" required></label>
+              <label>Settle-in seconds<input id="med-settle" type="number" min="0" max="600" step="5" value="60" required></label>
+            </div>
+            <label class="record-option"><input type="checkbox" id="med-chime" checked> Tone and spoken practice at every block change</label>
+            <label class="record-option">Voice language <select class="voice-language"><option value="en">English</option><option value="ru">Русский</option></select></label>
+            <p class="form-error" id="med-error" role="alert" hidden></p>
+            <div class="form-actions">
+              <button type="submit" class="primary">Start meditation</button>
+              <button type="button" id="med-cancel">Cancel</button>
+            </div>
+          </form>
+          <form class="meditation-form" id="series-form" hidden>
+            <h2>Meditation series · <span id="series-count">no sessions yet</span></h2>
+            <p class="muted">Same two practices, block count and block length every session; the order (ABBA or BAAB) is drawn each time. Records on p21 with the Polar H10, so put on the chest strap. A session counts once it has run past its last block; p-values start at <span id="series-target">8</span>. The settle-in can change between sessions: make it longer if the report's EMG timeline still falls during the first block.</p>
+            <p class="guide-link"><a href="/guide.html" target="_blank" rel="noopener">New here? How a session goes (English · Русский)</a></p>
+            <div class="form-grid">
+              <label>Practice A<input id="series-condition-a" value="focus" required maxlength="40"></label>
+              <label>Practice B<input id="series-condition-b" value="open" required maxlength="40"></label>
+              <label>Blocks<input id="series-blocks" type="number" min="4" max="12" step="4" value="4" required></label>
+              <label>Minutes per block<input id="series-block-minutes" type="number" min="0.5" max="60" step="0.5" value="8" required></label>
+              <label>Settle-in seconds<input id="series-settle" type="number" min="0" max="600" step="5" value="60" required></label>
+            </div>
+            <label class="record-option"><input type="checkbox" id="series-chime" checked> Tone and spoken practice at every block change</label>
+            <label class="record-option">Voice language <select class="voice-language"><option value="en">English</option><option value="ru">Русский</option></select></label>
+            <ul class="meditation-blocks series-sessions" id="series-sessions"></ul>
+            <p class="form-error" id="series-error" role="alert" hidden></p>
+            <div class="form-actions">
+              <button type="submit" class="primary" id="series-start">Start session 1</button>
+              <button type="button" id="series-cancel">Cancel</button>
+              <button type="button" id="series-new" hidden>New series</button>
+            </div>
+          </form>
+          <form class="meditation-form" id="calibration-form" hidden>
+            <h2>Calibration run · 23 min, voice-guided</h2>
+            <p class="muted">Muse (EEG only) and Polar H10 together, so put on the chest strap too. The Mac speaks every step: keep the volume up, sit, eyes closed. Tension is slight, except the 1 s clenches. One step asks you to open your eyes and unclip the H10 for a minute.</p>
+            <label class="record-option">Voice language <select class="voice-language"><option value="en">English</option><option value="ru">Русский</option></select></label>
+            <ol class="meditation-blocks" id="calibration-steps"></ol>
+            <p class="form-error" id="calibration-error" role="alert" hidden></p>
+            <div class="form-actions">
+              <button type="submit" class="primary">Start calibration</button>
+              <button type="button" id="calibration-cancel">Cancel</button>
+            </div>
+          </form>
+
+          <section class="panel recording-panel" id="recording-strip" hidden>
+            <div class="rec-head">
+              <div>
+                <div class="eyebrow"><span id="recording-status">Recording</span> · <span id="recording-kind"></span></div>
+                <div class="clock" id="recording-elapsed">00:00</div>
+              </div>
+              <button type="button" id="stop-recording-button" class="stop" hidden>Stop recording</button>
+            </div>
+            <div class="progress" id="recording-progress">
+              <div class="bar"><span id="recording-progress-bar"></span></div>
+              <div class="bar-legend"><span id="recording-started"></span><span id="recording-ends"></span></div>
+            </div>
+            <dl class="stats">
+              <div class="stat"><dt>Headband battery</dt><dd id="recording-battery">--</dd></div>
+              <div class="stat"><dt>EEG received</dt><dd id="recording-eeg">--</dd></div>
+              <div class="stat"><dt>Lost subpackets</dt><dd id="recording-lost">--</dd></div>
+              <div class="stat"><dt>Reconnects</dt><dd id="recording-reconnects">0</dd></div>
+            </dl>
+            <p class="event">Last event: <b id="recording-last-event">starting</b><span id="recording-polar" hidden></span>. The recording runs on its own: closing this page or the app does not stop it. Keep the Mac on power with the lid open.</p>
+          </section>
+
+          <section class="panel meditation-panel" id="calibration-panel" hidden>
+            <div class="meditation-now" id="calibration-now"></div>
+            <div class="record-report-actions">
+              <button type="button" id="calibration-report-button" hidden>Build calibration report</button>
+              <a id="open-calibration-report" href="#" target="_blank" rel="noopener" hidden>Open calibration report</a>
+              <span class="muted" id="calibration-report-text"></span>
+            </div>
+          </section>
+          <section class="panel meditation-panel" id="meditation-panel" hidden>
+            <div class="meditation-head">
+              <div class="meditation-now" id="meditation-now"></div>
+              <button type="button" id="meditation-sound" aria-pressed="true" title="Tone and spoken practice at every block change. Turning it on plays both once." hidden>Sound: on</button>
+            </div>
+            <ol class="meditation-blocks" id="meditation-blocks"></ol>
+            <div class="record-report-actions">
+              <button type="button" id="analyze-meditation-button" hidden>Analyze meditation</button>
+              <a id="open-meditation-report" href="#" target="_blank" rel="noopener" hidden>Open meditation report</a>
+              <span class="muted" id="meditation-analysis-text"></span>
+            </div>
+          </section>
+          <div class="panel record-report" id="record-report" hidden>
+            <span id="record-report-text"></span>
+            <div class="record-report-actions">
+              <button type="button" id="build-report-button" class="primary">Build report</button>
+              <a id="open-report-link" href="#" target="_blank" rel="noopener" hidden>Open report</a>
+              <button type="button" id="back-to-menu-button">Back to menu</button>
+            </div>
+            <code id="record-report-path" hidden></code>
+          </div>
+          <section class="warning-log" id="warning-log-section" hidden>
+            <h2>Contact Warnings</h2>
+            <div class="active-warning-status" id="active-warning-status" hidden></div>
+            <ol id="warning-log"></ol>
+          </section>
         </section>
-        <div class="actions">
-          <button type="button" id="scan-button" title="Check that the headband is on and in Bluetooth range">Find headband</button>
-          <button type="button" id="connect-button">Connect Muse</button>
-          <button type="button" id="start-session-button" class="primary" hidden>Start session</button>
-          <button type="button" id="start-night-button" class="primary" hidden>Start night session</button>
-          <button type="button" id="start-meditation-button" hidden>Meditation…</button>
-          <button type="button" id="start-series-button" hidden>Meditation series…</button>
-          <button type="button" id="start-calibration-button" hidden>Calibration run…</button>
-          <button type="button" id="stop-recording-button" hidden>Stop recording</button>
-          <button type="button" id="cancel-start-button" hidden>Cancel start</button>
-          <button type="button" id="disconnect-button" hidden>Disconnect</button>
+      </main>
+
+      <main class="screen recordings-screen" id="screen-recordings" hidden>
+        <div class="list-head">
+          <div class="chips" id="recording-filters" role="group" aria-label="Show recordings">
+            <button type="button" class="chip" data-filter="all" aria-pressed="true">All</button>
+            <button type="button" class="chip" data-filter="night" aria-pressed="false">Night</button>
+            <button type="button" class="chip" data-filter="session" aria-pressed="false">Session</button>
+            <button type="button" class="chip" data-filter="meditation" aria-pressed="false">Meditation</button>
+            <button type="button" class="chip" data-filter="calibration" aria-pressed="false">Calibration</button>
+          </div>
+          <span class="eyebrow" id="history-count"></span>
         </div>
-        <div class="record-hint" id="scan-result" role="status" hidden></div>
-        <label class="record-option" id="polar-option" hidden>
-          <input type="checkbox" id="with-polar-checkbox">
-          Also record Polar H10 (chest strap: ECG, RR, breathing)
-        </label>
-        <div class="record-hint" id="record-hint" role="status" hidden></div>
-        <form class="meditation-form" id="meditation-form" hidden>
-          <h2>Guided meditation</h2>
-          <p class="muted">Two practices in ABBA or BAAB order (random), so slow drift cancels out. Eyes closed in both. The headband records EEG only (its optics add a 64 Hz line to the EEG), so heart rate and breathing come from the Polar H10 when it is on.</p>
-          <p class="guide-link"><a href="/guide.html" target="_blank" rel="noopener">New here? How a session goes (English · Русский)</a></p>
-          <div class="form-grid">
-            <label>Practice A<input id="med-condition-a" value="focus" required maxlength="40"></label>
-            <label>Practice B<input id="med-condition-b" value="open" required maxlength="40"></label>
-            <label>Blocks<input id="med-blocks" type="number" min="4" max="12" step="4" value="4" required></label>
-            <label>Minutes per block<input id="med-block-minutes" type="number" min="0.5" max="60" step="0.5" value="8" required></label>
-            <label>Settle-in seconds<input id="med-settle" type="number" min="0" max="600" step="5" value="60" required></label>
-          </div>
-          <label class="record-option"><input type="checkbox" id="med-chime" checked> Tone and spoken practice at every block change</label>
-          <label class="record-option">Voice language <select class="voice-language"><option value="en">English</option><option value="ru">Русский</option></select></label>
-          <p class="form-error" id="med-error" role="alert" hidden></p>
-          <div class="form-actions">
-            <button type="submit" class="primary">Start meditation</button>
-            <button type="button" id="med-cancel">Cancel</button>
-          </div>
-        </form>
-        <form class="meditation-form" id="series-form" hidden>
-          <h2>Meditation series · <span id="series-count">no sessions yet</span></h2>
-          <p class="muted">Same two practices, block count and block length every session; the order (ABBA or BAAB) is drawn each time. Records on p21 with the Polar H10, so put on the chest strap. A session counts once it has run past its last block; p-values start at <span id="series-target">8</span>. The settle-in can change between sessions: make it longer if the report's EMG timeline still falls during the first block.</p>
-          <p class="guide-link"><a href="/guide.html" target="_blank" rel="noopener">New here? How a session goes (English · Русский)</a></p>
-          <div class="form-grid">
-            <label>Practice A<input id="series-condition-a" value="focus" required maxlength="40"></label>
-            <label>Practice B<input id="series-condition-b" value="open" required maxlength="40"></label>
-            <label>Blocks<input id="series-blocks" type="number" min="4" max="12" step="4" value="4" required></label>
-            <label>Minutes per block<input id="series-block-minutes" type="number" min="0.5" max="60" step="0.5" value="8" required></label>
-            <label>Settle-in seconds<input id="series-settle" type="number" min="0" max="600" step="5" value="60" required></label>
-          </div>
-          <label class="record-option"><input type="checkbox" id="series-chime" checked> Tone and spoken practice at every block change</label>
-          <label class="record-option">Voice language <select class="voice-language"><option value="en">English</option><option value="ru">Русский</option></select></label>
-          <ul class="meditation-blocks series-sessions" id="series-sessions"></ul>
-          <p class="form-error" id="series-error" role="alert" hidden></p>
-          <div class="form-actions">
-            <button type="submit" class="primary" id="series-start">Start session 1</button>
-            <button type="button" id="series-cancel">Cancel</button>
-            <button type="button" id="series-new" hidden>New series</button>
-          </div>
-        </form>
-        <form class="meditation-form" id="calibration-form" hidden>
-          <h2>Calibration run · 23 min, voice-guided</h2>
-          <p class="muted">Muse (EEG only) and Polar H10 together, so put on the chest strap too. The Mac speaks every step: keep the volume up, sit, eyes closed. Tension is slight, except the 1 s clenches. One step asks you to open your eyes and unclip the H10 for a minute.</p>
-          <label class="record-option">Voice language <select class="voice-language"><option value="en">English</option><option value="ru">Русский</option></select></label>
-          <ol class="meditation-blocks" id="calibration-steps"></ol>
-          <p class="form-error" id="calibration-error" role="alert" hidden></p>
-          <div class="form-actions">
-            <button type="submit" class="primary">Start calibration</button>
-            <button type="button" id="calibration-cancel">Cancel</button>
-          </div>
-        </form>
-        <section class="meditation-panel" id="calibration-panel" hidden>
-          <div class="meditation-now" id="calibration-now"></div>
-          <div class="record-report-actions">
-            <button type="button" id="calibration-report-button" hidden>Build calibration report</button>
-            <a id="open-calibration-report" href="#" target="_blank" rel="noopener" hidden>Open calibration report</a>
-            <span class="muted" id="calibration-report-text"></span>
-          </div>
-        </section>
-        <section class="meditation-panel" id="meditation-panel" hidden>
-          <div class="meditation-head">
-            <div class="meditation-now" id="meditation-now"></div>
-            <button type="button" id="meditation-sound" aria-pressed="true" title="Tone and spoken practice at every block change. Turning it on plays both once." hidden>Sound: on</button>
-          </div>
-          <ol class="meditation-blocks" id="meditation-blocks"></ol>
-          <div class="record-report-actions">
-            <button type="button" id="analyze-meditation-button" hidden>Analyze meditation</button>
-            <a id="open-meditation-report" href="#" target="_blank" rel="noopener" hidden>Open meditation report</a>
-            <span class="muted" id="meditation-analysis-text"></span>
-          </div>
-        </section>
-        <div class="record-report" id="record-report" hidden>
-          <span id="record-report-text"></span>
-          <div class="record-report-actions">
-            <button type="button" id="build-report-button">Build report</button>
-            <a id="open-report-link" href="#" target="_blank" rel="noopener" hidden>Open report</a>
-            <button type="button" id="back-to-menu-button">Back to menu</button>
-          </div>
-          <code id="record-report-path" hidden></code>
-        </div>
-        <section class="warning-log" id="warning-log-section" hidden>
-          <h2>Contact Warnings</h2>
-          <div class="active-warning-status" id="active-warning-status" hidden></div>
-          <ol id="warning-log"></ol>
-        </section>
-        <details class="history-panel" id="history-panel">
-          <summary>Recent recordings</summary>
-          <ul class="history-list" id="history-list"></ul>
-        </details>
-        <details class="diagnostics-panel" id="diagnostics-panel">
-          <summary>Diagnostics</summary>
-          <dl class="diagnostics-grid">
-            <div>
-              <dt>Notifications/sec</dt>
-              <dd id="diag-notifications-rate">-</dd>
-            </div>
-            <div>
-              <dt>EEG rows/sec</dt>
-              <dd id="diag-eeg-rows-rate">-</dd>
-            </div>
-            <div>
-              <dt>EEG effective Hz</dt>
-              <dd id="diag-eeg-effective-rate">-</dd>
-            </div>
-            <div>
-              <dt>Decode errors</dt>
-              <dd id="diag-decode-errors">-</dd>
-            </div>
-            <div>
-              <dt>Unknown tags</dt>
-              <dd id="diag-unknown-tags">-</dd>
-            </div>
-            <div>
-              <dt>Last packet age</dt>
-              <dd id="diag-last-packet-age">-</dd>
-            </div>
-          </dl>
-        </details>
-        <div class="error" id="error-box" role="alert" hidden></div>
-        <p class="app-version" id="app-version"></p>
-      </section>
-    </main>
+        <ul class="history-list" id="history-list"></ul>
+      </main>
+
+      <footer class="footer">
+        <span class="app-version" id="app-version"></span>
+        <span>Recordings and reports stay on this Mac</span>
+      </footer>
+    </div>
     <script src="/app.js"></script>
   </body>
 </html>
