@@ -60,6 +60,8 @@ const chrome = spawn(
 const problems = [];
 // Set while the page is cut off on purpose; its failed requests are expected then.
 let offline = false;
+// While set, ui-state answers carry this build, as if the app had updated itself.
+let fakeBuild = null;
 let socket = null;
 let nextId = 1;
 const pending = new Map();
@@ -141,6 +143,22 @@ async function step(name, action, check) {
   console.log(`${verdict === true ? "ok  " : "FAIL"} ${name}`);
 }
 
+async function withFakeBuild({ requestId, responseStatusCode, responseHeaders }) {
+  try {
+    const { result } = await send("Fetch.getResponseBody", { requestId });
+    const payload = JSON.parse(result.base64Encoded ? Buffer.from(result.body, "base64").toString() : result.body);
+    payload.build = fakeBuild;
+    await send("Fetch.fulfillRequest", {
+      requestId,
+      responseCode: responseStatusCode,
+      responseHeaders,
+      body: Buffer.from(JSON.stringify(payload)).toString("base64")
+    });
+  } catch (error) {
+    await send("Fetch.continueRequest", { requestId });
+  }
+}
+
 const click = (selector) => () => evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
 const visit = (path) => () => send("Page.navigate", { url: new URL(path, appUrl).href });
 
@@ -156,6 +174,8 @@ try {
     if (message.id && pending.has(message.id)) {
       pending.get(message.id)(message);
       pending.delete(message.id);
+    } else if (message.method === "Fetch.requestPaused") {
+      withFakeBuild(message.params);
     } else if (message.method === "Runtime.exceptionThrown") {
       const details = message.params.exceptionDetails;
       problems.push(`uncaught: ${details.exception?.description || details.text}`);
@@ -224,6 +244,36 @@ try {
     `document.querySelector("#app-lost").hidden || "the banner stayed"`
   );
   offline = false;
+  await step(
+    "a new build of the app reloads the page",
+    async () => {
+      await visit("/")();
+      await sleep(1500);
+      await evaluate("window.notReloaded = true");
+      fakeBuild = "next";
+      await send("Fetch.enable", { patterns: [{ urlPattern: "*/api/muse/ui-state*", requestStage: "Response" }] });
+    },
+    `window.notReloaded !== true || "the page stayed on the old build"`
+  );
+  await step(
+    "but not over a dream report being written",
+    async () => {
+      await click("#tab-morning")();
+      await evaluate(`(() => {
+        window.notReloaded = true;
+        const text = document.querySelector("#dream-text");
+        text.value = "a staircase";
+        text.dispatchEvent(new Event("input", { bubbles: true }));
+      })()`);
+      // The real build is not "next": to the page the app has updated again.
+      await send("Fetch.disable");
+      fakeBuild = null;
+      await sleep(3000);
+    },
+    `(window.notReloaded === true && document.querySelector("#dream-text").value === "a staircase" &&
+      document.querySelector("#app-version").textContent.includes("once the Morning answers are saved")) ||
+      "the update reloaded over the dream report, or did not say it waits"`
+  );
   await step(
     "the meditation guide loads",
     visit("/guide.html"),
