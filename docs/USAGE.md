@@ -485,7 +485,7 @@ muse-tmr stream --source amused --address "$MUSE_ADDR" --duration-seconds 30 --d
 .venv/bin/python scripts/install_macos_launcher.py --address "$MUSE_ADDR"
 ```
 
-The app is local-only. It shows live contact for `TP9`, `AF7`, `AF8` and `TP10`, and once all four are good it unlocks the record buttons: a session (`p1034`, up to 1 h), a night (`p21`, 8 h), a guided meditation, a meditation series and the calibration run. Each recording runs as its own `muse-tmr record` process under `caffeinate`, so closing the app or its terminal does not stop it, and its report is built from the app when it ends. `--auto-update` pulls a clean `main` checkout and restarts the app when it is idle. Live diagnostics: `/api/muse/diagnostics`. On macOS the launcher installer creates `~/Desktop/Muse TMR Setup.app`, which starts the app with `--auto-update`. Runbook: `docs/contact_setup_local_app.md`.
+The app is local-only. It shows live contact for `TP9`, `AF7`, `AF8` and `TP10` and records a session (`p1034`, up to 1 h), a night (`p21`, 8 h), a guided meditation, a meditation series or the calibration run. A start waits until all four channels have been good for 5 s (`--contact-stability-seconds`), and the server refuses a start before that. Each recording runs as its own `muse-tmr record` process under `caffeinate`, so closing the app or its terminal does not stop it, and its report is built from the app when it ends. `--auto-update` pulls a clean `main` checkout and restarts the app when it is idle. Live diagnostics: `/api/muse/diagnostics`. On macOS the launcher installer creates `~/Desktop/Muse TMR Setup.app`, which starts the app with `--auto-update`. Runbook: `docs/contact_setup_local_app.md`.
 
 ## Validation plan and pilots
 
