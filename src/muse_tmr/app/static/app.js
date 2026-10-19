@@ -1807,12 +1807,18 @@ morningNightSelect.addEventListener("change", () => loadMorningNight(morningNigh
 
 async function loadMorningNight(name) {
   stopRetestTimers();
+  let night;
   try {
-    morningNight = await requestJson(`/api/morning/night?name=${encodeURIComponent(name)}`);
+    night = await requestJson(`/api/morning/night?name=${encodeURIComponent(name)}`);
   } catch (error) {
     showMorningWarning(`Could not load ${name}: ${error.message}`);
     return;
   }
+  // Another night was picked while this one loaded; that load draws the forms.
+  if (morningNightSelect.value !== name) {
+    return;
+  }
+  morningNight = night;
   renderDreamForm(morningNight);
   renderRetestForm(morningNight);
   const missing = [];
@@ -2077,25 +2083,37 @@ function postJson(url, body) {
 // After a save only that form is drawn again: the other one may hold answers not saved yet.
 async function saveMorningForm(url, body, errorBox, what, render) {
   errorBox.hidden = true;
-  let response = await postJson(url, body);
-  let payload = await response.json().catch(() => ({}));
-  if (response.status === 409 && payload.exists) {
-    if (!window.confirm(`Replace the saved ${what}?`)) {
+  // The night stays put while it saves, so the answers cannot end up under another one.
+  morningNightSelect.disabled = true;
+  try {
+    let response = await postJson(url, body);
+    let payload = await response.json().catch(() => ({}));
+    if (response.status === 409 && payload.exists) {
+      if (!window.confirm(`Replace the saved ${what}?`)) {
+        return;
+      }
+      response = await postJson(url, { ...body, replace: true });
+      payload = await response.json().catch(() => ({}));
+    }
+    if (!response.ok) {
+      errorBox.hidden = false;
+      errorBox.textContent = payload.error || `${response.status} ${response.statusText}`;
       return;
     }
-    response = await postJson(url, { ...body, replace: true });
-    payload = await response.json().catch(() => ({}));
-  }
-  if (!response.ok) {
-    errorBox.hidden = false;
-    errorBox.textContent = payload.error || `${response.status} ${response.statusText}`;
-    return;
-  }
-  try {
-    morningNight = await requestJson(`/api/morning/night?name=${encodeURIComponent(body.night)}`);
-    render(morningNight);
+    try {
+      const night = await requestJson(`/api/morning/night?name=${encodeURIComponent(body.night)}`);
+      if (morningNightSelect.value === body.night) {
+        morningNight = night;
+        render(morningNight);
+      }
+    } catch (error) {
+      showMorningWarning(`Saved, but could not reload ${body.night}: ${error.message}`);
+    }
   } catch (error) {
-    showMorningWarning(`Saved, but could not reload ${body.night}: ${error.message}`);
+    errorBox.hidden = false;
+    errorBox.textContent = `Could not save the ${what}: ${error.message}`;
+  } finally {
+    morningNightSelect.disabled = false;
   }
   await loadMorning({ keepForms: true });
 }
