@@ -71,13 +71,14 @@ Repeat the same preflight before every commit and before every push.
   protocol fixes; see `docs/dependency_strategy.md`. `examples/` holds the amused-py
   examples.
 - `scripts/` holds the nightly REM report, the REM detector check against a reference
-  stager, the macOS launcher installer and the forbidden-files check.
+  stager, the macOS launcher installer, the forbidden-files check and the wheel check.
 - `docs/` holds the runbooks and references; `docs/USAGE.md` covers every command.
 - Tests live in `tests/`. CI runs `python -m pytest tests/`; `run_tests.py` runs a
   fast unittest subset, and `run_tests.py --all` everything.
-- `pyproject.toml` lists the `muse_tmr` packages and the app's static file patterns
-  explicitly. A new subpackage has to go into `packages`, and a new kind of static
-  file into `package-data`, or a regular (non-editable) install leaves it out.
+- `pyproject.toml` finds the `muse_tmr` packages under `src/` and ships every file in
+  `app/static/`; the top-level BLE modules are listed in `py-modules`. CI builds the
+  wheel, and `scripts/check_wheel.py` fails if any file under `src/muse_tmr` is not in
+  it, which an editable install would hide.
 
 Put new engine code in the matching `muse_tmr` subpackage and new commands in
 `muse_tmr.cli.main`.

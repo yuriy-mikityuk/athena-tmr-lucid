@@ -3,12 +3,14 @@ requires = ["setuptools==76.1.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "amused"
-version = "1.1.0"
+name = "athena-tmr-lucid"
+dynamic = ["version"]
 authors = [
+    {name = "Yuriy Mikityuk"},
+    # amused-py, the BLE layer in the top-level amused.py and muse_*.py modules
     {name = "Adrian Tadeusz Belmans", email = "adrian.belmans@gmail.com"},
 ]
-description = "Open-source Python library for streaming data from Muse S (Athena) EEG headbands"
+description = "REM-gated targeted memory reactivation for the Muse S Athena EEG headset: overnight recording, real-time REM detection and safety-gated audio cues"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.8"
@@ -75,24 +77,12 @@ brainflow = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/nexon33/amused"
-Documentation = "https://github.com/nexon33/amused#readme"
-Repository = "https://github.com/nexon33/amused"
-Issues = "https://github.com/nexon33/amused/issues"
+Homepage = "https://github.com/yuriy-mikityuk/athena-tmr-lucid"
+Documentation = "https://github.com/yuriy-mikityuk/athena-tmr-lucid/blob/main/docs/USAGE.md"
+Repository = "https://github.com/yuriy-mikityuk/athena-tmr-lucid"
+Issues = "https://github.com/yuriy-mikityuk/athena-tmr-lucid/issues"
 
 [tool.setuptools]
-packages = [
-    "muse_tmr",
-    "muse_tmr.app",
-    "muse_tmr.audio",
-    "muse_tmr.cli",
-    "muse_tmr.data",
-    "muse_tmr.features",
-    "muse_tmr.models",
-    "muse_tmr.protocol",
-    "muse_tmr.reports",
-    "muse_tmr.sources",
-]
 py-modules = [
     "amused",
     "muse_athena_protocol",
@@ -113,12 +103,20 @@ py-modules = [
 ]
 include-package-data = true
 
+# The py-modules stay at the top level; the packages are found under src/.
 [tool.setuptools.package-dir]
-muse_tmr = "src/muse_tmr"
+"" = "."
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["muse_tmr*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "muse_tmr.__version__"}
 
 [tool.setuptools.package-data]
 "*" = ["*.txt", "*.md"]
-"muse_tmr.app" = ["static/*.html", "static/*.css", "static/*.js"]
+"muse_tmr.app" = ["static/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

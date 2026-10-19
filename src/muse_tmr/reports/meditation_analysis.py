@@ -29,6 +29,7 @@ import pandas as pd
 import scipy
 from scipy.stats import spearmanr
 
+from muse_tmr import __version__
 from muse_tmr.data.sample_types import MuseFrame
 from muse_tmr.features.complexity_features import (
     CHANNEL_GROUPS,
@@ -1209,14 +1210,8 @@ def _mean_or_nan(values: Iterable[Optional[float]]) -> float:
 
 
 def _versions() -> Dict[str, str]:
-    try:
-        from importlib.metadata import version
-
-        package = version("amused")
-    except Exception:
-        package = "unknown"
     return {
-        "amused": package,
+        "muse_tmr": __version__,
         "python": platform.python_version(),
         "numpy": np.__version__,
         "scipy": scipy.__version__,
