@@ -71,7 +71,8 @@ Repeat the same preflight before every commit and before every push.
   protocol fixes; see `docs/dependency_strategy.md`. `examples/` holds the amused-py
   examples.
 - `scripts/` holds the nightly REM report, the REM detector check against a reference
-  stager, the macOS launcher installer, the forbidden-files check and the wheel check.
+  stager, the macOS launcher installer, the forbidden-files check, the wheel check and the
+  page check.
 - `docs/` holds the runbooks and references; `docs/USAGE.md` covers every command.
 - Tests live in `tests/`. CI runs `python -m pytest tests/`; `run_tests.py` runs a
   fast unittest subset, and `run_tests.py --all` everything.
@@ -260,6 +261,12 @@ Run all tests when shared behavior, binary formats, parser logic, replay, or sch
 ```bash
 python run_tests.py --all
 ```
+
+For changes to the app's page (`app/static/`), also open it the way CI does: start
+`muse-tmr app --source mock --port 8799` and run
+`node scripts/check_page.mjs http://127.0.0.1:8799/` (Node 22, or Node 20 with
+`--experimental-websocket`). It goes through the tabs in headless Chrome and fails on any
+page error; the app tests only check the strings the server sends.
 
 For docs-only changes, at minimum run:
 
