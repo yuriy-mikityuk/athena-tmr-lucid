@@ -214,6 +214,19 @@ summary:focus-visible {
   padding: 22px;
 }
 
+.app-lost {
+  margin: 0;
+  padding: 10px 22px;
+  border-bottom: 1px solid var(--line);
+  background: var(--open-soft);
+  color: var(--open-ink);
+  font-weight: 600;
+}
+
+.app.lost .screen {
+  opacity: 0.55;
+}
+
 .record-screen {
   display: grid;
   grid-template-columns: minmax(0, 340px) minmax(0, 1fr);

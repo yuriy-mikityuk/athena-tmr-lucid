@@ -9,6 +9,8 @@ const deviceBattery = document.querySelector("#device-battery");
 const scanResult = document.querySelector("#scan-result");
 const errorBox = document.querySelector("#error-box");
 const appVersion = document.querySelector("#app-version");
+const appFrame = document.querySelector(".app");
+const appLostBanner = document.querySelector("#app-lost");
 const scanButton = document.querySelector("#scan-button");
 const connectButton = document.querySelector("#connect-button");
 const startSessionButton = document.querySelector("#start-session-button");
@@ -153,8 +155,27 @@ function renderState(state) {
   renderWarningLog();
 }
 
+// The page asks for the state every second. With no answer for a few seconds the
+// app has quit, crashed or is restarting, and what the page shows is out of date.
+const APP_SILENT_MS = 5000;
+let lastAnswerAt = Date.now();
+
 async function refreshUiState() {
-  renderUiState(await requestJson("/api/muse/ui-state"));
+  let payload;
+  try {
+    payload = await requestJson("/api/muse/ui-state");
+  } catch (error) {
+    return; // the banner says so once the app stays silent
+  }
+  lastAnswerAt = Date.now();
+  renderAppLost();
+  renderUiState(payload);
+}
+
+function renderAppLost() {
+  const lost = Date.now() - lastAnswerAt > APP_SILENT_MS;
+  appLostBanner.hidden = !lost;
+  appFrame.classList.toggle("lost", lost);
 }
 
 function renderUiState(payload) {
@@ -2193,7 +2214,11 @@ window.setInterval(loadHistory, 5000);
 showScreen(window.location.hash.slice(1) || "record");
 
 refreshUiState();
-window.setInterval(refreshUiState, 1000);
+window.setInterval(() => {
+  // Checked here too: a poll that hangs never comes back to say so.
+  renderAppLost();
+  refreshUiState();
+}, 1000);
 loadSeries();
 
 function updateContactHistory(channel, fill) {
