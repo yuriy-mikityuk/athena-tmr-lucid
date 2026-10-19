@@ -9,6 +9,7 @@ import json
 import mimetypes
 import os
 import posixpath
+import re
 import shlex
 import signal
 import subprocess
@@ -179,12 +180,27 @@ def _signal_numbers(progress: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
     }
 
 
+_FOLDER_STAMP = re.compile(r"\d{8}_\d{6}")
+
+
 def _folder_start(output_dir: Path) -> Optional[str]:
-    """Recording folders are named after their start time."""
+    """Recording folders are named after their start time, sometimes behind a prefix
+    (`smoke_muse_h10_20261009_012712`)."""
+    match = _FOLDER_STAMP.search(output_dir.name)
+    if match is None:
+        return None
     try:
-        return dt.datetime.strptime(output_dir.name[:15], "%Y%m%d_%H%M%S").isoformat()
+        return dt.datetime.strptime(match.group(0), "%Y%m%d_%H%M%S").isoformat()
     except ValueError:
         return None
+
+
+def _newest_first_key(output_dir: Path) -> Tuple[str, str]:
+    """A folder's start, or its last change when the name has none."""
+    start = _folder_start(output_dir)
+    if start is None:
+        start = dt.datetime.fromtimestamp(output_dir.stat().st_mtime).isoformat()
+    return start, output_dir.name
 
 
 def _meditation_plan(body: Mapping[str, Any]):
@@ -1087,7 +1103,7 @@ class LocalMuseAppState:
             kind_dir = base / kind
             if kind_dir.is_dir():
                 folders.extend(path for path in kind_dir.iterdir() if path.is_dir() and not path.name.startswith("."))
-        folders.sort(key=lambda path: path.name, reverse=True)
+        folders.sort(key=_newest_first_key, reverse=True)
         return {"recordings": [self._recording_entry(path) for path in folders[:limit]], "total": len(folders)}
 
     def _recording_entry(self, output_dir: Path) -> Dict[str, Any]:
