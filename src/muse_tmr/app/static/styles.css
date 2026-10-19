@@ -816,15 +816,30 @@ summary:focus-visible {
   color: var(--muted);
 }
 
+/* A rated block's three scales go on their own line under it. */
 .meditation-blocks .ratings {
-  display: inline-flex;
+  display: flex;
   flex-wrap: wrap;
-  gap: 4px 8px;
-  margin-left: 8px;
+  align-items: center;
+  gap: 6px 18px;
+  margin: 4px 0 8px;
   color: var(--muted);
+  font-weight: 400;
+}
+
+.meditation-blocks .ratings label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .meditation-blocks select {
+  min-width: 3.6em;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--sheet);
+  color: var(--ink);
+  padding: 3px 6px;
   font: inherit;
 }
 

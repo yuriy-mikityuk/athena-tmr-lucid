@@ -412,12 +412,14 @@ function renderContact(snapshot) {
     contactList.appendChild(contactRow(channel, status, fill, reason, state.reason_codes || []));
   });
 
+  // Without a connection the rows would only say "missing" four times.
+  contactList.hidden = snapshot.connection_state !== "connected";
   // An SVG element has no hidden property; setting one leaves the attribute in place.
   allGoodCheck.toggleAttribute("hidden", !snapshot.all_good);
   if (snapshot.stale) {
     contactSummary.textContent = "Contact data stale";
-  } else if (snapshot.connection_state === "disconnected") {
-    contactSummary.textContent = "Headset disconnected";
+  } else if (snapshot.connection_state !== "connected") {
+    contactSummary.textContent = "Connect the headband to see its contact";
   } else if (snapshot.all_good) {
     contactSummary.textContent = "All four channels good";
   } else {
