@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install a local macOS launcher for the Muse TMR setup app."""
+"""Install a local macOS launcher for the Athena TMR app."""
 
 from __future__ import annotations
 
@@ -16,13 +16,13 @@ from shlex import quote
 from typing import Iterable, Tuple
 
 
-DEFAULT_APP_NAME = "Muse TMR Setup"
+DEFAULT_APP_NAME = "Athena TMR"
 DEFAULT_PORT = 8765
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Create a clickable macOS .app launcher for the local Muse TMR setup app."
+        description="Create a clickable macOS .app launcher for the local Athena TMR app."
     )
     parser.add_argument("--address", help="Muse BLE address to bake into the launcher.")
     parser.add_argument("--source", choices=("amused", "mock"), default="amused")
@@ -95,7 +95,7 @@ def create_launcher_app(
     runner = resources / "run-local-app.command"
     launcher = macos / "launch"
     python_bin = repo_root / ".venv" / "bin" / "python"
-    log_path = Path.home() / "Library" / "Logs" / "Muse TMR Setup.log"
+    log_path = Path.home() / "Library" / "Logs" / f"{app_name}.log"
 
     runner.write_text(
         _runner_script(
@@ -206,7 +206,7 @@ fi
 if [[ ! -x "$PYTHON_BIN" ]]; then
   echo "Python virtualenv not found at: $PYTHON_BIN"
   echo "Create it first, then rerun this launcher."
-  /usr/bin/osascript -e 'display alert "Muse TMR Setup" message "Python virtualenv not found. Create .venv first."' >/dev/null 2>&1 || true
+  /usr/bin/osascript -e {quote(f'display alert "{app_name}" message "Python virtualenv not found. Create .venv first."')} >/dev/null 2>&1 || true
   read -k 1 "?Press any key to close..."
   exit 1
 fi
@@ -219,7 +219,7 @@ fi
     fi
     sleep 0.25
   done
-  /usr/bin/osascript -e 'display notification "Server did not become ready; check Terminal logs." with title "Muse TMR Setup"' >/dev/null 2>&1 || true
+  /usr/bin/osascript -e {quote(f'display notification "Server did not become ready; check Terminal logs." with title "{app_name}"')} >/dev/null 2>&1 || true
 ) &
 
 cd "$REPO_ROOT" || exit 1
@@ -281,18 +281,18 @@ def _write_icon_png(path: Path, size: int) -> None:
     pixels = bytearray([0, 0, 0, 0] * size * size)
     _draw_rounded_background(pixels, size)
     _draw_headband(pixels, size)
-    _draw_check(pixels, size)
     _write_png(path, size, size, pixels)
 
 
 def _draw_rounded_background(pixels: bytearray, size: int) -> None:
+    # The page's paper, washed with its teal towards the top.
     radius = int(size * 0.22)
     for y in range(size):
         t = y / max(1, size - 1)
         bg = (
-            int(15 + 4 * t),
-            int(23 + 52 * t),
-            int(42 + 48 * t),
+            int(227 + 23 * t),
+            int(243 + 5 * t),
+            int(240 + 4 * t),
             255,
         )
         for x in range(size):
@@ -301,35 +301,18 @@ def _draw_rounded_background(pixels: bytearray, size: int) -> None:
 
 
 def _draw_headband(pixels: bytearray, size: int) -> None:
-    center = size * 0.5
-    cx, cy = center, size * 0.59
-    rx, ry = size * 0.36, size * 0.29
-    teal = (45, 212, 191, 255)
-    dark = (15, 23, 42, 255)
-    outline = (226, 232, 240, 255)
+    # The mark from the page: a teal band, indigo sensors at its ends, an orange one on top.
+    cx, cy = size * 0.5, size * 0.7
+    rx, ry = size * 0.34, size * 0.44
+    teal = (15, 118, 110, 255)
+    indigo = (75, 86, 148, 255)
+    orange = (180, 83, 9, 255)
 
-    for angle in range(205, 336):
-        point = _ellipse_point(cx, cy, rx, ry, angle)
-        _draw_circle(pixels, size, point, int(size * 0.032), outline)
-    for angle in range(208, 333):
-        point = _ellipse_point(cx, cy, rx, ry, angle)
-        _draw_circle(pixels, size, point, int(size * 0.024), teal)
-
-    for angle in (218, 250, 290, 322):
-        point = _ellipse_point(cx, cy, rx * 0.78, ry * 0.72, angle)
-        _draw_circle(pixels, size, point, int(size * 0.047), dark)
-        _draw_circle(pixels, size, point, int(size * 0.036), teal)
-
-
-def _draw_check(pixels: bytearray, size: int) -> None:
-    teal = (20, 184, 166, 255)
-    points = (
-        (int(size * 0.37), int(size * 0.56)),
-        (int(size * 0.47), int(size * 0.66)),
-        (int(size * 0.66), int(size * 0.43)),
-    )
-    _draw_line(pixels, size, points[0], points[1], int(size * 0.035), teal)
-    _draw_line(pixels, size, points[1], points[2], int(size * 0.035), teal)
+    for angle in range(196, 345):
+        _draw_circle(pixels, size, _ellipse_point(cx, cy, rx, ry, angle), int(size * 0.05), teal)
+    for angle in (194, 346):
+        _draw_circle(pixels, size, _ellipse_point(cx, cy, rx, ry, angle), int(size * 0.075), indigo)
+    _draw_circle(pixels, size, _ellipse_point(cx, cy, rx, ry, 270), int(size * 0.062), orange)
 
 
 def _inside_rounded_rect(x: int, y: int, size: int, radius: int) -> bool:
@@ -359,24 +342,6 @@ def _draw_circle(
         for x in range(max(0, cx - radius), min(size, cx + radius + 1)):
             if (x - cx) ** 2 + (y - cy) ** 2 <= radius_sq:
                 _set_pixel(pixels, size, x, y, color)
-
-
-def _draw_line(
-    pixels: bytearray,
-    size: int,
-    start: Tuple[int, int],
-    end: Tuple[int, int],
-    width: int,
-    color: Tuple[int, int, int, int],
-) -> None:
-    x0, y0 = start
-    x1, y1 = end
-    steps = max(abs(x1 - x0), abs(y1 - y0))
-    for step in range(steps + 1):
-        t = step / max(1, steps)
-        x = int(x0 + (x1 - x0) * t)
-        y = int(y0 + (y1 - y0) * t)
-        _draw_circle(pixels, size, (x, y), width // 2, color)
 
 
 def _set_pixel(
