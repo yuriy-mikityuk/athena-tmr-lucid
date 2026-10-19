@@ -1316,6 +1316,40 @@ class LocalMuseAppState:
                 session["state"] = "counted" if covered >= needed - SERIES_END_SLACK_SECONDS else "short"
         return session
 
+    # --- the morning after a puzzle night ----------------------------------------
+
+    def _protocol_dir(self) -> Path:
+        return self._recordings_base_resolved().parent / "protocol"
+
+    def morning_nights(self) -> Dict[str, Any]:
+        from muse_tmr.app import morning
+
+        return morning.nights_payload(self._protocol_dir(), self.reports_base())
+
+    def morning_night(self, name: str) -> Tuple[Mapping[str, Any], HTTPStatus]:
+        from muse_tmr.app import morning
+
+        try:
+            return morning.night_payload(self._protocol_dir(), self.reports_base(), name), HTTPStatus.OK
+        except morning.UnknownNight as exc:
+            return {"error": str(exc)}, HTTPStatus.NOT_FOUND
+
+    def save_morning(self, form: str, body: Mapping[str, Any]) -> Tuple[Mapping[str, Any], HTTPStatus]:
+        """Save the dream report or the blind retest of a puzzle night."""
+        from muse_tmr.app import morning
+
+        save = morning.save_dream_report if form == "dream-report" else morning.save_retest
+        try:
+            return save(self._protocol_dir(), self.reports_base(), body), HTTPStatus.OK
+        except morning.MorningFileExists as exc:
+            return {"error": str(exc), "exists": True}, HTTPStatus.CONFLICT
+        except morning.UnknownNight as exc:
+            return {"error": str(exc)}, HTTPStatus.NOT_FOUND
+        except KeyError as exc:
+            return {"error": f"missing {exc}"}, HTTPStatus.BAD_REQUEST
+        except (TypeError, ValueError) as exc:
+            return {"error": str(exc)}, HTTPStatus.BAD_REQUEST
+
     # --- calibration run -----------------------------------------------------
 
     def start_calibration(self, body: Optional[Mapping[str, Any]] = None) -> Tuple[Mapping[str, Any], HTTPStatus]:
@@ -1738,6 +1772,14 @@ class LocalMuseAppHandler(BaseHTTPRequestHandler):
         if path == "/api/recordings":
             self._write_json(self.server.app_state.list_recordings())
             return
+        if path == "/api/morning/nights":
+            self._write_json(self.server.app_state.morning_nights())
+            return
+        if path == "/api/morning/night":
+            name = (parse_qs(parsed.query).get("name") or [""])[0]
+            payload, status = self.server.app_state.morning_night(name)
+            self._write_json(payload, status=status)
+            return
         if path == "/api/calibration/protocol":
             self._write_json(self.server.app_state.calibration_protocol())
             return
@@ -1815,6 +1857,10 @@ class LocalMuseAppHandler(BaseHTTPRequestHandler):
                 "/api/recordings/calibration-report": state.calibration_report_for,
             }[self.path]
             payload, status = action(body.get("kind"), body.get("name"))
+            self._write_json(payload, status=status)
+            return
+        if self.path in ("/api/morning/dream-report", "/api/morning/retest"):
+            payload, status = state.save_morning(self.path.rsplit("/", 1)[1], self._read_json_body())
             self._write_json(payload, status=status)
             return
         if self.path == "/api/calibration/start":
