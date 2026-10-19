@@ -38,10 +38,10 @@ EEG, 10 s epochs, no correction across metrics.
    `emg.condition_difference` in the summary should show a clear clench > relaxed
    difference in `emg_power_55_95`.
 
-   The setup app can run steps 2-4 for you ("Meditation…" when the headband is
+   The app can run steps 2-4 for you (the Meditation card once the headband is
    connected): plan, block timer with a tone and the practice spoken at each
    change, ratings after each block, and the analysis with a link to its report.
-   For the sessions that go into step 5, "Meditation series…" keeps the practices
+   For the sessions that go into step 5, the Meditation series card keeps the practices
    and block layout the same every time, always records the H10 and counts the
    sessions that ran through their last block. See `docs/contact_setup_local_app.md`.
    The steps below are the same by hand.
