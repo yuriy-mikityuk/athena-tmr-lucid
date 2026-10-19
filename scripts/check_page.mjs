@@ -245,6 +245,23 @@ try {
   );
   offline = false;
   await step(
+    "and does not flash it after the page was asleep",
+    async () => {
+      await evaluate(`(() => {
+        window.bannerShown = false;
+        new MutationObserver(() => {
+          window.bannerShown = window.bannerShown || !document.querySelector("#app-lost").hidden;
+        }).observe(document.querySelector("#app-lost"), { attributes: true, attributeFilter: ["hidden"] });
+      })()`);
+      // Frozen, its timers stop the way they do while the Mac sleeps.
+      await send("Page.setWebLifecycleState", { state: "frozen" });
+      await sleep(7000);
+      await send("Page.setWebLifecycleState", { state: "active" });
+      await sleep(2000);
+    },
+    `window.bannerShown === false || "the banner flashed after waking"`
+  );
+  await step(
     "a new build of the app reloads the page",
     async () => {
       await visit("/")();
