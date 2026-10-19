@@ -1577,7 +1577,8 @@ function showScreen(name) {
     loadHistory();
   }
   if (shown === "morning") {
-    loadMorning();
+    // Coming back to the tab keeps what is typed in the forms; only the list of nights refreshes.
+    loadMorning({ keepForms: morningNight != null });
   }
 }
 
@@ -1771,7 +1772,7 @@ const retestTimers = new Map();
 
 tabMorning.addEventListener("click", () => showScreen("morning"));
 
-async function loadMorning() {
+async function loadMorning({ keepForms = false } = {}) {
   let nights = [];
   try {
     nights = (await requestJson("/api/morning/nights")).nights || [];
@@ -1795,8 +1796,11 @@ async function loadMorning() {
     showMorningWarning("");
     return;
   }
-  morningNightSelect.value = nights.some((night) => night.name === current) ? current : nights[0].name;
-  await loadMorningNight(morningNightSelect.value);
+  const stillThere = nights.some((night) => night.name === current);
+  morningNightSelect.value = stillThere ? current : nights[0].name;
+  if (!keepForms || !stillThere) {
+    await loadMorningNight(morningNightSelect.value);
+  }
 }
 
 morningNightSelect.addEventListener("change", () => loadMorningNight(morningNightSelect.value));
@@ -1907,7 +1911,8 @@ dreamForm.addEventListener("submit", async (event) => {
       notes: dreamNotes.value
     },
     dreamError,
-    "dream report"
+    "dream report",
+    renderDreamForm
   );
 });
 
@@ -2056,7 +2061,8 @@ retestForm.addEventListener("submit", async (event) => {
     "/api/morning/retest",
     { night: morningNight.name, results, notes: retestNotes.value },
     retestError,
-    "retest"
+    "retest",
+    renderRetestForm
   );
 });
 
@@ -2068,7 +2074,8 @@ function postJson(url, body) {
   });
 }
 
-async function saveMorningForm(url, body, errorBox, what) {
+// After a save only that form is drawn again: the other one may hold answers not saved yet.
+async function saveMorningForm(url, body, errorBox, what, render) {
   errorBox.hidden = true;
   let response = await postJson(url, body);
   let payload = await response.json().catch(() => ({}));
@@ -2084,7 +2091,13 @@ async function saveMorningForm(url, body, errorBox, what) {
     errorBox.textContent = payload.error || `${response.status} ${response.statusText}`;
     return;
   }
-  await loadMorning();
+  try {
+    morningNight = await requestJson(`/api/morning/night?name=${encodeURIComponent(body.night)}`);
+    render(morningNight);
+  } catch (error) {
+    showMorningWarning(`Saved, but could not reload ${body.night}: ${error.message}`);
+  }
+  await loadMorning({ keepForms: true });
 }
 
 window.setInterval(loadHistory, 5000);
