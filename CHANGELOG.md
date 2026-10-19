@@ -12,6 +12,7 @@ Versions follow `muse_tmr.__version__`; the app shows the running version and bu
 - When the app stops answering (quit, crashed or restarting), the page says it is out of date and that a running recording keeps going, and dims what it last saw, instead of showing a frozen "Connected" (#212).
 - An app update no longer reloads the page over Morning answers that are not saved yet; it waits for the save and says so at the bottom of the page (#214).
 - The page and the meditation guide follow the system's dark mode, like the reports (#213).
+- After a meditation or a calibration run the main button is that recording's own analysis; the REM report is no longer offered there and stays on the Recordings tab (#217).
 
 ### Reports
 

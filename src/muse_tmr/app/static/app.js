@@ -561,14 +561,18 @@ function renderRecording(recording) {
   if (finished) {
     const report = latestRecording.report || { state: "none" };
     const ended = state === "completed" ? "Recording finished." : "Recording ended without a summary.";
+    // A meditation or a calibration run has its own analysis in the panel above. The REM
+    // report is for sleep: after those it stays on the Recordings tab unless one is under way.
+    const ownAnalysis = Boolean((latestRecording.meditation && latestRecording.meditation.plan) || latestRecording.calibration);
+    const offerRem = !ownAnalysis || report.state !== "none";
     const reportText = {
       none: "Build the REM report for it?",
       running: "Building the report...",
       ready: "Report ready.",
       failed: `Report failed, see ${report.log_path || "report.log"}. You can also run:`
     };
-    recordReportText.textContent = `${ended} ${reportText[report.state] || ""}`;
-    buildReportButton.hidden = report.state === "ready";
+    recordReportText.textContent = offerRem ? `${ended} ${reportText[report.state] || ""}` : ended;
+    buildReportButton.hidden = !offerRem || report.state === "ready";
     buildReportButton.disabled = report.state === "running";
     buildReportButton.textContent = report.state === "failed" ? "Try again" : "Build report";
     openReportLink.hidden = !(report.state === "ready" && report.url);
