@@ -628,6 +628,12 @@ h4 {
   border: 1px solid var(--line);
 }
 
+/* The two short cards stack on the left, the drawing takes the right column. */
+.why .mirror {
+  grid-column: 2;
+  grid-row: 1 / 3;
+}
+
 .why .icon {
   width: 28px;
   height: 28px;
@@ -775,6 +781,11 @@ h4 {
   .cards,
   .why {
     grid-template-columns: 1fr;
+  }
+
+  .why .mirror {
+    grid-column: auto;
+    grid-row: auto;
   }
 }
 

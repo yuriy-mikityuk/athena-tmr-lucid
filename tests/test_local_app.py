@@ -249,6 +249,17 @@ class TestLocalMuseApp(unittest.TestCase):
             self.assertIn(phrase.lower(), script.lower())
             self.assertIn(phrase.lower(), guide.lower())
 
+    def test_meditation_guide_pictures_are_served(self):
+        with urllib.request.urlopen(f"{self.base_url}/guide.html", timeout=2) as response:
+            guide = response.read().decode("utf-8")
+        # One picture per language, folded under the intro, and the file behind each.
+        for language in ("en", "ru"):
+            name = f"guide-why-{language}.webp"
+            self.assertIn(f'<img src="/{name}"', guide)
+            with urllib.request.urlopen(f"{self.base_url}/{name}", timeout=2) as response:
+                self.assertEqual(response.headers.get_content_type(), "image/webp")
+                self.assertEqual(response.read()[8:12], b"WEBP")
+
     def test_diagnostics_endpoint_reports_state_and_last_contact(self):
         self.post_json("/api/muse/connect")
         self.get_json("/api/muse/contact")

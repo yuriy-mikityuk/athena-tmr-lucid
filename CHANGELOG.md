@@ -2,6 +2,16 @@
 
 Versions follow `muse_tmr.__version__`; the app shows the running version and build at the bottom of the page.
 
+## Unreleased
+
+### Local app
+
+- The meditation guide says up front what the session is for, explains the mirrored block order without letters (a bracket under the two middle blocks, a drift drawing, why these two practices) and folds a one-picture version under its intro, in both languages. The meditation and series texts on the main page drop the ABBA/BAAB shorthand too.
+
+### Development and docs
+
+- `docs/guide_pictures.md` holds the prompts behind the guide's pictures and the rules for regenerating them.
+
 ## 0.3.0 (2026-10-19)
 
 ### Local app
