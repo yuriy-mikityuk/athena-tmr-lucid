@@ -1219,6 +1219,7 @@ summary:focus-visible {
 .night-picker select,
 .field select,
 .field input,
+.retest-item .retest-note,
 .field textarea,
 .retest-item textarea,
 .retest-item input[type="number"],

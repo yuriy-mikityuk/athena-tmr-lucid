@@ -144,6 +144,14 @@ class TestMorningSaving(unittest.TestCase):
         self.assertEqual(retest.solved_count, 1)
         self.assertEqual([r.duration_seconds for r in retest.results], [40, 41, 42, 43])
 
+    def test_a_saved_retest_comes_back_with_its_notes(self):
+        body = retest_body()
+        body["results"][2]["notes"] = "knew it at once"
+        morning.save_retest(self.protocol, self.reports, body)
+        saved = morning.night_payload(self.protocol, self.reports, "night-001")["retest"]["results"]
+        self.assertEqual(saved["p3"]["notes"], "knew it at once")
+        self.assertEqual(saved["p1"]["notes"], "")
+
     def test_the_retest_needs_the_nights_assignment(self):
         (self.protocol / "night-001_assignment.json").unlink()
         with self.assertRaises(ValueError) as raised:

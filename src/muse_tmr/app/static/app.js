@@ -1984,7 +1984,16 @@ function retestItem(puzzle, saved) {
   secondsLabel.appendChild(seconds);
   row.append(solvedLabel, confidenceLabel, secondsLabel);
 
-  item.append(head, prompt, answerLabel, row);
+  const noteLabel = document.createElement("label");
+  noteLabel.className = "field";
+  noteLabel.textContent = "Note";
+  const note = document.createElement("input");
+  note.className = "retest-note";
+  note.maxLength = 500;
+  note.value = saved ? saved.notes : "";
+  noteLabel.appendChild(note);
+
+  item.append(head, prompt, answerLabel, row, noteLabel);
 
   const state = { item, timer, elapsed, seconds, spent: saved ? Number(saved.duration_seconds) || 0 : 0, startedAt: null };
   retestTimers.set(puzzle.puzzle_id, state);
@@ -2060,7 +2069,8 @@ retestForm.addEventListener("submit", async (event) => {
       response: state.item.querySelector("textarea").value,
       solved: state.item.querySelector('input[type="checkbox"]').checked,
       duration_seconds: Number(state.seconds.value),
-      confidence: confidence === "" ? "" : Number(confidence) / 10
+      confidence: confidence === "" ? "" : Number(confidence) / 10,
+      notes: state.item.querySelector(".retest-note").value
     });
   });
   if (incomplete) {
