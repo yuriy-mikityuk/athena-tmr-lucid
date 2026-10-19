@@ -1554,6 +1554,7 @@ calibrationReportButton.addEventListener("click", async () => {
 
 const historyList = document.querySelector("#history-list");
 const historyCount = document.querySelector("#history-count");
+const historyError = document.querySelector("#history-error");
 const recordingFilters = document.querySelector("#recording-filters");
 let historyRecordings = [];
 let historyTotal = 0;
@@ -1754,13 +1755,23 @@ function jobControl(recording, status, openLabel, buildLabel, endpoint) {
   button.addEventListener("click", async () => {
     button.disabled = true;
     button.textContent = "Working...";
+    historyError.hidden = true;
     try {
-      await fetch(endpoint, {
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ kind: recording.kind, name: recording.name })
       });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || `${response.status} ${response.statusText}`);
+      }
+    } catch (error) {
+      historyError.hidden = false;
+      historyError.textContent = `${buildLabel} for ${recording.name}: ${error.message}`;
     } finally {
+      // Draw the list from what the server says now; a failed launch leaves it unchanged.
+      historyJson = "";
       await loadHistory();
     }
   });
