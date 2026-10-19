@@ -1556,7 +1556,12 @@ const historyList = document.querySelector("#history-list");
 const historyCount = document.querySelector("#history-count");
 const recordingFilters = document.querySelector("#recording-filters");
 let historyRecordings = [];
+let historyTotal = 0;
 let historyFilter = "all";
+// "Show older" asks for more; the list only redraws when what the server sends changes.
+const HISTORY_PAGE = 30;
+let historyLimit = HISTORY_PAGE;
+let historyJson = "";
 
 function showScreen(name) {
   const screens = {
@@ -1596,7 +1601,7 @@ recordingFilters.querySelectorAll(".chip").forEach((chip) => {
     recordingFilters.querySelectorAll(".chip").forEach((other) => {
       other.setAttribute("aria-pressed", String(other === chip));
     });
-    renderHistory(historyRecordings);
+    renderHistory(historyRecordings, historyTotal);
   });
 });
 
@@ -1605,8 +1610,15 @@ async function loadHistory() {
     return;
   }
   try {
-    renderHistory((await requestJson("/api/recordings")).recordings || []);
+    const payload = await requestJson(`/api/recordings?limit=${historyLimit}`);
+    const json = JSON.stringify(payload);
+    if (json === historyJson) {
+      return;
+    }
+    historyJson = json;
+    renderHistory(payload.recordings || [], payload.total || 0);
   } catch (error) {
+    historyJson = "";
     historyList.textContent = `Could not list recordings: ${error.message}`;
   }
 }
@@ -1621,19 +1633,34 @@ function recordingCategory(recording) {
   return recording.kind === "night" ? "night" : "session";
 }
 
-function renderHistory(recordings) {
+function renderHistory(recordings, total) {
   historyRecordings = recordings;
+  historyTotal = Math.max(total, recordings.length);
   const shown = recordings.filter((recording) => historyFilter === "all" || recordingCategory(recording) === historyFilter);
-  historyCount.textContent = recordings.length === 1 ? "1 recording" : `${recordings.length} recordings`;
+  historyCount.textContent = historyTotal === 1 ? "1 recording" : `${historyTotal} recordings`;
   historyList.innerHTML = "";
   if (shown.length === 0) {
     const item = document.createElement("li");
     item.className = "empty";
-    item.textContent = recordings.length === 0 ? "No recordings yet." : "No recordings of this kind yet.";
+    item.textContent = recordings.length === 0 ? "No recordings yet." : "No recordings of this kind among these.";
     historyList.appendChild(item);
-    return;
+  } else {
+    shown.forEach((recording) => historyList.appendChild(historyRow(recording)));
   }
-  shown.forEach((recording) => historyList.appendChild(historyRow(recording)));
+  const older = historyTotal - recordings.length;
+  if (older > 0) {
+    const item = document.createElement("li");
+    item.className = "more";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = `Show older (${older} more)`;
+    button.addEventListener("click", () => {
+      historyLimit += HISTORY_PAGE;
+      loadHistory();
+    });
+    item.appendChild(button);
+    historyList.appendChild(item);
+  }
 }
 
 function historyRow(recording) {

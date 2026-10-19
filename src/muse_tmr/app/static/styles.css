@@ -1049,6 +1049,11 @@ summary:focus-visible {
   color: var(--muted);
 }
 
+.history-list > li.more {
+  display: flex;
+  justify-content: center;
+}
+
 .rec-when {
   font-size: 0.92rem;
   font-variant-numeric: tabular-nums;
