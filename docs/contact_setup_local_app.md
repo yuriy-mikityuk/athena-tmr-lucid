@@ -85,6 +85,21 @@ you intentionally pass an explicit host such as `--host 0.0.0.0`.
 
 Stop the app with `Ctrl-C`.
 
+## Morning tab
+
+After a puzzle night (see `docs/pilot5_full_night.md`), the Morning tab lists the night
+puzzle sessions in `data/protocol`, newest first. A night's cue assignment is the one
+with the same session ID, and its catalog is one that holds all of its puzzles, so the
+files can be named either way (`night-001_puzzles.json`, `pilot5_smoke_session.json`).
+The dream report records lucidity, whether cues were heard, confidence, the free recall
+and how the dream touched any of the puzzles. The blind retest shows each puzzle's
+prompt with a timer (one runs at a time), an answer, solved, confidence and the
+seconds. Both save through the same code as `record-dream-report` and
+`record-puzzle-retest`, to `data/reports/<night>_dream_report.json` and
+`<night>_retest.json`; saving again asks first and replaces the file. The page is never
+told which puzzles were cued; the retest file keeps `cue_condition` for
+`analyze-cued-uncued`.
+
 ## Recordings tab
 
 The Recordings tab lists the newest folders under `data/recordings/{session,night}/`,

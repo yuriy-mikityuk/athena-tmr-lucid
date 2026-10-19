@@ -127,6 +127,12 @@ Log awakenings or cue recall notes:
   --notes "woke briefly; cue recall unclear"
 ```
 
+In the morning, the app's Morning tab does the next two steps without flags: pick the
+night, write the dream report, then do the blind retest with a timer per puzzle. It
+finds the night's catalog and assignment in `data/protocol` and saves to the same
+`data/reports/<night>_dream_report.json` and `<night>_retest.json` as the commands
+below. From the terminal:
+
 Record dream report:
 
 ```bash

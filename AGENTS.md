@@ -186,6 +186,10 @@ Put new engine code in the matching `muse_tmr` subpackage and new commands in
   structured, local-first, and versioned; link dream content to generated session puzzle
   IDs only after validating against `NightPuzzleSession`. Do not commit real dream
   reports, private recall text, or morning session outputs.
+- The app's Morning tab (`muse_tmr.app.morning`) saves both through `build_dream_report`
+  and `build_morning_retest`, into the paths the Pilot 5 runbook uses. Nothing it sends
+  to the page may say which puzzles were cued: no assignment IDs and no `cue_condition`,
+  also not when it shows a saved retest again.
 - Morning puzzle retest capture lives in `muse_tmr.reports.morning_retest`. Keep the
   retest blind during administration, but save `cue_condition` from `PuzzleCueAssignment`
   in the output for later analysis. Require solved/unsolved, duration, and confidence
