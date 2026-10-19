@@ -168,7 +168,7 @@ Audio output is capped by per-device calibration and a hard session maximum, alw
 
 ## Contributing
 
-Changes from people and from coding agents follow [`AGENTS.md`](AGENTS.md): the git preflight, small PRs tied to one issue, tests, conservative sleep-time audio defaults, no SDK files or private data in the repo, and no medical claims. [`docs/agent_rules.md`](docs/agent_rules.md) is the short version. CI runs the forbidden-files check and the test suite on every pull request.
+Changes from people and from coding agents follow [`AGENTS.md`](AGENTS.md): the git preflight, small PRs tied to one issue, tests, conservative sleep-time audio defaults, no SDK files or private data in the repo, and no medical claims. [`docs/agent_rules.md`](docs/agent_rules.md) is the short version. CI runs the forbidden-files check and the test suite on every pull request. What changed in each version is in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## License
 
