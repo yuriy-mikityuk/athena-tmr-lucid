@@ -27,7 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("status", help="Show project status and configured components.")
 
-    app_parser = subparsers.add_parser("app", help="Run the local Muse setup web app.")
+    app_parser = subparsers.add_parser("app", help="Run the Athena TMR app, a local web page.")
     app_parser.add_argument("--source", choices=("mock", "amused"), default="mock")
     app_parser.add_argument("--host", default="127.0.0.1")
     app_parser.add_argument("--port", type=int, default=8765)
@@ -1497,7 +1497,7 @@ def _calibration_run(args: argparse.Namespace) -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"calibration run: {output_dir} (preset {args.preset})")
-    print("Put on the Muse and the H10, sit, eyes closed. If the setup app is connected to the Muse, press Disconnect there.")
+    print("Put on the Muse and the H10, sit, eyes closed. If the Athena TMR app is connected to the Muse, press Disconnect there.")
     if args.line_check:
         _run_line_check(args, output_dir, speaker)
     print(f"{protocol[-1].end_s / 60:.0f} min from the first Muse frame:")
