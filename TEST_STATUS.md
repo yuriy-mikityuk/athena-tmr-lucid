@@ -1,7 +1,7 @@
 # Test Status
 
 ## Current Test Results
-- **720 tests passing**, 5 skipped ✅
+- **724 tests passing**, 5 skipped ✅
 - **0 tests failing** 🎉
 - **88% line coverage** on the `muse_tmr` package
 
