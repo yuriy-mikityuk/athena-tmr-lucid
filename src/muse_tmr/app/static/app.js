@@ -1989,8 +1989,12 @@ function retestItem(puzzle, saved) {
   const state = { item, timer, elapsed, seconds, spent: saved ? Number(saved.duration_seconds) || 0 : 0, startedAt: null };
   retestTimers.set(puzzle.puzzle_id, state);
   timer.addEventListener("click", () => toggleRetestTimer(state));
+  // A typed total replaces the time so far; a running timer goes on counting from it.
   seconds.addEventListener("change", () => {
     state.spent = Number(seconds.value) || 0;
+    if (state.startedAt != null) {
+      state.startedAt = Date.now();
+    }
     renderRetestTimer(state);
   });
   renderRetestTimer(state);
@@ -2006,7 +2010,8 @@ function renderRetestTimer(state) {
   state.timer.textContent = running ? "Done" : state.spent > 0 ? "Resume" : "Start";
   state.elapsed.textContent = formatDuration(retestSeconds(state));
   state.item.classList.toggle("timing", running);
-  if (running) {
+  // Not while the field is being typed into.
+  if (running && document.activeElement !== state.seconds) {
     state.seconds.value = String(Math.round(retestSeconds(state)));
   }
 }
