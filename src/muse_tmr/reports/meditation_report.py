@@ -10,7 +10,7 @@ import html
 import math
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
-from muse_tmr.reports.report_style import TOKENS_CSS, brand_line, format_braces
+from muse_tmr.reports.report_style import TOKENS_CSS, brand_line, format_braces, readable_time
 
 # Metrics compared in Mago et al. 2025, shown as a fixed, exploratory set.
 PAPER_METRICS = (
@@ -80,7 +80,7 @@ def _header(name: str, summary: Mapping[str, object], condition_a: str, conditio
         f"<p class=muted>{_e(condition_a)} vs {_e(condition_b)} · contrasts are "
         f"<b>{_e(condition_a)} − {_e(condition_b)}</b> · {counts.get('blocks', '?')} blocks, "
         f"{counts.get('epochs_in_blocks', '?')} epochs in blocks ({counts.get('clean_epochs', '?')} clean) · "
-        f"generated {_e(str(summary.get('generated_at', ''))[:16].replace('T', ' '))} UTC</p></header>"
+        f"generated {_e(readable_time(summary.get('generated_at')) or 'at an unknown time')}</p></header>"
     )
 
 
