@@ -10,6 +10,14 @@ The system records sleep biosignals all night (EEG, IMU, PPG), detects REM in re
 
 > **Status & scope:** not a medical device, n=1 research. Personal research software, self-experimentation only. No clinical, diagnostic, therapeutic, or lucid-dreaming claims. The engineering targets are protocol fidelity, safety guardrails, structured logging, and measurable validation.
 
+![The Record tab of the app: the headband's contact on the left, the recording modes on the right](docs/images/app-record.png)
+
+| Recordings | Morning |
+| --- | --- |
+| ![Every recording with its reports, EEG rate and lost subpackets](docs/images/app-recordings.png) | ![The dream report and the blind, timed retest after a puzzle night](docs/images/app-morning.png) |
+
+The pictures show the app on example data.
+
 ## Highlights
 
 - **Real-time pipeline:** BLE frames → 30-second epochs → multi-modal features → REM detection → stable gate → arousal guard → cue scheduler → volume-capped audio
