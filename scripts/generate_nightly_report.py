@@ -28,6 +28,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from muse_tmr.annotations import build_rem_annotation_rows  # noqa: E402
+from muse_tmr.reports.report_style import (  # noqa: E402
+    TOKENS_CSS,
+    brand_line,
+    format_braces,
+    local_minute_of_day,
+    readable_time,
+)
 from muse_tmr.data.replay import ReplayConfig, ReplaySession  # noqa: E402
 from muse_tmr.features.epochs import EpochBuilder, EpochConfig  # noqa: E402
 from muse_tmr.models import HeuristicRemDetector  # noqa: E402
@@ -102,34 +109,29 @@ def _build_callout(mean_p: float, ppg_present: bool, reconnects: int, stop_reaso
     return " ".join(parts)
 
 
-TEMPLATE = """<title>{title}</title>
-<style>
+# The app's tokens under the names this page uses; the night's curve is the app's indigo.
+TEMPLATE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{page_title}</title>
+<style>""" + format_braces(TOKENS_CSS) + """
 .viz-root {{
-  --surface-1:      #fcfcfb; --page: #f9f9f7; --text-primary: #0b0b0b; --text-secondary: #52514e;
-  --text-muted: #898781; --gridline: #e1e0d9; --baseline: #c3c2b7; --series-1: #2a78d6;
-  --series-1-fill-top: rgba(42,120,214,0.22); --series-1-fill-bot: rgba(42,120,214,0.02);
-  --border: rgba(11,11,11,0.10); --warn-bg: #fdf3e2; --warn-ink: #7a4a00; --warn-border: rgba(237,161,0,0.35);
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--page); color: var(--text-primary);
+  --surface-1: var(--sheet); --page: var(--paper); --text-primary: var(--ink); --text-secondary: var(--muted);
+  --text-muted: var(--muted); --gridline: var(--line); --baseline: #c9c2b6; --series-1: var(--sleep);
+  --series-1-fill-top: rgba(75,86,148,0.22); --series-1-fill-bot: rgba(75,86,148,0.02);
+  --border: var(--line); --warn-ink: var(--warn); --warn-border: var(--warn-line);
+  font-family: var(--sans); background: var(--page); color: var(--text-primary);
 }}
 @media (prefers-color-scheme: dark) {{
-  .viz-root {{ --surface-1:#1a1a19; --page:#0d0d0d; --text-primary:#fff; --text-secondary:#c3c2b7; --text-muted:#898781;
-    --gridline:#2c2c2a; --baseline:#383835; --series-1:#3987e5; --series-1-fill-top:rgba(57,135,229,0.28);
-    --series-1-fill-bot:rgba(57,135,229,0.02); --border:rgba(255,255,255,0.10); --warn-bg:#2a2210; --warn-ink:#f0c060;
-    --warn-border:rgba(201,133,0,0.4); }}
+  .viz-root {{ --baseline: #4a4944; --series-1-fill-top: rgba(165,173,240,0.28); --series-1-fill-bot: rgba(165,173,240,0.02); }}
 }}
-:root[data-theme="dark"] .viz-root {{ --surface-1:#1a1a19; --page:#0d0d0d; --text-primary:#fff; --text-secondary:#c3c2b7;
-  --text-muted:#898781; --gridline:#2c2c2a; --baseline:#383835; --series-1:#3987e5; --series-1-fill-top:rgba(57,135,229,0.28);
-  --series-1-fill-bot:rgba(57,135,229,0.02); --border:rgba(255,255,255,0.10); --warn-bg:#2a2210; --warn-ink:#f0c060;
-  --warn-border:rgba(201,133,0,0.4); }}
-:root[data-theme="light"] .viz-root {{ --surface-1:#fcfcfb; --page:#f9f9f7; --text-primary:#0b0b0b; --text-secondary:#52514e;
-  --text-muted:#898781; --gridline:#e1e0d9; --baseline:#c3c2b7; --series-1:#2a78d6; --series-1-fill-top:rgba(42,120,214,0.22);
-  --series-1-fill-bot:rgba(42,120,214,0.02); --border:rgba(11,11,11,0.10); --warn-bg:#fdf3e2; --warn-ink:#7a4a00;
-  --warn-border:rgba(237,161,0,0.35); }}
 * {{ box-sizing: border-box; }}
 body {{ margin: 0; }}
 .viz-root {{ min-height: 100vh; padding: 32px 20px 60px; }}
 .wrap {{ max-width: 920px; margin: 0 auto; }}
-h1 {{ font-size: 20px; font-weight: 600; margin: 0 0 4px; }}
+h1 {{ font-size: 26px; font-weight: 600; margin: 0 0 4px; }}
 .subtitle {{ color: var(--text-secondary); font-size: 14px; margin: 0 0 24px; }}
 .stat-row {{ display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }}
 .stat-tile {{ background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; min-width: 120px; flex: 1; }}
@@ -160,9 +162,11 @@ table {{ width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8p
 th, td {{ text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--gridline); font-variant-numeric: tabular-nums; }}
 th {{ color: var(--text-muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; }}
 </style>
-
+</head>
+<body>
 <div class="viz-root">
   <div class="wrap">
+    {brand}
     <h1>{title}</h1>
     <p class="subtitle">{subtitle}</p>
 
@@ -316,6 +320,8 @@ HOURLY.forEach(row => {{
   tbody.appendChild(tr);
 }});
 </script>
+</body>
+</html>
 """
 
 
@@ -363,28 +369,22 @@ def build_report(recording_dir: Path, output_path: Path, epoch_seconds: float = 
     source_name = source_meta.get("source_name", "unknown")
     preset = source_meta.get("metadata", {}).get("preset", "")
 
-    title = f"REM probability — {recording_dir.name}"
-    subtitle_bits = [source_name]
+    started = readable_time(started_at)
+    title = f"REM report · {started or recording_dir.name}"
+    subtitle_bits = [recording_dir.name, source_name]
     if preset:
         subtitle_bits.append(f"preset {preset}")
-    if started_at:
-        subtitle_bits.append(started_at)
-    subtitle_bits.append(f"{len(rows)} epochs ({epoch_seconds:.0f}s each)")
+    subtitle_bits.append(f"{len(rows)} epochs of {epoch_seconds:.0f} s")
     subtitle = " · ".join(subtitle_bits)
 
-    start_min = 0
-    if started_at:
-        try:
-            from datetime import datetime
-
-            dt = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
-            start_min = dt.hour * 60 + dt.minute
-        except ValueError:
-            pass
+    # The chart's clock times are local, like the heading.
+    start_min = local_minute_of_day(started_at)
 
     callout = _build_callout(mean_p, ppg_present, reconnects, stop_reason)
 
     html = TEMPLATE.format(
+        page_title=f"REM report · {recording_dir.name}",
+        brand=brand_line("REM report"),
         title=title,
         subtitle=subtitle,
         mean_p=mean_p,

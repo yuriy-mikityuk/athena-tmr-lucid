@@ -10,6 +10,8 @@ import html
 import math
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
+from muse_tmr.reports.report_style import TOKENS_CSS, brand_line, format_braces
+
 # Metrics compared in Mago et al. 2025, shown as a fixed, exploratory set.
 PAPER_METRICS = (
     ("lzc", "Lempel-Ziv complexity"),
@@ -74,7 +76,7 @@ def render_meditation_report(summary: Mapping[str, object], block_rows: Sequence
 def _header(name: str, summary: Mapping[str, object], condition_a: str, condition_b: str) -> str:
     counts = summary.get("counts") or {}
     return (
-        f"<header><h1>Meditation session <span class=mono>{_e(name)}</span></h1>"
+        f"<header>{brand_line('Meditation report')}<h1>Meditation session <span class=mono>{_e(name)}</span></h1>"
         f"<p class=muted>{_e(condition_a)} vs {_e(condition_b)} · contrasts are "
         f"<b>{_e(condition_a)} − {_e(condition_b)}</b> · {counts.get('blocks', '?')} blocks, "
         f"{counts.get('epochs_in_blocks', '?')} epochs in blocks ({counts.get('clean_epochs', '?')} clean) · "
@@ -459,22 +461,19 @@ def _e(text: str) -> str:
     return html.escape(str(text), quote=True)
 
 
+# The app's tokens, with the names these pages already use: A is the first practice
+# (focus in the guide) and B the second (open awareness).
 _PAGE = """<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
-<style>
-:root {{ --bg:#f7f7f5; --card:#ffffff; --text:#1c1c1a; --muted:#6b6a65; --line:#e3e2dc;
-        --a:#2a78d6; --b:#d9822b; --warn:#b45309; --ok:#15803d; }}
-@media (prefers-color-scheme: dark) {{
-  :root {{ --bg:#141413; --card:#1d1d1b; --text:#ecebe6; --muted:#a3a29b; --line:#33322e;
-          --a:#6aa6ee; --b:#f0a65a; --warn:#f59e0b; --ok:#4ade80; }}
-}}
+<style>""" + format_braces(TOKENS_CSS) + """
+:root {{ --bg:var(--paper); --card:var(--sheet); --text:var(--ink); --a:var(--focus); --b:var(--open); }}
 * {{ box-sizing:border-box; }}
 body {{ margin:0; padding:24px 16px; background:var(--bg); color:var(--text);
-       font:15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
+       font:15px/1.5 var(--sans); }}
 main {{ max-width:880px; margin:0 auto; }}
 header h1 {{ margin:0 0 4px; font-size:1.5rem; }}
 section {{ background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin:14px 0; }}
