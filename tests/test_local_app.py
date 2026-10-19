@@ -1,6 +1,7 @@
 import asyncio
 import datetime as dt
 import json
+import os
 import signal
 import sys
 import tempfile
@@ -203,6 +204,8 @@ class TestLocalMuseApp(unittest.TestCase):
         # The mode cards stay in view and only their buttons wait for a connection.
         self.assertIn("modes.hidden = recordingActive || finished", script)
         self.assertIn("document.title", script)
+        self.assertIn("Show older", script)
+        self.assertIn("/api/recordings?limit=", script)
         self.assertNotIn("startSessionButton.hidden", script)
         # The all-good check mark is an SVG path, which has no hidden property.
         self.assertIn('allGoodCheck.toggleAttribute("hidden", !snapshot.all_good)', script)
@@ -1259,6 +1262,25 @@ class TestLocalMuseAppRecentRecordings(TestLocalMuseAppReport):
         self.assertEqual(newest["meditation_report"]["state"], "none")
         self.assertEqual(older["report"]["url"], "/reports/night/20261007_230000.html")
         self.assertIsNone(older["meditation_report"])
+
+    def test_lists_the_newest_first_and_says_how_many_there_are(self):
+        for name in ("20261007_010000", "20261008_010000", "20261009_010000"):
+            self.make_recording("night", name, {"duration_seconds": 60})
+
+        listed = self.state.list_recordings(limit=2)
+        self.assertEqual([item["name"] for item in listed["recordings"]], ["20261009_010000", "20261008_010000"])
+        self.assertEqual(listed["total"], 3)
+
+    def test_orders_by_the_start_in_the_name_wherever_it_is(self):
+        self.make_recording("session", "20261010_010000", {})
+        self.make_recording("session", "smoke_muse_h10_20261009_012712", {})
+        unnamed = self.make_recording("session", "notes", {})
+        os.utime(unnamed, (0, 0))  # changed long ago
+
+        listed = self.state.list_recordings()["recordings"]
+        self.assertEqual([item["name"] for item in listed], ["20261010_010000", "smoke_muse_h10_20261009_012712", "notes"])
+        self.assertEqual(listed[1]["started_at"], "2026-10-09T01:27:12")
+        self.assertIsNone(listed[2]["started_at"])
 
     def test_lists_the_eeg_numbers_from_the_last_heartbeat(self):
         decoder = {
