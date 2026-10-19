@@ -56,14 +56,26 @@ def format_braces(css: str) -> str:
     return css.replace("{", "{{").replace("}", "}}")
 
 
-def readable_time(value: Optional[str]) -> str:
-    """An ISO timestamp as the local 'Sat 17 Oct 2026, 16:22'; anything else as given."""
+def _local_moment(value: Optional[str]) -> Optional[dt.datetime]:
+    """An ISO timestamp in this machine's time zone; recordings store theirs in UTC."""
     if not value:
-        return ""
+        return None
     try:
         moment = dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except ValueError:
-        return str(value)
-    if moment.tzinfo is not None:
-        moment = moment.astimezone()
+        return None
+    return moment.astimezone() if moment.tzinfo is not None else moment
+
+
+def readable_time(value: Optional[str]) -> str:
+    """An ISO timestamp as the local 'Sat 17 Oct 2026, 16:22'; anything else as given."""
+    moment = _local_moment(value)
+    if moment is None:
+        return str(value or "")
     return f"{moment:%a} {moment.day} {moment:%b %Y, %H:%M}"
+
+
+def local_minute_of_day(value: Optional[str]) -> int:
+    """Minutes since local midnight, so chart times match readable_time; 0 when unknown."""
+    moment = _local_moment(value)
+    return moment.hour * 60 + moment.minute if moment is not None else 0

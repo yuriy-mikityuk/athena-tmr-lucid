@@ -3,7 +3,7 @@ import importlib.util
 import unittest
 from pathlib import Path
 
-from muse_tmr.reports.report_style import TOKENS_CSS, brand_line, readable_time
+from muse_tmr.reports.report_style import TOKENS_CSS, brand_line, local_minute_of_day, readable_time
 
 
 def _load_nightly_report_script():
@@ -25,6 +25,15 @@ class TestReportStyle(unittest.TestCase):
         self.assertEqual(readable_time("2026-10-17T16:22:00"), "Sat 17 Oct 2026, 16:22")
         self.assertEqual(readable_time("not a time"), "not a time")
         self.assertEqual(readable_time(None), "")
+
+    def test_the_chart_clock_is_the_same_local_time_as_the_heading(self):
+        moment = dt.datetime(2026, 10, 17, 11, 22, 28, tzinfo=dt.timezone.utc)
+        local = moment.astimezone()
+        self.assertEqual(local_minute_of_day(moment.isoformat()), local.hour * 60 + local.minute)
+        self.assertTrue(readable_time(moment.isoformat()).endswith(f"{local:%H:%M}"))
+        self.assertEqual(local_minute_of_day("2026-10-17T16:22:00"), 16 * 60 + 22)
+        self.assertEqual(local_minute_of_day(""), 0)
+        self.assertEqual(local_minute_of_day("not a time"), 0)
 
     def test_brand_line_names_the_app_and_escapes_the_kind(self):
         line = brand_line("<b>REM</b> report")

@@ -28,7 +28,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from muse_tmr.annotations import build_rem_annotation_rows  # noqa: E402
-from muse_tmr.reports.report_style import TOKENS_CSS, brand_line, format_braces, readable_time  # noqa: E402
+from muse_tmr.reports.report_style import (  # noqa: E402
+    TOKENS_CSS,
+    brand_line,
+    format_braces,
+    local_minute_of_day,
+    readable_time,
+)
 from muse_tmr.data.replay import ReplayConfig, ReplaySession  # noqa: E402
 from muse_tmr.features.epochs import EpochBuilder, EpochConfig  # noqa: E402
 from muse_tmr.models import HeuristicRemDetector  # noqa: E402
@@ -371,15 +377,8 @@ def build_report(recording_dir: Path, output_path: Path, epoch_seconds: float = 
     subtitle_bits.append(f"{len(rows)} epochs of {epoch_seconds:.0f} s")
     subtitle = " · ".join(subtitle_bits)
 
-    start_min = 0
-    if started_at:
-        try:
-            from datetime import datetime
-
-            dt = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
-            start_min = dt.hour * 60 + dt.minute
-        except ValueError:
-            pass
+    # The chart's clock times are local, like the heading.
+    start_min = local_minute_of_day(started_at)
 
     callout = _build_callout(mean_p, ppg_present, reconnects, stop_reason)
 
