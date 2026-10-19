@@ -166,6 +166,10 @@ Optional backends: OpenMuse (LSL) and BrainFlow adapters map into the same `Muse
 
 Audio output is capped by per-device calibration and a hard session maximum, always fades in and out, and can be cut by the arousal guard or an emergency stop — every playback attempt is logged as JSONL. Personal artifacts stay local by design: volume calibration files, puzzle catalogs and responses, and dream reports are gitignored. This software does not diagnose, treat, or monitor any medical condition.
 
+## Contributing
+
+Changes from people and from coding agents follow [`AGENTS.md`](AGENTS.md): the git preflight, small PRs tied to one issue, tests, conservative sleep-time audio defaults, no SDK files or private data in the repo, and no medical claims. [`docs/agent_rules.md`](docs/agent_rules.md) is the short version. CI runs the forbidden-files check and the test suite on every pull request.
+
 ## License
 
 MIT — see [LICENSE](LICENSE). If you build on the BLE layer specifically, please also cite upstream amused-py (citation block preserved in [`docs/amused_upstream.md`](docs/amused_upstream.md)).
