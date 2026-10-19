@@ -1,4 +1,4 @@
-"""Stdlib HTTP server for the local Muse setup app."""
+"""Stdlib HTTP server for the Athena TMR app."""
 
 from __future__ import annotations
 
@@ -1942,6 +1942,8 @@ class LocalMuseAppHandler(BaseHTTPRequestHandler):
         if relative_path in {"", "/"}:
             relative_path = "/index.html"
         normalized = posixpath.normpath(relative_path).lstrip("/")
+        if normalized == "favicon.ico":
+            normalized = "icon.svg"
         if normalized.startswith("../") or normalized == "..":
             self.send_error(HTTPStatus.NOT_FOUND)
             return

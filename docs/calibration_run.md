@@ -15,7 +15,7 @@ blocks files for the analysis are cut from those logged times, not from the plan
 
 ## Running it
 
-In the setup app: connect the Muse, wait for good contact, put on the H10 strap, then
+In the app: connect the Muse, wait for good contact, put on the H10 strap, then
 **Set up…** on the Calibration run card, pick the voice language and **Start
 calibration**. The recording panel shows the current step and the H10 status. When it is
 done, **Build calibration report** (also on the Recordings tab).

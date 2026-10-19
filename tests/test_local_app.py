@@ -147,6 +147,9 @@ class TestLocalMuseApp(unittest.TestCase):
             script = response.read().decode("utf-8")
         with urllib.request.urlopen(f"{self.base_url}/icon.svg", timeout=2) as response:
             self.assertEqual(response.headers.get_content_type(), "image/svg+xml")
+        # Reports and other pages get the same icon where browsers look by default.
+        with urllib.request.urlopen(f"{self.base_url}/favicon.ico", timeout=2) as response:
+            self.assertEqual(response.headers.get_content_type(), "image/svg+xml")
 
         self.assertIn("Connect Muse", body)
         self.assertIn("headband-title", body)
@@ -199,6 +202,7 @@ class TestLocalMuseApp(unittest.TestCase):
         self.assertIn('scanButton.hidden = connection === "connected"', script)
         # The mode cards stay in view and only their buttons wait for a connection.
         self.assertIn("modes.hidden = recordingActive || finished", script)
+        self.assertIn("document.title", script)
         self.assertNotIn("startSessionButton.hidden", script)
         # The all-good check mark is an SVG path, which has no hidden property.
         self.assertIn('allGoodCheck.toggleAttribute("hidden", !snapshot.all_good)', script)

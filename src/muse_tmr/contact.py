@@ -1,4 +1,4 @@
-"""Contact quality contracts and mock scenarios for local Muse setup."""
+"""Contact quality contracts and mock scenarios for the app's contact check."""
 
 from __future__ import annotations
 
