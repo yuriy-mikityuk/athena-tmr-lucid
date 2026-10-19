@@ -1,4 +1,5 @@
-/* Same tokens as guide.css: paper, ink, the focus teal, the open orange and the sleep indigo. */
+/* Same tokens as guide.css and the reports: paper, ink, the focus teal, the open orange
+   and the sleep indigo, with a dark set that follows the system. */
 :root {
   color-scheme: light;
   --paper: #faf8f4;
@@ -25,9 +26,56 @@
   --danger-soft: #fbe9e9;
   --live: #0b4fa3;
   --live-soft: #e4eefb;
+  --on-focus: #ffffff;
+  --frame: rgba(255, 255, 255, 0.55);
+  --danger-line: #efc4c4;
+  --contact-missing: #cfd6dd;
+  --contact-poor: #f59e0b;
+  --contact-fair: #2dd4bf;
+  --strip-line: #bbf7d0;
+  --strip-bg: #f0fdf4;
+  --strip-ink: #14532d;
   --serif: "Iowan Old Style", Charter, Georgia, "Times New Roman", serif;
   --sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* For the night: the same roles, light on dark. Text colours keep at least 4.5:1 on --sheet. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --paper: #131615;
+    --sheet: #1b1f1e;
+    --ink: #ecebe6;
+    --muted: #a3a29b;
+    --line: #33322e;
+    --line-strong: #4a4943;
+    --focus: #2dd4bf;
+    --focus-soft: #12302c;
+    --focus-ink: #5eead4;
+    --open: #f59e0b;
+    --open-soft: #2a2210;
+    --open-ink: #fbbf24;
+    --sleep: #a5adf0;
+    --sleep-soft: #1f2340;
+    --settle: #a3acb6;
+    --settle-soft: #2a2f2e;
+    --good: #4ade80;
+    --good-soft: #15301f;
+    --fair: #2dd4bf;
+    --warning: #f59e0b;
+    --danger: #f87171;
+    --danger-soft: #3a1717;
+    --live: #93c5fd;
+    --live-soft: #172a45;
+    --on-focus: #04201d;
+    --frame: rgba(27, 31, 30, 0.6);
+    --danger-line: #6b2a2a;
+    --contact-missing: #4a5258;
+    --strip-line: #1f5133;
+    --strip-bg: #10241a;
+    --strip-ink: #86efac;
+  }
 }
 
 * {
@@ -76,7 +124,7 @@ button:hover:not(:disabled) {
 button.primary {
   background: var(--focus);
   border-color: var(--focus);
-  color: #ffffff;
+  color: var(--on-focus);
 }
 
 button.primary:hover:not(:disabled) {
@@ -85,7 +133,7 @@ button.primary:hover:not(:disabled) {
 
 button.stop {
   color: var(--danger);
-  border-color: #efc4c4;
+  border-color: var(--danger-line);
 }
 
 button:disabled {
@@ -122,7 +170,7 @@ summary:focus-visible {
   margin: 0 auto;
   border: 1px solid var(--line);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.55);
+  background: var(--frame);
   overflow: hidden;
 }
 
@@ -150,6 +198,19 @@ summary:focus-visible {
 .brand-mark {
   width: 30px;
   height: 30px;
+}
+
+/* The mark's own colours, from the tokens so it stays clear on the dark bar. */
+.brand-mark path {
+  stroke: var(--focus);
+}
+
+.brand-mark circle {
+  fill: var(--sleep);
+}
+
+.brand-mark circle:last-child {
+  fill: var(--open);
 }
 
 .nav {
@@ -382,15 +443,15 @@ summary:focus-visible {
 }
 
 .segment-fill.missing {
-  stroke: #cfd6dd;
+  stroke: var(--contact-missing);
 }
 
 .segment-fill.poor {
-  stroke: #f59e0b;
+  stroke: var(--contact-poor);
 }
 
 .segment-fill.fair {
-  stroke: #2dd4bf;
+  stroke: var(--contact-fair);
 }
 
 .segment-fill.good {
@@ -782,6 +843,7 @@ summary:focus-visible {
 .form-grid input {
   border: 1px solid var(--line-strong);
   border-radius: 7px;
+  background: var(--sheet);
   color: var(--ink);
   padding: 6px 8px;
   font: inherit;
@@ -988,10 +1050,10 @@ summary:focus-visible {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 12px;
-  border: 1px solid #bbf7d0;
+  border: 1px solid var(--strip-line);
   border-radius: 10px;
-  background: #f0fdf4;
-  color: #14532d;
+  background: var(--strip-bg);
+  color: var(--strip-ink);
   padding: 9px 12px;
   font-size: 0.92rem;
 }
@@ -1049,7 +1111,7 @@ summary:focus-visible {
 .chip[aria-pressed="true"] {
   border-color: var(--ink);
   background: var(--ink);
-  color: #ffffff;
+  color: var(--sheet);
 }
 
 .history-list {
