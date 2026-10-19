@@ -716,14 +716,19 @@ function startRecording(kind) {
   });
 }
 
-cancelStartButton.addEventListener("click", async () => {
+async function cancelPendingStart() {
+  if (!pendingStart) {
+    return;
+  }
   pendingStart = null;
   try {
     renderGate(await requestJson("/api/session/record/disarm", { method: "POST" }));
   } finally {
     await refreshUiState();
   }
-});
+}
+
+cancelStartButton.addEventListener("click", cancelPendingStart);
 
 startSessionButton.addEventListener("click", () => startRecording("session"));
 startNightButton.addEventListener("click", () => startRecording("night"));
@@ -1156,8 +1161,10 @@ startMeditationButton.addEventListener("click", () => {
   meditationChime.checked = chimeEnabled();
 });
 
+// Cancelling a form also drops a start that is still waiting for contact.
 meditationCancel.addEventListener("click", () => {
   meditationForm.hidden = true;
+  cancelPendingStart();
 });
 
 meditationForm.addEventListener("submit", async (event) => {
@@ -1307,6 +1314,7 @@ startSeriesButton.addEventListener("click", async () => {
 
 document.querySelector("#series-cancel").addEventListener("click", () => {
   seriesForm.hidden = true;
+  cancelPendingStart();
 });
 
 seriesNew.addEventListener("click", async () => {
@@ -1418,6 +1426,7 @@ startCalibrationButton.addEventListener("click", async () => {
 
 document.querySelector("#calibration-cancel").addEventListener("click", () => {
   calibrationForm.hidden = true;
+  cancelPendingStart();
 });
 
 calibrationForm.addEventListener("submit", async (event) => {

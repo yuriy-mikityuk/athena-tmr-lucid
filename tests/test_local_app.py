@@ -175,6 +175,8 @@ class TestLocalMuseApp(unittest.TestCase):
         self.assertIn("/api/session/record/arm", script)
         self.assertIn("/api/session/record/disarm", script)
         self.assertIn('id="cancel-start-button"', body)
+        # Cancel start and the meditation, series and calibration form Cancel all drop a waiting start.
+        self.assertEqual(script.count("cancelPendingStart"), 5)
         self.assertIn("/api/session/record/stop", script)
         self.assertIn("Starting session", script)
         self.assertIn("Session running", script)
