@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, patch
 
 from muse_tmr.app import AppConfig, create_local_app_server
 from muse_tmr.app.server import CAFFEINATE
+from muse_tmr.contact import MockContactProvider, builtin_contact_snapshots
 from muse_tmr.sources.base_source import MuseSourceMetadata
 
 
@@ -171,6 +172,11 @@ class TestLocalMuseApp(unittest.TestCase):
         self.assertNotIn('requestJson("/api/muse/gate"', script)
         self.assertNotIn('requestJson("/api/muse/diagnostics"', script)
         self.assertIn("/api/session/record", script)
+        self.assertIn("/api/session/record/arm", script)
+        self.assertIn("/api/session/record/disarm", script)
+        self.assertIn('id="cancel-start-button"', body)
+        # Cancel start and the meditation, series and calibration form Cancel all drop a waiting start.
+        self.assertEqual(script.count("cancelPendingStart"), 5)
         self.assertIn("/api/session/record/stop", script)
         self.assertIn("Starting session", script)
         self.assertIn("Session running", script)
@@ -1175,6 +1181,15 @@ class TestLocalMuseAppMeditationSeries(TestLocalMuseAppReport):
                 return json.loads(response.read())
 
         self.assertEqual(call(), {"counted": 0, "series": None, "sessions": [], "target": 8})
+        # A start from the page needs the contact gate armed and good for its window.
+        clock = [0.0]
+        self.state._contact_gate.time_fn = lambda: clock[0]
+        self.state._contact_provider = MockContactProvider.for_scenario("all_good")
+        self.state._connection_state = "connected"
+        self.state.arm_recording_gate()
+        for second in range(1, 6):
+            clock[0] = float(second)
+            self.state.gate()
         started = call("/start", self.FIRST)
         self.assertEqual(started["meditation"]["plan"]["series"], call()["series"]["id"])
         self.assertEqual([session["state"] for session in call()["sessions"]], ["recording"])
@@ -1422,6 +1437,169 @@ class TestLocalMuseAppRecordingEndpoint(unittest.TestCase):
             self._post("/api/session/record", {"kind": "night"})
         self.assertEqual(raised.exception.code, 409)
         self.assertEqual(self.launcher.calls, [])
+
+
+class TestLocalMuseAppRecordingGate(unittest.TestCase):
+    """Every recording start from the page goes through the armed contact gate."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.launcher = LauncherSpy()
+        self.server = create_local_app_server(
+            AppConfig(port=0, source="amused"),
+            launcher=self.launcher,
+            recordings_base=Path(self._tmp.name),
+            now_fn=lambda: _FIXED_NOW,
+        )
+        self.state = self.server.app_state
+        self.now = 1000.0
+        self.state._contact_gate.time_fn = lambda: self.now
+        # Stand in for a connected headband whose contact the test sets.
+        self.state._contact_provider = MockContactProvider.for_scenario("all_good")
+        self.state._connection_state = "connected"
+        self.contact("all_good")
+        self.thread = threading.Thread(target=self.server.serve_forever)
+        self.thread.start()
+        host, port = self.server.server_address
+        self.base_url = f"http://{host}:{port}"
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.thread.join(timeout=2)
+        self.server.app_state.shutdown()
+        self.server.server_close()
+        self._tmp.cleanup()
+
+    def contact(self, scenario, index=0):
+        self.state._last_contact_snapshot = builtin_contact_snapshots(scenario)[index]
+
+    def post(self, path, body=None):
+        request = urllib.request.Request(
+            f"{self.base_url}{path}",
+            data=json.dumps(body or {}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=2) as response:
+                return response.status, json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            return error.code, json.loads(error.read().decode("utf-8"))
+
+    def gate_at(self, seconds):
+        self.now = 1000.0 + seconds
+        with urllib.request.urlopen(f"{self.base_url}/api/muse/gate", timeout=2) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def watch(self, first, last):
+        """Look at the gate every second, the way the page polls it."""
+        for second in range(first, last + 1):
+            gate = self.gate_at(second)
+        return gate
+
+    def record_at(self, seconds):
+        self.now = 1000.0 + seconds
+        return self.post("/api/session/record", {"kind": "night"})
+
+    def test_a_start_without_arming_is_refused(self):
+        status, payload = self.record_at(60)
+        self.assertEqual(status, 409)
+        self.assertFalse(payload["gate"]["armed"])
+        self.assertIn("gate_disarmed", payload["gate"]["reason_codes"])
+        self.assertEqual(self.launcher.calls, [])
+
+    def test_good_contact_starts_after_the_stability_window(self):
+        status, armed = self.post("/api/session/record/arm")
+        self.assertEqual(status, 200)
+        self.assertEqual(armed["state"], "ready_countdown")
+
+        self.watch(1, 4)
+        status, payload = self.record_at(4.9)
+        self.assertEqual(status, 409)
+        self.assertIn("stability_window_pending", payload["gate"]["reason_codes"])
+        self.assertEqual(self.launcher.calls, [])
+
+        status, payload = self.record_at(5.0)
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["kind"], "night")
+        self.assertEqual(len(self.launcher.calls), 1)
+        # Starting hands the headband to the recorder, which disarms the gate.
+        self.assertFalse(self.gate_at(6)["armed"])
+
+    def test_a_poor_missing_or_stale_channel_blocks_the_start(self):
+        for scenario, index in (("one_channel_poor", 0), ("all_missing", 0), ("stale_data", 1)):
+            self.contact(scenario, index)
+            self.post("/api/session/record/arm")
+            status, payload = self.record_at(60)
+            self.assertEqual(status, 409, scenario)
+            self.assertEqual(payload["gate"]["state"], "armed_waiting_contact", scenario)
+        self.assertEqual(self.launcher.calls, [])
+
+    def test_a_contact_drop_restarts_the_countdown(self):
+        self.post("/api/session/record/arm")
+        self.watch(1, 2)
+        self.contact("flapping_af7", 1)
+        self.assertEqual(self.gate_at(3)["state"], "armed_waiting_contact")
+        self.contact("flapping_af7", 2)
+        self.assertEqual(self.gate_at(4)["state"], "ready_countdown")
+
+        self.watch(5, 8)
+        status, _payload = self.record_at(8.5)
+        self.assertEqual(status, 409)
+        status, _payload = self.record_at(9)
+        self.assertEqual(status, 200)
+        self.assertEqual(len(self.launcher.calls), 1)
+
+    def test_a_pause_in_polling_does_not_count_as_good_contact(self):
+        self.post("/api/session/record/arm")
+        self.watch(1, 3)
+        # The page stops polling (a background tab) while the contact drops and
+        # comes back; the gate never sees the drop.
+        status, payload = self.record_at(5.1)
+        self.assertEqual(status, 409)
+        self.assertEqual(payload["gate"]["stable_for_seconds"], 0.0)
+
+        self.watch(6, 10)
+        status, _payload = self.record_at(10.1)
+        self.assertEqual(status, 200)
+        self.assertEqual(len(self.launcher.calls), 1)
+
+    def test_disconnect_and_cancel_drop_the_armed_start(self):
+        self.post("/api/session/record/arm")
+        self.assertEqual(self.watch(1, 5)["state"], "ready")
+        self.post("/api/session/record/disarm")
+        status, payload = self.record_at(6)
+        self.assertEqual(status, 409)
+        self.assertFalse(payload["gate"]["armed"])
+
+        self.now = 1006.0
+        self.post("/api/session/record/arm")
+        self.assertEqual(self.watch(7, 11)["state"], "ready")
+        self.state.disconnect()
+        self.state._connection_state = "connected"
+        status, payload = self.record_at(12)
+        self.assertEqual(status, 409)
+        self.assertFalse(payload["gate"]["armed"])
+        self.assertEqual(self.launcher.calls, [])
+
+    def test_meditation_series_and_calibration_starts_need_the_gate_too(self):
+        meditation = {"conditions": ["focus", "open"], "blocks": 4, "block_minutes": 0.5, "settle_seconds": 30}
+        for path, body in (
+            ("/api/meditation/start", meditation),
+            ("/api/meditation/series/start", meditation),
+            ("/api/calibration/start", {"language": "en"}),
+        ):
+            status, payload = self.post(path, body)
+            self.assertEqual(status, 409, path)
+            self.assertIn("gate", payload)
+        self.assertEqual(self.launcher.calls, [])
+
+        self.post("/api/session/record/arm")
+        self.watch(1, 5)
+        status, payload = self.post("/api/meditation/start", meditation)
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["meditation"]["plan"])
+        self.assertEqual(len(self.launcher.calls), 1)
 
 
 if __name__ == "__main__":

@@ -35,6 +35,7 @@ const calibrationReportButton = document.querySelector("#calibration-report-butt
 const openCalibrationReport = document.querySelector("#open-calibration-report");
 const calibrationReportText = document.querySelector("#calibration-report-text");
 const stopRecordingButton = document.querySelector("#stop-recording-button");
+const cancelStartButton = document.querySelector("#cancel-start-button");
 const disconnectButton = document.querySelector("#disconnect-button");
 const recordHint = document.querySelector("#record-hint");
 const recordReport = document.querySelector("#record-report");
@@ -78,6 +79,10 @@ let latestContact = {};
 let latestGate = {};
 let latestDiagnostics = {};
 let latestRecording = {};
+// A start waiting for the contact gate: { label, url, body, done }.
+let pendingStart = null;
+let pendingSending = false;
+let startError = "";
 // The output folder of a finished recording put away with "Back to menu"; kept over a reload.
 let dismissedRecording = readDismissedRecording();
 let loadedBuild = null;
@@ -113,6 +118,9 @@ async function requestJson(path, options = {}) {
 
 function renderState(state) {
   latestState = { ...latestState, ...state };
+  if (latestState.connection_state !== "connected" && !pendingSending) {
+    pendingStart = null;
+  }
   const connection = displayConnection();
   stateLabel.textContent = connectionLabel();
   renderSourceBadge(latestState.source || "unknown");
@@ -201,7 +209,6 @@ function renderActions() {
   const connection = latestState.connection_state || "disconnected";
   const recordingActive = Boolean(latestRecording.active);
   const isAmused = latestState.source === "amused";
-  const contactReady = Boolean(latestContact.all_good);
 
   // While a detached recording runs, the app has released BLE; collapse setup controls.
   scanButton.hidden = connection === "connected" || recordingActive;
@@ -224,8 +231,12 @@ function renderActions() {
     recordingActive && latestRecording.state !== "stopping" && latestRecording.state !== "finishing"
   );
 
-  // Recording needs the live headband and good contact.
-  const recordEnabled = canRecord && isAmused && contactReady;
+  // Recording needs the live headband. A start waits for good contact itself.
+  const recordEnabled = canRecord && isAmused && !pendingStart;
+  cancelStartButton.hidden = !(canRecord && pendingStart);
+  for (const form of [meditationForm, seriesForm, calibrationForm]) {
+    form.querySelector('button[type="submit"]').disabled = Boolean(pendingStart);
+  }
   startSessionButton.disabled = !recordEnabled;
   startNightButton.disabled = !recordEnabled;
   startMeditationButton.disabled = !recordEnabled;
@@ -400,6 +411,7 @@ function contactSparkline(channel) {
 
 function renderGate(gate) {
   latestGate = gate;
+  sendPendingStartWhenReady();
   renderActions();
   renderAppTitle();
   renderSessionStrip();
@@ -470,8 +482,12 @@ function renderRecording(recording) {
   if (showHint) {
     if (!isAmused) {
       recordHint.textContent = "Recording needs the live Muse source (run the app with --source amused).";
+    } else if (pendingStart) {
+      recordHint.textContent = pendingStartText();
+    } else if (startError) {
+      recordHint.textContent = `Could not start: ${startError}`;
     } else if (!contactReady) {
-      recordHint.textContent = "Adjust the headband until all four channels are good to enable recording.";
+      recordHint.textContent = `Adjust the headband until all four channels are good. A start waits for that and goes ahead after ${stabilitySeconds()} s of good contact.`;
     } else {
       recordHint.textContent =
         "Contact looks good — ready to record. Keep the Mac plugged in and the lid open for a night session.";
@@ -619,19 +635,100 @@ withPolarCheckbox.addEventListener("change", () => {
   }
 });
 
-async function startRecording(kind) {
-  startSessionButton.disabled = true;
-  startNightButton.disabled = true;
+// --- start once the contact is good -------------------------------------------
+// A start button arms the backend contact gate, and the start request goes out
+// once the gate has seen all four channels good for its stability window. The
+// backend refuses a start before that, so the wait is not only in the page.
+
+function stabilitySeconds() {
+  const seconds = numberOrNull(latestGate.required_stability_seconds);
+  return seconds == null ? 5 : Math.round(seconds * 10) / 10;
+}
+
+function pendingStartText() {
+  const label = pendingStart.label;
+  if (latestGate.state === "ready_countdown") {
+    const left = Math.max(1, Math.ceil(stabilitySeconds() - (numberOrNull(latestGate.stable_for_seconds) || 0)));
+    return `Contact good. The ${label} starts in ${left} s if it stays that way.`;
+  }
+  if (latestGate.state === "ready") {
+    return `Starting the ${label}...`;
+  }
+  return `The ${label} starts once all four channels have been good for ${stabilitySeconds()} s.`;
+}
+
+async function startWhenReady(start) {
+  startError = "";
+  pendingStart = start;
+  renderRecording(latestRecording);
   try {
-    await requestJson("/api/session/record", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind, with_polar: withPolarCheckbox.checked })
+    renderGate(await requestJson("/api/session/record/arm", { method: "POST" }));
+  } catch (error) {
+    pendingStart = null;
+    startError = error.message;
+  }
+  renderRecording(latestRecording);
+}
+
+function sendPendingStartWhenReady() {
+  if (!pendingStart || pendingSending || latestGate.state !== "ready") {
+    return;
+  }
+  const start = pendingStart;
+  pendingSending = true;
+  fetch(start.url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(start.body)
+  })
+    .then(async (response) => {
+      const payload = await response.json().catch(() => ({}));
+      if (response.status === 409 && payload.gate) {
+        return; // the contact slipped in between; the gate counts again
+      }
+      if (pendingStart === start) {
+        pendingStart = null;
+      }
+      await start.done(response, payload);
+    })
+    .catch((error) => {
+      if (pendingStart === start) {
+        pendingStart = null;
+      }
+      startError = error.message;
+    })
+    .finally(() => {
+      pendingSending = false;
+      refreshUiState();
     });
+}
+
+function startRecording(kind) {
+  startWhenReady({
+    label: kind === "night" ? "night session" : "session",
+    url: "/api/session/record",
+    body: { kind, with_polar: withPolarCheckbox.checked },
+    done: (response, payload) => {
+      if (!response.ok) {
+        startError = payload.error || `${response.status} ${response.statusText}`;
+      }
+    }
+  });
+}
+
+async function cancelPendingStart() {
+  if (!pendingStart) {
+    return;
+  }
+  pendingStart = null;
+  try {
+    renderGate(await requestJson("/api/session/record/disarm", { method: "POST" }));
   } finally {
     await refreshUiState();
   }
 }
+
+cancelStartButton.addEventListener("click", cancelPendingStart);
 
 startSessionButton.addEventListener("click", () => startRecording("session"));
 startNightButton.addEventListener("click", () => startRecording("night"));
@@ -674,6 +771,7 @@ stopRecordingButton.addEventListener("click", async () => {
 });
 
 disconnectButton.addEventListener("click", async () => {
+  pendingStart = null;
   await requestJson("/api/muse/disconnect", { method: "POST" });
   await refreshUiState();
 });
@@ -1063,8 +1161,10 @@ startMeditationButton.addEventListener("click", () => {
   meditationChime.checked = chimeEnabled();
 });
 
+// Cancelling a form also drops a start that is still waiting for contact.
 meditationCancel.addEventListener("click", () => {
   meditationForm.hidden = true;
+  cancelPendingStart();
 });
 
 meditationForm.addEventListener("submit", async (event) => {
@@ -1080,21 +1180,21 @@ meditationForm.addEventListener("submit", async (event) => {
     settle_seconds: Number(document.querySelector("#med-settle").value),
     with_polar: withPolarCheckbox.checked
   };
-  const response = await fetch("/api/meditation/start", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body)
+  startWhenReady({
+    label: "meditation",
+    url: "/api/meditation/start",
+    body,
+    done: (response, payload) => {
+      const formError = document.querySelector("#med-error");
+      if (response.ok) {
+        meditationForm.hidden = true;
+        formError.hidden = true;
+      } else {
+        formError.hidden = false;
+        formError.textContent = payload.error || `${response.status} ${response.statusText}`;
+      }
+    }
   });
-  const formError = document.querySelector("#med-error");
-  if (response.ok) {
-    meditationForm.hidden = true;
-    formError.hidden = true;
-  } else {
-    const payload = await response.json().catch(() => ({}));
-    formError.hidden = false;
-    formError.textContent = payload.error || `${response.status} ${response.statusText}`;
-  }
-  await refreshUiState();
 });
 
 analyzeMeditationButton.addEventListener("click", async () => {
@@ -1214,6 +1314,7 @@ startSeriesButton.addEventListener("click", async () => {
 
 document.querySelector("#series-cancel").addEventListener("click", () => {
   seriesForm.hidden = true;
+  cancelPendingStart();
 });
 
 seriesNew.addEventListener("click", async () => {
@@ -1236,26 +1337,26 @@ seriesForm.addEventListener("submit", async (event) => {
   if (seriesChime.checked) {
     ensureAudio();
   }
-  const response = await fetch("/api/meditation/series/start", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+  startWhenReady({
+    label: "series session",
+    url: "/api/meditation/series/start",
+    body: {
       conditions: [seriesConditionA.value, seriesConditionB.value],
       blocks: Number(seriesBlocks.value),
       block_minutes: Number(seriesBlockMinutes.value),
       settle_seconds: Number(seriesSettle.value)
-    })
+    },
+    done: async (response, payload) => {
+      if (response.ok) {
+        seriesForm.hidden = true;
+        seriesError.hidden = true;
+      } else {
+        seriesError.hidden = false;
+        seriesError.textContent = payload.error || `${response.status} ${response.statusText}`;
+      }
+      await loadSeries();
+    }
   });
-  if (response.ok) {
-    seriesForm.hidden = true;
-    seriesError.hidden = true;
-  } else {
-    const payload = await response.json().catch(() => ({}));
-    seriesError.hidden = false;
-    seriesError.textContent = payload.error || `${response.status} ${response.statusText}`;
-  }
-  await refreshUiState();
-  await loadSeries();
 });
 
 // --- calibration run -----------------------------------------------------------
@@ -1325,25 +1426,26 @@ startCalibrationButton.addEventListener("click", async () => {
 
 document.querySelector("#calibration-cancel").addEventListener("click", () => {
   calibrationForm.hidden = true;
+  cancelPendingStart();
 });
 
 calibrationForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const formError = document.querySelector("#calibration-error");
-  const response = await fetch("/api/calibration/start", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ language: voiceLanguage })
+  startWhenReady({
+    label: "calibration run",
+    url: "/api/calibration/start",
+    body: { language: voiceLanguage },
+    done: (response, payload) => {
+      const formError = document.querySelector("#calibration-error");
+      if (response.ok) {
+        calibrationForm.hidden = true;
+        formError.hidden = true;
+      } else {
+        formError.hidden = false;
+        formError.textContent = payload.error || `${response.status} ${response.statusText}`;
+      }
+    }
   });
-  if (response.ok) {
-    calibrationForm.hidden = true;
-    formError.hidden = true;
-  } else {
-    const payload = await response.json().catch(() => ({}));
-    formError.hidden = false;
-    formError.textContent = payload.error || `${response.status} ${response.statusText}`;
-  }
-  await refreshUiState();
 });
 
 calibrationReportButton.addEventListener("click", async () => {

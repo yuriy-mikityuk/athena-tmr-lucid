@@ -48,10 +48,15 @@ class ContactQualityConfig:
 @dataclass(frozen=True)
 class ContactGateConfig:
     required_stability_seconds: float = 5.0
+    # Longest gap between two updates that still counts as watched contact. A
+    # longer one restarts the stability window: nobody saw a drop in between.
+    max_observation_gap_seconds: Optional[float] = None
 
     def validate(self) -> None:
         if self.required_stability_seconds < 0:
             raise ValueError("required_stability_seconds must be non-negative")
+        if self.max_observation_gap_seconds is not None and self.max_observation_gap_seconds <= 0:
+            raise ValueError("max_observation_gap_seconds must be positive")
 
 
 @dataclass(frozen=True)
@@ -343,6 +348,7 @@ class ContactGate:
         self.ready = False
         self.running = False
         self._stable_since: Optional[float] = None
+        self._last_update_at: Optional[float] = None
         self._last_state = ContactGateState(
             state="disconnected",
             all_good=False,
@@ -388,6 +394,10 @@ class ContactGate:
         now = float(self.time_fn() if now_seconds is None else now_seconds)
         all_good = snapshot.all_good
         reasons = _gate_reasons(snapshot)
+        max_gap = self.config.max_observation_gap_seconds
+        if max_gap is not None and self._last_update_at is not None and now - self._last_update_at > max_gap:
+            self._stable_since = None
+        self._last_update_at = now
 
         if self.running:
             state_reasons = tuple(reasons + (("in_session_contact_warning",) if reasons else ()))

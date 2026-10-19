@@ -15,7 +15,7 @@ The app tracks these Muse EEG contact channels:
 - `AF8`: right front contact.
 - `TP10`: right rear/temporal contact.
 
-The record buttons stay disabled until all four channels are `good`.
+A recording starts only after all four channels have been `good` for 5 s in a row.
 
 ## Mock UI Smoke Test
 
@@ -92,7 +92,7 @@ app restarts (auto-update restarts the app after every merge).
 
 ## Guided meditation
 
-With good contact, "Meditation…" opens a small form: two practice labels, number of blocks,
+Once connected, "Meditation…" opens a small form: two practice labels, number of blocks,
 minutes per block and settle-in time. Starting it builds the same counterbalanced plan as
 `muse-tmr meditation-plan` (random seed), starts a session recording long enough for it
 (plus a minute of slack) and stores `blocks.json` in the recording folder. While it runs the
@@ -248,10 +248,18 @@ Adjust the Python.app path to your installed Homebrew Python version.
 ## Starting a Recording
 
 Once the Muse is connected, the record buttons appear: Start session, Start night
-session, Meditation…, Meditation series… and Calibration run…. They stay disabled,
-with a hint to adjust the headband, until all four channels are `good`; there is no
-stability countdown. Only the page checks this: the record endpoints start the
-recorder whatever the contact.
+session, Meditation…, Meditation series… and Calibration run…. A start does not need
+good contact yet. It arms the contact gate (`/api/session/record/arm`), and the page
+shows what it is waiting for: all four channels `good`, then a countdown over the
+stability window (5 s, `--contact-stability-seconds`). Any channel that turns poor,
+missing or stale, or a disconnect, starts the count again. When the window is full the
+page sends the start; Cancel start disarms the gate (`/api/session/record/disarm`).
+
+The server enforces this, not only the page: `/api/session/record`,
+`/api/meditation/start`, `/api/meditation/series/start` and `/api/calibration/start`
+answer 409 with the gate state and its reason codes unless the armed gate is ready.
+Arming always starts the window from zero, so a start comes at least 5 s after the
+press.
 
 Starting a recording releases the app's own connection, since the Muse takes only
 one, and launches `muse-tmr record` as a separate process under `caffeinate`, so
@@ -262,8 +270,7 @@ show what the recorder reports in its `progress.json` heartbeat, and the contact
 turns stale when the heartbeat is more than 10 s old. Contact drops never stop a
 recording. Stop recording sends SIGINT, so the recorder still writes `summary.json`.
 
-The older `Start when ready` flow with its 5 s stability window
-(`/api/muse/start-when-ready`, `/api/session/start`, `--contact-stability-seconds`)
+The older in-app session flow (`/api/muse/start-when-ready`, `/api/session/start`)
 is still in the server, but the page no longer uses it.
 
 ## UI Smoke Checklist
@@ -279,8 +286,8 @@ is still in the server, but the page no longer uses it.
 - Each channel maps to the expected segment: `TP9`, `AF7`, `AF8`, `TP10`.
 - Per-channel sparklines update for recent contact fill history.
 - All-good contact shows the centered check mark.
-- The record buttons stay disabled until all four channels are good, and are
-  disabled again by a disconnect or stale contact.
+- A start with poor contact waits and says so, counts down 5 s once all four
+  channels are good, restarts the count when one drops, and Cancel start stops it.
 - Once recording, the strip shows the kind and preset, elapsed time, headband
   battery, the H10 state when it is on, and the last recorder event.
 - Stop recording ends in "Recording finished." with "Build report" and "Back to

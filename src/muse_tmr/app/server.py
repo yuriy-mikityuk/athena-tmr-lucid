@@ -60,6 +60,11 @@ RECORDING_KINDS: Dict[str, Tuple[str, float, bool]] = {
 # channel (32-47 dB above its neighbours on the 2026-10-09 line check, gone on
 # p21), so these record without the optics.
 EEG_ONLY_PRESET = "p21"
+# The gate sees the contact only when the page asks for it, every second. The
+# contact monitor judges each channel over its last 2 s, so looks at most 2 s
+# apart cover every moment; a longer gap (a throttled background tab) restarts
+# the stability window instead of counting the unseen time as good contact.
+CONTACT_GATE_MAX_GAP_SECONDS = 2.0
 # A meditation series keeps its practices and block layout, so its sessions pool
 # in aggregate-meditation. Only the settle-in may change between sessions: it is
 # read off the EMG timeline of the reports. Kept with the other protocol data.
@@ -446,7 +451,10 @@ class LocalMuseAppState:
             else None
         )
         self._contact_gate = ContactGate(
-            ContactGateConfig(required_stability_seconds=config.gate_stability_seconds)
+            ContactGateConfig(
+                required_stability_seconds=config.gate_stability_seconds,
+                max_observation_gap_seconds=CONTACT_GATE_MAX_GAP_SECONDS,
+            )
         )
         self._start_when_ready_requested = False
         self._last_contact_snapshot = None
@@ -662,6 +670,32 @@ class LocalMuseAppState:
         # Intentionally does NOT stop a running recording: the recorder is a
         # detached process meant to outlive the app.
         self.disconnect()
+
+    def arm_recording_gate(self) -> Mapping[str, Any]:
+        """A start button arms the contact gate; the page sends the start once it is ready."""
+        with self._lock:
+            snapshot = self._contact_snapshot_unlocked(advance_mock=False)
+            return self._contact_gate.arm(snapshot).to_dict()
+
+    def disarm_recording_gate(self) -> Mapping[str, Any]:
+        with self._lock:
+            return self._contact_gate.disarm().to_dict()
+
+    def start_when_contact_ready(
+        self, start: Callable[[], Tuple[Mapping[str, Any], HTTPStatus]]
+    ) -> Tuple[Mapping[str, Any], HTTPStatus]:
+        """Run a recording start only once the armed contact gate is ready.
+
+        Ready means every required channel good for the whole stability window
+        since the gate was armed. Not armed, a poor, missing or stale channel, or
+        a disconnect refuses the start with the gate's reasons.
+        """
+        with self._lock:
+            snapshot = self._contact_snapshot_unlocked(advance_mock=False)
+            gate = self._contact_gate.update(snapshot)
+        if gate.state != "ready":
+            return {"error": "contact is not ready", "gate": gate.to_dict()}, HTTPStatus.CONFLICT
+        return start()
 
     def start_recording(
         self,
@@ -1694,6 +1728,7 @@ class LocalMuseAppHandler(BaseHTTPRequestHandler):
         self._serve_static()
 
     def do_POST(self) -> None:
+        state = self.server.app_state
         if self.path == "/api/muse/scan":
             self._write_json(self.server.app_state.scan())
             return
@@ -1713,10 +1748,16 @@ class LocalMuseAppHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/api/session/record":
             body = self._read_json_body()
-            payload, status = self.server.app_state.start_recording(
-                body.get("kind"), with_polar=bool(body.get("with_polar"))
+            payload, status = state.start_when_contact_ready(
+                lambda: state.start_recording(body.get("kind"), with_polar=bool(body.get("with_polar")))
             )
             self._write_json(payload, status=status)
+            return
+        if self.path == "/api/session/record/arm":
+            self._write_json(state.arm_recording_gate())
+            return
+        if self.path == "/api/session/record/disarm":
+            self._write_json(state.disarm_recording_gate())
             return
         if self.path == "/api/session/record/stop":
             payload, status = self.server.app_state.stop_recording()
@@ -1727,7 +1768,8 @@ class LocalMuseAppHandler(BaseHTTPRequestHandler):
             self._write_json(payload, status=status)
             return
         if self.path == "/api/meditation/start":
-            payload, status = self.server.app_state.start_meditation(self._read_json_body())
+            body = self._read_json_body()
+            payload, status = state.start_when_contact_ready(lambda: state.start_meditation(body))
             self._write_json(payload, status=status)
             return
         if self.path == "/api/meditation/rating":
@@ -1735,7 +1777,8 @@ class LocalMuseAppHandler(BaseHTTPRequestHandler):
             self._write_json(payload, status=status)
             return
         if self.path == "/api/meditation/series/start":
-            payload, status = self.server.app_state.start_meditation_series(self._read_json_body())
+            body = self._read_json_body()
+            payload, status = state.start_when_contact_ready(lambda: state.start_meditation_series(body))
             self._write_json(payload, status=status)
             return
         if self.path == "/api/meditation/series/new":
@@ -1753,7 +1796,8 @@ class LocalMuseAppHandler(BaseHTTPRequestHandler):
             self._write_json(payload, status=status)
             return
         if self.path == "/api/calibration/start":
-            payload, status = self.server.app_state.start_calibration(self._read_json_body())
+            body = self._read_json_body()
+            payload, status = state.start_when_contact_ready(lambda: state.start_calibration(body))
             self._write_json(payload, status=status)
             return
         if self.path == "/api/calibration/report":
