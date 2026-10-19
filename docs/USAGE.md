@@ -154,18 +154,24 @@ Replay accepts either a recording directory or a `raw_amused.bin` path. `--speed
 ## Epoch building
 
 ```python
+import asyncio
 from pathlib import Path
 from muse_tmr.data.replay import ReplayConfig, ReplaySession
 from muse_tmr.features.epochs import EpochBuilder, EpochConfig
 
-session = ReplaySession(ReplayConfig(Path("data/recordings/<session>"), speed=0.0))
-builder = EpochBuilder(EpochConfig(epoch_seconds=30, stride_seconds=30))
 
-async for epoch in builder.build(session.stream()):
+async def collect_epochs(recording):
+    session = ReplaySession(ReplayConfig(Path(recording), speed=0.0))
+    builder = EpochBuilder(EpochConfig(epoch_seconds=30, stride_seconds=30))
+    return [epoch async for epoch in builder.build(session.stream())]
+
+
+epochs = asyncio.run(collect_epochs("data/recordings/<session>"))
+for epoch in epochs:
     print(epoch.index, epoch.coverage, epoch.quality_flags)
 ```
 
-The same builder accepts live `MuseFrame` streams from `AmusedSource`; missing modalities are represented as coverage/quality flags instead of errors.
+The same builder accepts live `MuseFrame` streams from `AmusedSource`; missing modalities are represented as coverage/quality flags instead of errors. The feature and REM examples below take this `epochs` list. Without Python, `muse-tmr annotate-template` writes the same per-epoch features with `P_REM` to a CSV.
 
 ## Feature extraction: EEG
 
@@ -191,12 +197,11 @@ from muse_tmr.features.imu_features import (
     extract_imu_feature_rows,
 )
 
-rows = extract_imu_feature_rows(
-    epochs,
-    cue_timestamps_by_epoch={0: [session_start + 1800.0]},
-)
+rows = extract_imu_feature_rows(epochs)
 export_imu_feature_rows(rows, Path("data/reports/imu_features.csv"))
 ```
+
+Pass `cue_timestamps_by_epoch={epoch_index: [timestamp, ...]}` to also log movement in a window around each cue.
 
 IMU rows include motion level, stillness score, accelerometer and gyroscope peaks, movement events, arousal proxy counts, arousal guard reason codes, and cue-window movement logs. CSV export is always available; Parquet export uses the installed pandas Parquet engine when available.
 
