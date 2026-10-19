@@ -34,3 +34,20 @@ jobs:
         run: |
           python -m pytest tests/ \
             --cov=muse_tmr --cov-report=term-missing --cov-report=xml
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build the wheel
+        run: python -m pip wheel . --no-deps --wheel-dir dist
+      - name: Check the wheel has every file from src/muse_tmr
+        run: python scripts/check_wheel.py dist/*.whl
+      - name: Run the CLI from the installed wheel
+        run: |
+          python -m venv /tmp/wheel-env
+          /tmp/wheel-env/bin/pip install dist/*.whl
+          cd /tmp && /tmp/wheel-env/bin/muse-tmr --version
