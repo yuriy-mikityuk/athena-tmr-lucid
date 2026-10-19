@@ -11,10 +11,12 @@ Versions follow `muse_tmr.__version__`; the app shows the running version and bu
 - A setup form scrolls into view when it opens, and its voice language select looks like the other fields (#208).
 - When the app stops answering (quit, crashed or restarting), the page says it is out of date and that a running recording keeps going, and dims what it last saw, instead of showing a frozen "Connected" (#212).
 - An app update no longer reloads the page over Morning answers that are not saved yet; it waits for the save and says so at the bottom of the page (#214).
+- The page and the meditation guide follow the system's dark mode, like the reports (#213).
 
 ### Reports
 
 - The meditation and calibration reports give the time they were made in local time, like the REM report, instead of UTC (#210).
+- The Athena TMR mark at the top of a report takes its colours from the theme, so it stays clear in dark mode (#213).
 
 ## 0.2.0 (2026-10-19)
 

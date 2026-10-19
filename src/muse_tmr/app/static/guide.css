@@ -15,8 +15,45 @@
   --sleep-ink: #343c70;
   --settle: #6b7785;
   --settle-soft: #eceff3;
+  /* Practice colours as text; the plain ones are also fills under white text. */
+  --focus-text: #0f766e;
+  --open-text: #b45309;
+  --body-ink: #36414d;
+  --glass: rgba(255, 255, 255, 0.7);
+  --swatch-line: #cfd6de;
+  --bar-focus-from: #eef7f5;
+  --bar-sleep-from: #f0f1fa;
+  --bar-open-to: #fdf6ee;
   --serif: "Iowan Old Style", Charter, Georgia, "Times New Roman", serif;
   --sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/* Dark with the system, like the app. The practice fills keep their light-mode depth so
+   the white labels on them stay readable; text in a practice colour gets a bright one. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --paper: #131615;
+    --sheet: #1b1f1e;
+    --ink: #ecebe6;
+    --muted: #a3a29b;
+    --line: #33322e;
+    --focus-soft: #12302c;
+    --focus-ink: #5eead4;
+    --open-soft: #2a2210;
+    --open-ink: #fbbf24;
+    --sleep-ink: #c7cbf5;
+    --settle: #7d8894;
+    --settle-soft: #2a2f2e;
+    --focus-text: #2dd4bf;
+    --open-text: #f59e0b;
+    --body-ink: #cfcdc6;
+    --glass: rgba(27, 31, 30, 0.7);
+    --swatch-line: #4a4943;
+    --bar-focus-from: #12302c;
+    --bar-sleep-from: #1f2340;
+    --bar-open-to: #2a2210;
+  }
 }
 
 * {
@@ -106,7 +143,7 @@ a {
 
 .lang-switch button[aria-pressed="true"] {
   background: var(--ink);
-  color: #fff;
+  color: var(--sheet);
 }
 
 .hero {
@@ -115,7 +152,7 @@ a {
 
 .eyebrow {
   margin: 0 0 12px;
-  color: var(--focus);
+  color: var(--focus-text);
   font-size: 0.8rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -166,7 +203,7 @@ h2 {
   font-size: 0.8rem;
   font-weight: 700;
   letter-spacing: 0.08em;
-  color: var(--open);
+  color: var(--open-text);
 }
 
 h3 {
@@ -309,7 +346,7 @@ p {
 
 .swatch.settle {
   background: var(--settle-soft);
-  box-shadow: inset 0 0 0 1px #cfd6de;
+  box-shadow: inset 0 0 0 1px var(--swatch-line);
 }
 
 .swatch.focus {
@@ -354,12 +391,12 @@ p {
 
 .card.focus .art,
 .card.focus .essence {
-  color: var(--focus);
+  color: var(--focus-text);
 }
 
 .card.open .art,
 .card.open .essence {
-  color: var(--open);
+  color: var(--open-text);
 }
 
 .essence {
@@ -439,16 +476,19 @@ h4 {
   height: 38px;
   border-radius: 50%;
   background: var(--ink);
-  color: #fff;
+  color: var(--sheet);
   font-weight: 700;
 }
 
+/* White on the practice fills in both modes. */
 .steps li.settle::before {
   background: var(--settle);
+  color: #fff;
 }
 
 .steps li.block::before {
   background: linear-gradient(135deg, var(--focus) 50%, var(--open) 50%);
+  color: #fff;
 }
 
 /* The thread between the numbers. */
@@ -467,7 +507,7 @@ h4 {
 }
 
 .steps p {
-  color: #36414d;
+  color: var(--body-ink);
 }
 
 /* --- the two ratings ------------------------------------------------------ */
@@ -498,7 +538,7 @@ h4 {
 
 /* Stability and drowsiness deepen to the right; sensory fading fades to the right. */
 .scale.stability .bar {
-  background: linear-gradient(90deg, #eef7f5, var(--focus));
+  background: linear-gradient(90deg, var(--bar-focus-from), var(--focus));
   color: var(--focus-ink);
 }
 
@@ -508,12 +548,12 @@ h4 {
 }
 
 .scale.drowsiness .bar {
-  background: linear-gradient(90deg, #f0f1fa, var(--sleep));
+  background: linear-gradient(90deg, var(--bar-sleep-from), var(--sleep));
   color: var(--sleep-ink);
 }
 
 .scale.fading .bar {
-  background: linear-gradient(90deg, var(--open), #fdf6ee);
+  background: linear-gradient(90deg, var(--open), var(--bar-open-to));
   color: var(--open-ink);
 }
 
@@ -558,7 +598,7 @@ h4 {
 .why > div {
   padding: 20px;
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--glass);
   border: 1px solid var(--line);
 }
 
@@ -566,7 +606,7 @@ h4 {
   width: 28px;
   height: 28px;
   margin-bottom: 8px;
-  color: var(--open);
+  color: var(--open-text);
 }
 
 .why h3 {
@@ -575,7 +615,7 @@ h4 {
 
 .why p {
   margin: 0;
-  color: #36414d;
+  color: var(--body-ink);
   font-size: 0.95rem;
 }
 
@@ -599,7 +639,7 @@ h4 {
 
 .tips .icon {
   margin-top: 3px;
-  color: var(--focus);
+  color: var(--focus-text);
 }
 
 .tips p {

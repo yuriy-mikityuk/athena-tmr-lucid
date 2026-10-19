@@ -34,6 +34,9 @@ TOKENS_CSS = """
   font: 700 0.75rem/1.2 var(--sans); letter-spacing: 0.08em; text-transform: uppercase;
 }
 .brand svg { width: 22px; height: 22px; flex: none; }
+.brand svg path { stroke: var(--focus); }
+.brand svg circle { fill: var(--sleep); }
+.brand svg circle:last-child { fill: var(--open); }
 h1, h2 { font-family: var(--serif); font-weight: 600; }
 a { color: var(--focus); }
 """

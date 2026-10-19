@@ -211,6 +211,15 @@ class TestLocalMuseApp(unittest.TestCase):
         self.assertIn('allGoodCheck.toggleAttribute("hidden", !snapshot.all_good)', script)
         self.assertNotIn("allGoodCheck.hidden", script)
 
+    def test_page_and_guide_follow_a_dark_system_setting(self):
+        for name in ("styles.css", "guide.css"):
+            with urllib.request.urlopen(f"{self.base_url}/{name}", timeout=2) as response:
+                css = response.read().decode("utf-8")
+            dark = css.split("@media (prefers-color-scheme: dark)", 1)
+            self.assertEqual(len(dark), 2, name)
+            self.assertIn("color-scheme: dark;", dark[1], name)
+            self.assertIn("--paper:", dark[1], name)
+
     def test_meditation_guide_is_linked_and_quotes_the_voice(self):
         with urllib.request.urlopen(f"{self.base_url}/", timeout=2) as response:
             body = response.read().decode("utf-8")
