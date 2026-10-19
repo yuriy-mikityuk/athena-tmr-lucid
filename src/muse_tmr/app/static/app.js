@@ -180,16 +180,24 @@ function renderAppLost() {
 
 function renderUiState(payload) {
   // The server restarts itself on a new main (app --auto-update); reload so
-  // the page runs the matching JS.
+  // the page runs the matching JS, but not over Morning answers still being written.
+  let updateWaits = false;
   if (payload.build) {
     if (loadedBuild == null) {
       loadedBuild = payload.build;
     } else if (payload.build !== loadedBuild) {
-      window.location.reload();
-      return;
+      if (!morningUnsaved()) {
+        window.location.reload();
+        return;
+      }
+      updateWaits = true;
     }
   }
-  appVersion.textContent = [payload.version && `Version ${payload.version}`, payload.build && `build ${payload.build}`]
+  appVersion.textContent = [
+    payload.version && `Version ${payload.version}`,
+    payload.build && `build ${payload.build}`,
+    updateWaits && "the update loads once the Morning answers are saved"
+  ]
     .filter(Boolean)
     .join(" · ");
   latestDiagnostics = { source_diagnostics: payload.source_diagnostics || null };
@@ -1846,6 +1854,20 @@ const retestSave = document.querySelector("#retest-save");
 let morningNight = null;
 // Per puzzle: the seconds spent so far and when its running timer started.
 const retestTimers = new Map();
+// Typed since the form was last drawn from what is saved; an app update waits for them.
+let dreamUnsaved = false;
+let retestUnsaved = false;
+
+dreamForm.addEventListener("input", () => {
+  dreamUnsaved = true;
+});
+retestForm.addEventListener("input", () => {
+  retestUnsaved = true;
+});
+
+function morningUnsaved() {
+  return dreamUnsaved || retestUnsaved;
+}
 
 tabMorning.addEventListener("click", () => showScreen("morning"));
 
@@ -1961,6 +1983,7 @@ function renderDreamForm(night) {
     dreamLinks.appendChild(label);
   });
   dreamError.hidden = true;
+  dreamUnsaved = false;
 }
 
 function setRadio(name, value) {
@@ -2010,6 +2033,7 @@ function renderRetestForm(night) {
   });
   retestError.hidden = true;
   retestSave.disabled = !night.catalog_file || !night.assignment_found;
+  retestUnsaved = false;
 }
 
 function retestItem(puzzle, saved) {
@@ -2104,6 +2128,7 @@ function renderRetestTimer(state) {
 
 // One puzzle at a time: starting a timer stops the one that was running.
 function toggleRetestTimer(state) {
+  retestUnsaved = true;
   const running = state.startedAt != null;
   stopRetestTimers();
   if (!running) {
