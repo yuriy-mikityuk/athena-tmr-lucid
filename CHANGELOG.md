@@ -10,6 +10,10 @@ Versions follow `muse_tmr.__version__`; the app shows the running version and bu
 - After a meditation each block's ratings sit on a line of their own, and a disconnected headband shows a hint instead of four "missing" channel rows (#206).
 - A setup form scrolls into view when it opens, and its voice language select looks like the other fields (#208).
 
+### Reports
+
+- The meditation and calibration reports give the time they were made in local time, like the REM report, instead of UTC (#210).
+
 ## 0.2.0 (2026-10-19)
 
 ### Local app

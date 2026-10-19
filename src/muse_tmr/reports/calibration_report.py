@@ -53,7 +53,7 @@ from muse_tmr.reports.meditation_analysis import (
     json_safe,
 )
 from muse_tmr.reports.meditation_report import _PAGE, _e, _fmt, _num, _table, emg_timeline_svg
-from muse_tmr.reports.report_style import brand_line
+from muse_tmr.reports.report_style import brand_line, readable_time
 
 # 2: EMG without the 64 Hz line; inhale check reports the ACC peak against the
 # exhale cue instead of the trough-to-peak share.
@@ -492,7 +492,7 @@ def _header(name: str, summary: Mapping[str, object]) -> str:
     status = f"{done} of {len(PROTOCOL)} steps completed" + (f", stopped: {str(stop).replace('_', ' ')}" if stop and stop != "completed" else "")
     return (
         f"<header>{brand_line('Calibration report')}<h1>Calibration run <span class=mono>{_e(name)}</span></h1>"
-        f"<p class=muted>{_e(status)} · generated {_e(str(summary.get('generated_at', ''))[:16].replace('T', ' '))} UTC</p></header>"
+        f"<p class=muted>{_e(status)} · generated {_e(readable_time(summary.get('generated_at')) or 'at an unknown time')}</p></header>"
     )
 
 

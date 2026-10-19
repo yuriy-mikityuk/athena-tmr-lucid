@@ -35,6 +35,17 @@ class TestReportStyle(unittest.TestCase):
         self.assertEqual(local_minute_of_day(""), 0)
         self.assertEqual(local_minute_of_day("not a time"), 0)
 
+    def test_meditation_and_calibration_reports_give_a_local_time(self):
+        from muse_tmr.reports import meditation_report
+        from muse_tmr.reports.calibration_report import render_calibration_report
+
+        generated = "2026-10-17T11:22:28.281028+00:00"
+        expected = f"generated {readable_time(generated)}"
+        self.assertIn(expected, meditation_report._header("s1", {"generated_at": generated}, "focus", "open"))
+        page = render_calibration_report({"generated_at": generated})
+        self.assertIn(expected, page)
+        self.assertNotIn(" UTC", page)
+
     def test_brand_line_names_the_app_and_escapes_the_kind(self):
         line = brand_line("<b>REM</b> report")
         self.assertIn("Athena TMR · &lt;b&gt;REM&lt;/b&gt; report", line)
