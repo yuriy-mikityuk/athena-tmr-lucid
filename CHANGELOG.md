@@ -2,12 +2,22 @@
 
 Versions follow `muse_tmr.__version__`; the app shows the running version and build at the bottom of the page.
 
-## Unreleased
+## 0.2.0 (2026-10-19)
 
 ### Local app
 
 - The app is called Athena TMR and shares the meditation guide's look. The Record tab puts the headband on the left and the five recording modes on the right, each saying what it records; a running recording shows its progress, battery, EEG rate and lost subpackets; the Recordings tab lists every recording with its reports and the same EEG numbers. The page, the guide and the macOS launcher share one icon (#185).
 - A Morning tab for the day after a puzzle night: the dream report and a blind, timed retest, saved through the same code as `record-dream-report` and `record-puzzle-retest` and never showing which puzzles were cued (#186).
+- During a recording the browser tab shows its time, `muse-tmr app --help` and the runbooks use the new name, and reports opened from the app get its icon (#200).
+
+### Reports
+
+- The REM, meditation and calibration reports share the app's look, with a dark mode and still no external loads, and open with "Athena TMR" and their kind. The REM report's title reads "REM report · Sat 17 Oct 2026, 16:22" in local time, like its chart, and it is a whole HTML document with a UTF-8 charset rather than a fragment (#196).
+
+### Development and docs
+
+- CI opens the app's page in headless Chrome, goes through its tabs and fails on any page error (#194).
+- The README shows the Record, Recordings and Morning tabs (#198).
 
 ## 0.1.0 (2026-10-19)
 
