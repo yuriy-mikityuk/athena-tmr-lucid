@@ -1228,9 +1228,18 @@ function renderMeditationAnalysis(recording, meditation, active) {
       : "";
 }
 
+// The forms open under all the mode cards, so one may open below the window's edge.
+function revealForm(form) {
+  if (!form.hidden) {
+    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    form.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "start" });
+  }
+}
+
 startMeditationButton.addEventListener("click", () => {
   meditationForm.hidden = !meditationForm.hidden;
   meditationChime.checked = chimeEnabled();
+  revealForm(meditationForm);
 });
 
 // Cancelling a form also drops a start that is still waiting for contact.
@@ -1393,6 +1402,7 @@ function seriesSessionText(session) {
 
 startSeriesButton.addEventListener("click", async () => {
   seriesForm.hidden = !seriesForm.hidden;
+  revealForm(seriesForm);
   if (seriesForm.hidden) {
     return;
   }
@@ -1502,6 +1512,7 @@ function renderCalibration(recording) {
 
 startCalibrationButton.addEventListener("click", async () => {
   calibrationForm.hidden = !calibrationForm.hidden;
+  revealForm(calibrationForm);
   if (calibrationForm.hidden || calibrationSteps.childElementCount) {
     return;
   }
