@@ -157,23 +157,28 @@ function renderState(state) {
 
 // The page asks for the state every second. With no answer for a few seconds the
 // app has quit, crashed or is restarting, and what the page shows is out of date.
+// Only time spent waiting on a poll counts: after the Mac slept, or a background tab
+// had its timers held back, the last answer is old but the app may be fine.
 const APP_SILENT_MS = 5000;
-let lastAnswerAt = Date.now();
+let waitingSince = null;
 
 async function refreshUiState() {
+  if (waitingSince == null) {
+    waitingSince = Date.now();
+  }
   let payload;
   try {
     payload = await requestJson("/api/muse/ui-state");
   } catch (error) {
     return; // the banner says so once the app stays silent
   }
-  lastAnswerAt = Date.now();
+  waitingSince = null;
   renderAppLost();
   renderUiState(payload);
 }
 
 function renderAppLost() {
-  const lost = Date.now() - lastAnswerAt > APP_SILENT_MS;
+  const lost = waitingSince != null && Date.now() - waitingSince > APP_SILENT_MS;
   appLostBanner.hidden = !lost;
   appFrame.classList.toggle("lost", lost);
 }

@@ -245,6 +245,23 @@ try {
   );
   offline = false;
   await step(
+    "and does not flash it after the page was asleep",
+    async () => {
+      await evaluate(`(() => {
+        window.bannerShown = false;
+        new MutationObserver(() => {
+          window.bannerShown = window.bannerShown || !document.querySelector("#app-lost").hidden;
+        }).observe(document.querySelector("#app-lost"), { attributes: true, attributeFilter: ["hidden"] });
+      })()`);
+      // Frozen, its timers stop the way they do while the Mac sleeps.
+      await send("Page.setWebLifecycleState", { state: "frozen" });
+      await sleep(7000);
+      await send("Page.setWebLifecycleState", { state: "active" });
+      await sleep(2000);
+    },
+    `window.bannerShown === false || "the banner flashed after waking"`
+  );
+  await step(
     "a new build of the app reloads the page",
     async () => {
       await visit("/")();
@@ -253,7 +270,10 @@ try {
       fakeBuild = "next";
       await send("Fetch.enable", { patterns: [{ urlPattern: "*/api/muse/ui-state*", requestStage: "Response" }] });
     },
-    `window.notReloaded !== true || "the page stayed on the old build"`
+    // Done only once the reloaded page has taken "next" as its build, so the next step
+    // cannot end the fake while the new page's first poll is still held.
+    `(window.notReloaded !== true && document.querySelector("#app-version").textContent.includes("build next")) ||
+      "the page stayed on the old build"`
   );
   await step(
     "but not over a dream report being written",

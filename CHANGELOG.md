@@ -9,7 +9,7 @@ Versions follow `muse_tmr.__version__`; the app shows the running version and bu
 - The Recordings tab lists 30 recordings at a time with Show older, orders them by the start in the folder name (also behind a prefix like `smoke_muse_h10_`), and no longer redraws every 5 s when nothing changed (#204).
 - After a meditation each block's ratings sit on a line of their own, and a disconnected headband shows a hint instead of four "missing" channel rows (#206).
 - A setup form scrolls into view when it opens, and its voice language select looks like the other fields (#208).
-- When the app stops answering (quit, crashed or restarting), the page says it is out of date and that a running recording keeps going, and dims what it last saw, instead of showing a frozen "Connected" (#212).
+- When the app stops answering (quit, crashed or restarting), the page says it is out of date and that a running recording keeps going, and dims what it last saw, instead of showing a frozen "Connected" (#212, #220).
 - An app update no longer reloads the page over Morning answers that are not saved yet; it waits for the save and says so at the bottom of the page (#214).
 - The page and the meditation guide follow the system's dark mode, like the reports (#213).
 - After a meditation or a calibration run the main button is that recording's own analysis; the REM report is no longer offered there and stays on the Recordings tab (#217).
