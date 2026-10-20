@@ -19,7 +19,7 @@ effectiveness test.
 Start with low volumes while awake:
 
 ```bash
-cd /path/to/athena-tmr-lucid
+cd /path/to/remind-eeg
 
 for v in 0.01 0.02 0.03 0.04 0.05 0.06; do
   echo "volume=$v"

@@ -35,7 +35,7 @@ Required before using `--backend system`:
 ## Prepare Protocol Files
 
 ```bash
-cd /path/to/athena-tmr-lucid
+cd /path/to/remind-eeg
 
 .venv/bin/python -m muse_tmr.cli.main create-cue-library \
   --output data/cues/starter.json

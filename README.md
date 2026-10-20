@@ -2,11 +2,11 @@
 
 **REM-gated Targeted Memory Reactivation engine for the Muse S Athena EEG headset — overnight recording, real-time REM detection, and safety-gated audio cueing for a Konkoly-like TLR protocol. Python.**
 
-Repository `athena-tmr-lucid`, Python package `muse_tmr`, command `muse-tmr`.
+Repository `remind-eeg`, Python package `muse_tmr`, command `muse-tmr`.
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![CI](https://github.com/yuriy-mikityuk/athena-tmr-lucid/actions/workflows/guardrails.yml/badge.svg)](https://github.com/yuriy-mikityuk/athena-tmr-lucid/actions)
+[![CI](https://github.com/yuriy-mikityuk/remind-eeg/actions/workflows/guardrails.yml/badge.svg)](https://github.com/yuriy-mikityuk/remind-eeg/actions)
 
 The system records sleep biosignals all night (EEG, IMU, PPG), detects REM in real time, and plays quiet audio cues only when a stack of safety gates agrees it is safe to do so. Around that core it implements a full single-subject experimental protocol: pre-sleep puzzle sessions with seeded cued/uncued randomization, TLR cue familiarization, REM-gated cueing at night, and morning dream reports with blind retests and cued-vs-uncued analysis.
 
@@ -37,8 +37,8 @@ The pictures show the app on example data.
 You need a Muse S Athena and Python 3.8 or newer. The app launcher is for macOS.
 
 ```bash
-git clone https://github.com/yuriy-mikityuk/athena-tmr-lucid.git
-cd athena-tmr-lucid
+git clone https://github.com/yuriy-mikityuk/remind-eeg.git
+cd remind-eeg
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .

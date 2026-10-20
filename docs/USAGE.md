@@ -111,7 +111,7 @@ The SDK source is currently a policy-enforcing stub only. It imports without any
 If direct `python3 -m muse_tmr.cli.main discover --source amused` or `muse-tmr discover --source amused` aborts before printing Python logs, macOS TCC is likely blocking CoreBluetooth for the Python bundle. Use a virtual environment and launch the framework `Python.app` through LaunchServices:
 
 ```bash
-cd /path/to/athena-tmr-lucid
+cd /path/to/remind-eeg
 /opt/homebrew/bin/python3 -m venv .venv
 .venv/bin/python -m pip install -e .
 

@@ -23,7 +23,7 @@ Use a previous no-audio recording, a puzzle catalog, a generated night puzzle
 session, a cued/uncued assignment, and a cue library:
 
 ```bash
-cd /path/to/athena-tmr-lucid
+cd /path/to/remind-eeg
 
 .venv/bin/python -m muse_tmr.cli.main simulate-replay-cues \
   data/recordings/<pilot-session> \

@@ -19,7 +19,7 @@ effectiveness or lucid-dreaming test.
 Use the discovered Muse address from the M1 live smoke flow:
 
 ```bash
-cd /path/to/athena-tmr-lucid
+cd /path/to/remind-eeg
 
 MUSE_ADDR="<discovered-address>"
 OUTDIR="$PWD/data/recordings/pilot1_no_audio_$(date +%Y%m%d_%H%M%S)"

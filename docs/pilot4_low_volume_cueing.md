@@ -30,7 +30,7 @@ Required before using `--backend system`:
 Do a dry-run first:
 
 ```bash
-cd /path/to/athena-tmr-lucid
+cd /path/to/remind-eeg
 
 .venv/bin/python -m muse_tmr.cli.main run-pilot4-cueing \
   --source amused \

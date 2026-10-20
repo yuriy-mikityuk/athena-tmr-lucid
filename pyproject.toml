@@ -77,10 +77,10 @@ brainflow = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yuriy-mikityuk/athena-tmr-lucid"
-Documentation = "https://github.com/yuriy-mikityuk/athena-tmr-lucid/blob/main/docs/USAGE.md"
-Repository = "https://github.com/yuriy-mikityuk/athena-tmr-lucid"
-Issues = "https://github.com/yuriy-mikityuk/athena-tmr-lucid/issues"
+Homepage = "https://github.com/yuriy-mikityuk/remind-eeg"
+Documentation = "https://github.com/yuriy-mikityuk/remind-eeg/blob/main/docs/USAGE.md"
+Repository = "https://github.com/yuriy-mikityuk/remind-eeg"
+Issues = "https://github.com/yuriy-mikityuk/remind-eeg/issues"
 
 [tool.setuptools]
 py-modules = [

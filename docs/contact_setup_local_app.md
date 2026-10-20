@@ -24,7 +24,7 @@ A recording starts only after all four channels have been `good` for 5 s in a ro
 This command requires no Muse, BLE access, or macOS Bluetooth permission:
 
 ```bash
-cd /path/to/athena-tmr-lucid
+cd /path/to/remind-eeg
 .venv/bin/muse-tmr app --source mock --host 127.0.0.1 --port 8765 \
   --mock-scenario mixed_fair_good
 ```
@@ -62,7 +62,7 @@ Prepare the headset before launching the live app:
 Run:
 
 ```bash
-cd /path/to/athena-tmr-lucid
+cd /path/to/remind-eeg
 export MUSE_ADDR="<MUSE_BLE_ADDRESS>"
 .venv/bin/muse-tmr app --source amused --address "$MUSE_ADDR" \
   --host 127.0.0.1 --port 8765
@@ -183,7 +183,7 @@ strap's streams and write its summary. See `docs/polar_h10.md`.
 To create a clickable launcher on your Desktop:
 
 ```bash
-cd /path/to/athena-tmr-lucid
+cd /path/to/remind-eeg
 export MUSE_ADDR="<MUSE_BLE_ADDRESS>"
 .venv/bin/python scripts/install_macos_launcher.py --address "$MUSE_ADDR"
 ```
@@ -235,7 +235,7 @@ before useful Python logs appear:
 Example `Python.app` launch pattern:
 
 ```bash
-cd /path/to/athena-tmr-lucid
+cd /path/to/remind-eeg
 export MUSE_ADDR="<MUSE_BLE_ADDRESS>"
 open -W -n /opt/homebrew/Frameworks/Python.framework/Versions/3.12/Resources/Python.app \
   --args -m muse_tmr.cli.main app --source amused --address "$MUSE_ADDR" \
