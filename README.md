@@ -1,6 +1,8 @@
-# athena-tmr-lucid
+# REMind
 
 **REM-gated Targeted Memory Reactivation engine for the Muse S Athena EEG headset — overnight recording, real-time REM detection, and safety-gated audio cueing for a Konkoly-like TLR protocol. Python.**
+
+Repository `athena-tmr-lucid`, Python package `muse_tmr`, command `muse-tmr`.
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -26,7 +28,7 @@ The pictures show the app on example data.
 - **Safety-first cueing:** model probabilities never reach the audio path directly; a `StableRemGate` (minimum stable time, hysteresis, cooldown) and an `ArousalGuard` (motion, alpha, HR-jump, artifact proxies) decide, with hard volume caps, fade in/out, and emergency-stop artifacts
 - **Blind experimental protocol:** seeded randomization into cued/uncued puzzle groups, uncued puzzles are never schedulable, the condition is hidden from the subject during morning retests
 - **Pluggable acquisition:** amused-py BLE (default), OpenMuse LSL, and BrainFlow backends, all mapped to one `MuseFrame` contract; a Polar H10 chest strap can record ECG, RR and chest motion alongside, in its own process
-- **Local app, Athena TMR:** live contact check per sensor, session, night, guided-meditation and calibration recordings that start once the contact holds and run as their own process, a recordings page with the reports and EEG numbers, and auto-update from `main`
+- **Local app, REMind:** live contact check per sensor, session, night, guided-meditation and calibration recordings that start once the contact holds and run as their own process, a recordings page with the reports and EEG numbers, and auto-update from `main`
 - **Reproducible validation:** five staged pilots, each with a runbook and an automated validator
 - **Engineering hygiene:** 41 CLI commands, pytest suite with CI on GitHub Actions, and a privacy-aware gitignore — volume calibration, puzzle content, and dream reports never leave the machine
 
@@ -48,7 +50,7 @@ pip install -e .
 python scripts/install_macos_launcher.py
 ```
 
-This puts `Athena TMR.app` on the Desktop; it starts the local app from this checkout's `.venv` and opens http://127.0.0.1:8765. The app keeps itself on the latest `main` (pass `--no-auto-update` to the installer if you don't want that). Put the headband on, press Find headband and Connect Muse, and adjust the band until all four channels are good. Start night records eight hours, Start session one; either starts once the contact has been good for 5 s. When the recording ends, Build report turns it into an HTML report of the REM probability over time, and the Recordings tab keeps the earlier ones.
+This puts `REMind.app` on the Desktop; it starts the local app from this checkout's `.venv` and opens http://127.0.0.1:8765. The app keeps itself on the latest `main` (pass `--no-auto-update` to the installer if you don't want that). Put the headband on, press Find headband and Connect Muse, and adjust the band until all four channels are good. Start night records eight hours, Start session one; either starts once the contact has been good for 5 s. When the recording ends, Build report turns it into an HTML report of the REM probability over time, and the Recordings tab keeps the earlier ones.
 
 ### First recording from the terminal
 

@@ -50,6 +50,6 @@ With `--with-polar` the recorder starts `record-polar` as a child process. `muse
 - `muse_tmr.protocol.calibration` speaks the calibration run and logs when each cue was spoken; `muse_tmr.reports.calibration_report` cuts its blocks at those logged times, and `muse_tmr.reports.line_check` measures the 64 Hz line for `--line-check`.
 - `muse_tmr.reports.dream_report`, `muse_tmr.reports.morning_retest` and `muse_tmr.reports.analysis`: the morning side of the TMR protocol.
 
-The three HTML reports share `muse_tmr.reports.report_style`: the app's colours and type, a dark mode and the Athena TMR line, with nothing loaded from the network.
+The three HTML reports share `muse_tmr.reports.report_style`: the app's colours and type, a dark mode and the REMind line, with nothing loaded from the network.
 
 `scripts/validate_rem_detection.py` sits outside the package: it replays a recording through the detector and the gate and scores them against an automated sleep stager (YASA or GSSC) run in its own venv.

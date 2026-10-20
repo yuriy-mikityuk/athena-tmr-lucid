@@ -1,6 +1,6 @@
 # Local App Runbook
 
-Athena TMR, the local web app, connects to the Muse, shows the contact of each sensor,
+REMind, the local web app, connects to the Muse, shows the contact of each sensor,
 starts and stops recordings (a session, a night, a guided meditation, a meditation
 series, the calibration run) and builds their reports. Its Record tab has the headband
 on the left and the recording modes on the right; the Recordings tab lists what has
@@ -191,7 +191,7 @@ export MUSE_ADDR="<MUSE_BLE_ADDRESS>"
 This installs:
 
 ```text
-~/Desktop/Athena TMR.app
+~/Desktop/REMind.app
 ```
 
 Double-clicking the app starts the local setup server through Terminal and opens

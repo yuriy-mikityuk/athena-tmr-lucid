@@ -10,7 +10,7 @@ import datetime as dt
 import html
 from typing import Optional
 
-BRAND = "Athena TMR"
+BRAND = "REMind"
 
 # The app's tokens, light first and then the same names in dark mode. The practices
 # keep their guide colours (focus teal, open orange) and the night its indigo.

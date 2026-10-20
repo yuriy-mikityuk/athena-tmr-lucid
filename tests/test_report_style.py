@@ -48,7 +48,7 @@ class TestReportStyle(unittest.TestCase):
 
     def test_brand_line_names_the_app_and_escapes_the_kind(self):
         line = brand_line("<b>REM</b> report")
-        self.assertIn("Athena TMR · &lt;b&gt;REM&lt;/b&gt; report", line)
+        self.assertIn("REMind · &lt;b&gt;REM&lt;/b&gt; report", line)
         self.assertIn("<svg", line)
         self.assertNotIn("http", TOKENS_CSS + line.replace("http://www.w3.org/2000/svg", ""))
 
@@ -74,7 +74,7 @@ class TestReportStyle(unittest.TestCase):
         self.assertTrue(page.startswith("<!doctype html>"))
         self.assertIn('<meta charset="utf-8">', page)
         self.assertIn("<title>REM report · 20261017_162227</title>", page)
-        self.assertIn("Athena TMR · REM report", page)
+        self.assertIn("REMind · REM report", page)
         self.assertTrue(page.rstrip().endswith("</html>"))
 
 

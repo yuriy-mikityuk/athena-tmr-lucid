@@ -169,7 +169,7 @@ class TestLocalMuseApp(unittest.TestCase):
         self.assertIn('id="start-session-button"', body)
         self.assertIn('id="start-night-button"', body)
         self.assertIn("Start night", body)
-        self.assertIn("<title>Athena TMR</title>", body)
+        self.assertIn("<title>REMind</title>", body)
         self.assertIn('href="/icon.svg"', body)
         self.assertIn('id="screen-recordings"', body)
         self.assertIn('id="mode-calibration"', body)

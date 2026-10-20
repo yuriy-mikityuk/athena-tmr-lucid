@@ -1,4 +1,4 @@
-"""Stdlib HTTP server for the Athena TMR app."""
+"""Stdlib HTTP server for the REMind app."""
 
 from __future__ import annotations
 
@@ -2021,7 +2021,7 @@ def run_local_app(config: AppConfig) -> int:
     server = create_local_app_server(config, build=build)
     host, port = server.server_address
     print(
-        f"Athena TMR serving at http://{host}:{port} (build {build or 'unknown'})",
+        f"REMind serving at http://{host}:{port} (build {build or 'unknown'})",
         flush=True,
     )
     updater = None

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install a local macOS launcher for the Athena TMR app."""
+"""Install a local macOS launcher for the REMind app."""
 
 from __future__ import annotations
 
@@ -16,13 +16,13 @@ from shlex import quote
 from typing import Iterable, Tuple
 
 
-DEFAULT_APP_NAME = "Athena TMR"
+DEFAULT_APP_NAME = "REMind"
 DEFAULT_PORT = 8765
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Create a clickable macOS .app launcher for the local Athena TMR app."
+        description="Create a clickable macOS .app launcher for the local REMind app."
     )
     parser.add_argument("--address", help="Muse BLE address to bake into the launcher.")
     parser.add_argument("--source", choices=("amused", "mock"), default="amused")

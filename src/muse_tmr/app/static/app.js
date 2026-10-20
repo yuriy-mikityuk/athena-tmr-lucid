@@ -263,8 +263,8 @@ function renderAppTitle() {
   // A tab in the background still says that a recording runs and for how long.
   document.title =
     latestRecording && latestRecording.active
-      ? `● ${formatDuration(latestRecording.elapsed_seconds)} · ${recordingTitle(latestRecording)} · Athena TMR`
-      : "Athena TMR";
+      ? `● ${formatDuration(latestRecording.elapsed_seconds)} · ${recordingTitle(latestRecording)} · REMind`
+      : "REMind";
   if (latestRecording && latestRecording.active) {
     appTitle.textContent = recordingTitle(latestRecording);
   } else if (finishedRecordingShown()) {

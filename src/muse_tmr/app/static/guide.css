@@ -111,11 +111,11 @@ a {
   padding-top: 20px;
 }
 
+/* The wordmark keeps its case: REM plus mind. */
 .brand {
   font-weight: 700;
-  font-size: 0.85rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
   text-decoration: none;
   color: var(--focus-ink);
 }

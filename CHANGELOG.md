@@ -6,6 +6,7 @@ Versions follow `muse_tmr.__version__`; the app shows the running version and bu
 
 ### Local app
 
+- The app, its reports and the macOS launcher are called REMind instead of Athena TMR. The launcher installer now puts `REMind.app` on the Desktop; an existing `Athena TMR.app` keeps working and can be deleted.
 - The meditation guide says up front what the session is for, explains the mirrored block order without letters (a bracket under the two middle blocks, a drift drawing, why these two practices) and folds a one-picture version under its intro, in both languages. The meditation and series texts on the main page drop the ABBA/BAAB shorthand too.
 
 ### Development and docs
