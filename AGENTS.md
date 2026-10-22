@@ -291,3 +291,9 @@ When finishing an issue, leave enough context for the next agent:
 - any follow-up issue numbers
 
 Prefer small PRs or commits tied to a single issue number.
+
+The ten uniqueness initiatives of 2026-10 are sub-issues of EPIC #1 titled `Initiative N: …`.
+Their evidence base is `docs/research/2026-10-uniqueness/` (the report, the research notes
+and the issue drafts). A local Claude Code session drives them from issue to merged PR with
+the `initiatives` skill in `.claude/skills/initiatives/SKILL.md`; each issue's "Needs from
+the maintainer" section lists what only a person can do.
