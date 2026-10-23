@@ -309,7 +309,7 @@ def create_audio_backend(name: str) -> AudioBackend:
 
 
 class AudioBackendFallbackError(ValueError):
-    """A requested real audio backend cannot produce sound."""
+    """A real audio backend was asked for, but every cue would be silent."""
 
 
 @dataclass(frozen=True)
@@ -322,24 +322,28 @@ class BackendResolution:
 def resolve_audio_backend(
     name: str, *, allow_dry_run_fallback: bool = False
 ) -> BackendResolution:
-    """Resolve playback without silently replacing requested sound with silence.
+    """Build the backend for ``name`` without swapping real audio for silence.
 
-    Explicit dry-run and mock requests remain valid. Availability is not a test
-    of the output device or audibility; confirm those on the target Mac.
+    ``system`` and ``afplay`` need ``afplay`` on PATH; without it ``system`` would
+    become dry-run and ``afplay`` would skip every cue. That raises
+    ``AudioBackendFallbackError`` unless ``allow_dry_run_fallback`` is set, which
+    returns the dry-run backend instead. Other names go to ``create_audio_backend()``.
+    Finding ``afplay`` does not show that the intended speaker is connected or audible.
     """
-    backend = create_audio_backend(name)
-    unavailable = name in {"system", "afplay"} and (
-        backend.name == "dry-run" or shutil.which("afplay") is None
-    )
-    if unavailable:
-        if not allow_dry_run_fallback:
+    if name in ("system", "afplay"):
+        if shutil.which("afplay") is not None:
+            backend: AudioBackend = MacOSAfplayBackend()
+        elif allow_dry_run_fallback:
+            backend = DryRunAudioBackend()
+        else:
             raise AudioBackendFallbackError(
-                f"Audio backend {name!r} requires afplay, but afplay is unavailable. "
-                "Run on macOS with afplay and an audio device, or use "
-                "--allow-dry-run for intentional testing without sound."
+                f"--backend {name} needs afplay, which is not on PATH, so no cue would make "
+                "a sound. Run it on macOS with /usr/bin on PATH, or add --allow-dry-run "
+                "to run without sound on purpose."
             )
-        backend = DryRunAudioBackend()
-    return BackendResolution(name, backend.name, backend)
+    else:
+        backend = create_audio_backend(name)
+    return BackendResolution(requested_name=name, resolved_name=backend.name, backend=backend)
 
 
 def _result_from_request(
