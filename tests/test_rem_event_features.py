@@ -2,12 +2,15 @@
 
 import asyncio
 import math
+import tempfile
 import unittest
+from pathlib import Path
 
 import numpy as np
+import pandas as pd
 from scipy.signal import sosfilt
 
-from muse_tmr.annotations import build_rem_annotation_rows
+from muse_tmr.annotations import build_rem_annotation_rows, load_rem_annotations
 from muse_tmr.data.sample_types import EEGSample, MuseFrame
 from muse_tmr.features import (
     RemEventConfig,
@@ -17,7 +20,8 @@ from muse_tmr.features import (
     extract_eeg_features,
 )
 from muse_tmr.features.rem_event_features import design_bandpass
-from muse_tmr.models import HeuristicRemDetector
+from muse_tmr.models import HeuristicRemDetector, PersonalRemModel, train_personal_rem_classifier
+from muse_tmr.models.ml_rem_detector import DEFAULT_PERSONAL_REM_FEATURES
 from tests.rem_event_synthetic import (
     FS,
     LINE_HZ,
@@ -234,6 +238,24 @@ class TestRemEventRow(unittest.TestCase):
         self.assertIn("feature_score_rem_event_density", later)
         self.assertIn("feature_value_rem_event_threshold_uv", later)
         self.assertEqual(later["feature_value_rem_event_warmup"], 0.0)
+
+    def test_older_annotation_csvs_and_models_still_load(self):
+        rows = build_rem_annotation_rows(session_epochs(rem_dense(0).channels))
+        with tempfile.TemporaryDirectory() as tmp:
+            # A template written before #225: no REM-event columns, labels filled in.
+            old = pd.DataFrame([row.to_dict() for row in rows])
+            old = old[[column for column in old.columns if "rem_event" not in column]]
+            old["label"] = ["probable_rem" if index % 2 else "nrem" for index in range(len(old))]
+            old_path = Path(tmp) / "old_labels.csv"
+            old.to_csv(old_path, index=False)
+            loaded = load_rem_annotations(old_path)
+            model = train_personal_rem_classifier(loaded)
+            model_path = model.save(Path(tmp) / "old_model.json")
+            restored = PersonalRemModel.load(model_path)
+        self.assertEqual(len(loaded), len(rows))
+        self.assertEqual(restored.feature_names, DEFAULT_PERSONAL_REM_FEATURES)
+        prediction = restored.predict_mapping(rows[4].to_training_dict())
+        self.assertTrue(0.0 <= prediction.probability <= 1.0)
 
     def test_burst_and_age_follow_the_last_events(self):
         eye = np.concatenate([rem_deflection_train(), np.zeros(int(60 * FS))])
