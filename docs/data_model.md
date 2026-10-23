@@ -111,7 +111,7 @@ applies the same rule.
 `muse_tmr.testing.synthetic.generate_night()` writes a recording directory from a seed and
 a `SyntheticNightConfig`, or from one of the scenarios in `muse_tmr.testing.scenarios`
 (`clean_night`, `fragmented_rem`, `no_rem_nap`, `battery_death_2h29`, `optics_line`,
-`bad_contact_af7`, `movement_heavy`, `short_allow_short`, each with a `hours` override).
+`bad_contact_af7`, `movement_heavy`, `short_allow_short`, each with an `hours` override).
 Synthetic input, not sleep: the stage signals are assumptions, and nothing measured on
 these nights is evidence of REM accuracy. The same seed and config give the same bytes.
 Generated nights go to a temporary directory or the gitignored `data/synthetic/`.

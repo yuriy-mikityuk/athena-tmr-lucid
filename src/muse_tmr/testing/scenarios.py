@@ -2,7 +2,7 @@
 
 Each scenario is a ``SyntheticNightConfig`` with a few fields changed; ``hours``
 shortens or lengthens any of them. A recording takes about 12 MB an hour on ``p21``
-(97 MB for 8 h) and 17 MB an hour on ``p1034``, whose battery empties after about
+(96.5 MB for 8 h) and 17 MB an hour on ``p1034``, whose battery empties after about
 4.3 h, so scenarios are generated on demand into a temporary or gitignored directory
 (``data/synthetic/``) and never committed.
 """
