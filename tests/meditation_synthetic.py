@@ -4,19 +4,11 @@ import numpy as np
 from scipy.signal import butter, sosfiltfilt
 
 from muse_tmr.data.sample_types import EEGSample, MuseFrame
+from muse_tmr.testing.synthetic import pink_noise
 
 FS = 256.0
 CHANNELS = ("TP9", "AF7", "AF8", "TP10")
 SAMPLES_PER_FRAME = 12
-
-
-def pink_noise(n, chi, rng):
-    freqs = np.fft.rfftfreq(n, 1.0 / FS)
-    spectrum = rng.standard_normal(freqs.size) + 1j * rng.standard_normal(freqs.size)
-    spectrum[1:] *= freqs[1:] ** (-chi / 2.0)
-    spectrum[0] = 0.0
-    signal = np.fft.irfft(spectrum, n)
-    return signal / np.std(signal)
 
 
 def band_noise(n, band_hz, rng):

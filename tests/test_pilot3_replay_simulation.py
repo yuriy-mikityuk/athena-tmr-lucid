@@ -23,6 +23,7 @@ from muse_tmr.protocol import (
     PuzzleTask,
     TmrSchedulerConfig,
 )
+from muse_tmr.testing import generate_night
 from muse_tmr.validation import pilot3 as pilot3_module
 from muse_tmr.validation import simulate_cue_plan_from_epochs, simulate_replay_cue_plan
 from tests.rem_event_synthetic import rem_deflection_train
@@ -133,31 +134,6 @@ def protocol_fixture():
         ),
     )
     return catalog, session, assignment, cue_library
-
-
-def build_tag_packet(first_tag, first_data):
-    header = bytearray(14)
-    header[9] = first_tag
-    return bytes(header) + first_data
-
-
-def write_synthetic_recording(recording_dir: Path) -> Path:
-    recording_dir.mkdir(parents=True, exist_ok=True)
-    raw_path = recording_dir / "raw_amused.bin"
-    stream = MuseRawStream(str(raw_path))
-    stream.open_write()
-    base_time = stream.session_start
-    stream.write_packet(build_tag_packet(proto.TAG_EEG_4CH, bytes(28)), base_time)
-    stream.write_packet(
-        build_tag_packet(proto.TAG_ACCGYRO, bytes(36)),
-        base_time + dt.timedelta(seconds=10),
-    )
-    stream.write_packet(
-        build_tag_packet(proto.TAG_OPTICS_8CH, bytes(60)),
-        base_time + dt.timedelta(seconds=40),
-    )
-    stream.close()
-    return raw_path
 
 
 def pack_eeg_4ch(rows_uv):
@@ -462,7 +438,7 @@ class TestPilot3ReplayPipeline(unittest.IsolatedAsyncioTestCase):
         catalog, session, assignment, cue_library = protocol_fixture()
         with tempfile.TemporaryDirectory() as tmpdir:
             recording_dir = Path(tmpdir) / "recording"
-            write_synthetic_recording(recording_dir)
+            generate_night(output_dir=recording_dir, scenario="short_allow_short", hours=2 / 60)
 
             report = await simulate_replay_cue_plan(
                 recording_dir,
@@ -474,8 +450,9 @@ class TestPilot3ReplayPipeline(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertTrue(report.passed)
-        self.assertGreater(report.metrics["epoch_count"], 0)
+        self.assertEqual(report.metrics["epoch_count"], 4)
         self.assertGreater(report.metrics["scheduler_event_count"], 0)
+        self.assertEqual(report.metrics["uncued_puzzle_play_count"], 0)
         self.assertFalse(report.audio_playback_executed)
 
 

@@ -1,15 +1,11 @@
-import datetime as dt
 import io
-import json
 import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
-import muse_athena_protocol as proto
 import pandas as pd
-from muse_raw_stream import MuseRawStream
 
 from muse_tmr.annotations import (
     RemAnnotation,
@@ -23,6 +19,10 @@ from muse_tmr.cli.main import main
 from muse_tmr.features.epochs import SleepEpoch
 from muse_tmr.models import RemPrediction
 from muse_tmr.models import heuristic_rem_detector
+from muse_tmr.testing import generate_night
+
+# One minute of the short_allow_short scenario: two 30 s epochs.
+MINUTES = 1 / 60
 
 
 def empty_epoch(index=0):
@@ -35,34 +35,6 @@ def empty_epoch(index=0):
         sample_counts={},
         coverage={"eeg": 0.0, "imu": 0.0, "ppg": 0.0, "heart_rate": 0.0},
         quality_flags=("missing_eeg", "missing_imu", "missing_ppg", "missing_heart_rate"),
-    )
-
-
-def build_tag_packet(first_tag, first_data):
-    header = bytearray(14)
-    header[9] = first_tag
-    return bytes(header) + first_data
-
-
-def write_synthetic_recording(recording_dir: Path) -> None:
-    recording_dir.mkdir(parents=True, exist_ok=True)
-    raw_path = recording_dir / "raw_amused.bin"
-    stream = MuseRawStream(str(raw_path))
-    stream.open_write()
-    base_time = stream.session_start
-    stream.write_packet(build_tag_packet(proto.TAG_EEG_4CH, bytes(28)), base_time)
-    stream.write_packet(
-        build_tag_packet(proto.TAG_ACCGYRO, bytes(36)),
-        base_time + dt.timedelta(seconds=10),
-    )
-    stream.write_packet(
-        build_tag_packet(proto.TAG_OPTICS_8CH, bytes(60)),
-        base_time + dt.timedelta(seconds=40),
-    )
-    stream.close()
-    (recording_dir / "metadata.json").write_text(
-        json.dumps({"source": {"source_name": "amused", "device_name": "Muse Test"}}),
-        encoding="utf-8",
     )
 
 
@@ -166,7 +138,7 @@ class TestRemAnnotations(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             recording_dir = Path(tmp) / "recording"
             output_path = Path(tmp) / "annotations.csv"
-            write_synthetic_recording(recording_dir)
+            generate_night(output_dir=recording_dir, scenario="short_allow_short", hours=MINUTES)
 
             with redirect_stdout(io.StringIO()):
                 exit_code = main([
@@ -178,7 +150,7 @@ class TestRemAnnotations(unittest.TestCase):
             frame = pd.read_csv(output_path)
 
         self.assertEqual(exit_code, 0)
-        self.assertGreaterEqual(len(frame), 1)
+        self.assertEqual(len(frame), 2)
         self.assertTrue(set(frame["label"]) == {"unknown"})
         self.assertIn("p_rem", frame.columns)
         self.assertIn("reason_codes", frame.columns)
@@ -194,7 +166,7 @@ class TestRemAnnotations(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             recording_dir = Path(tmp) / "recording"
             output_path = Path(tmp) / "annotations.csv"
-            write_synthetic_recording(recording_dir)
+            generate_night(output_dir=recording_dir, scenario="short_allow_short", hours=MINUTES)
             with redirect_stdout(io.StringIO()), mock.patch.object(
                 heuristic_rem_detector, "extract_eeg_features", recording_extract
             ):

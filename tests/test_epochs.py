@@ -1,15 +1,12 @@
-import datetime as dt
-import json
 import tempfile
 import unittest
 from pathlib import Path
 
-import muse_athena_protocol as proto
-from muse_raw_stream import MuseRawStream
 from muse_tmr.data.replay import ReplayConfig, ReplaySession
 from muse_tmr.data.sample_types import EEGSample, HeartRateSample, IMUSample, MuseFrame, PPGSample
 from muse_tmr.features.epochs import EpochBuilder, EpochConfig, epoch_step_seconds
 from muse_tmr.features.sleep_feature_extractor import EpochBuilder as CoordinatorEpochBuilder
+from muse_tmr.testing import generate_night
 
 
 async def async_frames(frames):
@@ -60,34 +57,6 @@ def frame_at(
     )
     hr = HeartRateSample(timestamp=timestamp, bpm=60.0, source="test") if heart_rate else None
     return MuseFrame(timestamp=timestamp, eeg=eeg, imu=imu, ppg=ppg, heart_rate=hr, source="test")
-
-
-def build_tag_packet(first_tag, first_data):
-    header = bytearray(14)
-    header[9] = first_tag
-    return bytes(header) + first_data
-
-
-def write_replay_recording(recording_dir: Path) -> None:
-    recording_dir.mkdir(parents=True, exist_ok=True)
-    raw_path = recording_dir / "raw_amused.bin"
-    stream = MuseRawStream(str(raw_path))
-    stream.open_write()
-    base_time = stream.session_start
-    stream.write_packet(build_tag_packet(proto.TAG_EEG_4CH, bytes(28)), base_time)
-    stream.write_packet(
-        build_tag_packet(proto.TAG_ACCGYRO, bytes(36)),
-        base_time + dt.timedelta(seconds=10),
-    )
-    stream.write_packet(
-        build_tag_packet(proto.TAG_OPTICS_8CH, bytes(60)),
-        base_time + dt.timedelta(seconds=40),
-    )
-    stream.close()
-    (recording_dir / "metadata.json").write_text(
-        json.dumps({"source": {"source_name": "amused", "device_name": "Muse Test"}}),
-        encoding="utf-8",
-    )
 
 
 class FakeLiveSource:
@@ -186,16 +155,18 @@ class TestEpochBuilder(unittest.IsolatedAsyncioTestCase):
     async def test_builder_accepts_replay_session_stream(self):
         with tempfile.TemporaryDirectory() as tmp:
             recording_dir = Path(tmp)
-            write_replay_recording(recording_dir)
+            generate_night(output_dir=recording_dir, scenario="short_allow_short", hours=1 / 60)
             session = ReplaySession(ReplayConfig(input_path=recording_dir, speed=0.0))
             builder = EpochBuilder(EpochConfig(epoch_seconds=30, stride_seconds=30))
 
             epochs = [epoch async for epoch in builder.build(session.stream())]
 
             self.assertEqual(len(epochs), 2)
-            self.assertIn("eeg", epochs[0].modality_counts)
-            self.assertIn("imu", epochs[0].modality_counts)
-            self.assertIn("ppg", epochs[1].modality_counts)
+            for epoch in epochs:
+                self.assertTrue({"eeg", "imu", "ppg"} <= set(epoch.modality_counts))
+            # A full epoch, less the 1 % of EEG subpackets the scenario loses.
+            self.assertGreater(epochs[0].coverage["eeg"], 0.97)
+            self.assertEqual(epochs[0].quality_flags, ())
 
 
 class TestEpochConfig(unittest.TestCase):

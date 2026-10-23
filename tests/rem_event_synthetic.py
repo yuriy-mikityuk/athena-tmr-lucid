@@ -3,7 +3,8 @@
 Synthetic input, not sleep. It stands in for Muse AF7/AF8: a shared 1/f background, a
 smaller independent 1/f noise per channel, the ~64 Hz optics line (#154), biphasic
 deflections of opposite polarity on AF7 and AF8 for horizontal eye movements, and
-in-phase blinks that are larger on one side.
+in-phase blinks that are larger on one side. The noise and the two shapes come from
+``muse_tmr.testing.synthetic``, which builds whole synthetic nights from them.
 """
 
 from dataclasses import dataclass
@@ -13,6 +14,8 @@ import numpy as np
 
 from muse_tmr.data.sample_types import EEGSample, MuseFrame
 from muse_tmr.features.epochs import EpochBuilder, EpochConfig
+from muse_tmr.testing import synthetic
+from muse_tmr.testing.synthetic import blink_shape, deflection
 
 FS = 256.0
 LINE_HZ = 63.93
@@ -38,23 +41,7 @@ FIXTURE_DEFLECTIONS = (
 
 def pink_noise(n: int, rng: np.random.Generator) -> np.ndarray:
     """Unit-RMS noise with a 1/f power spectrum."""
-    freqs = np.fft.rfftfreq(n, 1.0 / FS)
-    spectrum = rng.standard_normal(freqs.size) + 1j * rng.standard_normal(freqs.size)
-    spectrum[1:] /= np.sqrt(freqs[1:])
-    spectrum[0] = 0.0
-    signal = np.fft.irfft(spectrum, n)
-    return signal / np.std(signal)
-
-
-def deflection(duration_s: float, amplitude_uv: float) -> np.ndarray:
-    """One biphasic deflection: a single sine cycle, first lobe positive."""
-    t = np.arange(int(round(duration_s * FS))) / FS
-    return amplitude_uv * np.sin(2 * np.pi * t / duration_s)
-
-
-def blink_shape(duration_s: float, amplitude_uv: float) -> np.ndarray:
-    """One monophasic blink: a Hann bump."""
-    return amplitude_uv * np.hanning(int(round(duration_s * FS)))
+    return synthetic.pink_noise(n, 1.0, rng, fs=FS)
 
 
 def rem_deflection_train(
