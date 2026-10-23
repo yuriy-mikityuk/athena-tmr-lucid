@@ -26,7 +26,19 @@ Pinned upstream baseline:
 
 ## Contribution Policy
 
-Contribute general Muse BLE fixes upstream when they are not specific to REM-TMR/TLR. Keep REM detection, cue scheduling, reports, validation, and sleep-protocol code in this repository.
+Upstream first. A fix to how the Muse is connected to or decoded goes to the project that owns that code before, or at the same time as, it lands here:
+
+- the BLE and packet decoding in the top-level `amused.py` and `muse_*.py` modules: [amused-py](https://github.com/Amused-EEG/amused-py)
+- the BrainFlow board code behind `muse_tmr.sources.brainflow_source`: [BrainFlow](https://github.com/brainflow-dev/brainflow)
+- the OpenMuse decoder behind `muse_tmr.sources.openmuse_lsl_source`: [OpenMuse](https://github.com/DominiqueMakowski/OpenMuse)
+
+A fix carried here first is recorded in the commit and in this file, so the fork can shrink once upstream has it. Keep REM detection, cue scheduling, reports, validation, and sleep-protocol code in this repository.
+
+Fixes already upstream:
+
+- BrainFlow [PR #837](https://github.com/brainflow-dev/brainflow/pull/837), "Fix Muse Athena macOS reconnect hangs", merged 2026-05-21 and released in BrainFlow 5.22.2.
+
+Nothing has been sent to amused-py or OpenMuse yet.
 
 ## BrainFlow Policy
 

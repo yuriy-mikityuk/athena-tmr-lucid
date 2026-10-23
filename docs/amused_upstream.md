@@ -1,6 +1,6 @@
 # Upstream documentation: amused-py (BLE data-source layer)
 
-> **Attribution.** The BLE protocol layer of this repository is based on [amused-py](https://github.com/nexon33/amused) by **Adrian Tadeusz Belmans** — the first open-source BLE protocol implementation for Muse S Athena headsets. This project uses a forked-source strategy pinned to upstream commit `bce20f98ddc7fa2efe3219d1b5d2f7554a55eb97`; the sync and contribution policy is recorded in [`dependency_strategy.md`](dependency_strategy.md) and `pyproject.toml`. The top-level `muse_*.py` modules are this forked layer. The original upstream README is preserved below for reference — protocol details, presets, and packet formats apply to the data-source layer as vendored here.
+> **Attribution.** The BLE protocol layer of this repository is based on [amused-py](https://github.com/Amused-EEG/amused-py) by **Adrian Tadeusz Belmans** — the first open-source BLE protocol implementation for Muse S Athena headsets. This project uses a forked-source strategy pinned to upstream commit `bce20f98ddc7fa2efe3219d1b5d2f7554a55eb97`; the sync and contribution policy is recorded in [`dependency_strategy.md`](dependency_strategy.md) and `pyproject.toml`. The top-level `muse_*.py` modules are this forked layer. The original upstream README is preserved below for reference — protocol details, presets, and packet formats apply to the data-source layer as vendored here.
 
 ---
 
@@ -38,8 +38,8 @@ pip install amused
 Or from source:
 
 ```bash
-git clone https://github.com/nexon33/amused.git
-cd amused
+git clone https://github.com/Amused-EEG/amused-py.git
+cd amused-py
 pip install -e .
 ```
 
@@ -332,7 +332,7 @@ If you use Amused in research:
   title = {Amused: A Muse S Direct BLE Implementation},
   author = {Adrian Tadeusz Belmans},
   year = {2025},
-  url = {https://github.com/nexon33/amused}
+  url = {https://github.com/Amused-EEG/amused-py}
 }
 ```
 
