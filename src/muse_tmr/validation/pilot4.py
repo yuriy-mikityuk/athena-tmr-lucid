@@ -262,8 +262,8 @@ async def run_pilot4_cueing_night(
     tlr_block_plan: Optional[TlrBlockPlan] = None,
 ) -> Pilot4CueingSummary:
     config.validate()
-    # Explicit backend injection is reserved for callers supplying a test/custom
-    # backend. Record its actual name even when it differs from the request.
+    # Before connect() and before any file: a night that asked for sound must not
+    # run silently. An injected backend (tests, custom players) is used as given.
     resolved_backend = backend
     if resolved_backend is None:
         resolved_backend = resolve_audio_backend(
@@ -728,7 +728,6 @@ def _write_metadata(
             "backend_name": config.audio_backend_name,
             "requested_backend_name": config.audio_backend_name,
             "resolved_backend_name": resolved_backend_name,
-            "allow_dry_run_fallback": config.allow_dry_run_fallback,
             "hard_max_volume": config.hard_max_volume,
             "default_volume": config.default_volume,
             "calibration": calibration.to_dict(),
