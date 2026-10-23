@@ -88,6 +88,13 @@ from muse_tmr.models.heuristic_rem_detector import (  # noqa: E402
 from muse_tmr.models.rem_detector import RemPrediction  # noqa: E402
 from muse_tmr.models.rem_gate import RemGateConfig, StableRemGate  # noqa: E402
 from muse_tmr.presets import preset_gate_thresholds, preset_provides_optics  # noqa: E402
+from muse_tmr.validation.rem_metrics import (  # noqa: E402
+    best_f1_threshold,
+    binary_metrics,
+    gate_open_fraction,
+    roc_auc,
+    threshold_sweep,
+)
 
 EEG_CHANNELS = ("AF7", "AF8", "TP9", "TP10")
 REM_STAGES = ("R", "REM")
@@ -399,73 +406,9 @@ def build_provenance(
 
 
 # --------------------------------------------------------------------------- #
-# Metrics
+# Metrics (binary_metrics, roc_auc, threshold_sweep, best_f1_threshold and
+# gate_open_fraction live in muse_tmr.validation.rem_metrics)
 # --------------------------------------------------------------------------- #
-def binary_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
-    tp = int(np.sum((y_pred == 1) & (y_true == 1)))
-    fp = int(np.sum((y_pred == 1) & (y_true == 0)))
-    fn = int(np.sum((y_pred == 0) & (y_true == 1)))
-    tn = int(np.sum((y_pred == 0) & (y_true == 0)))
-    total = tp + fp + fn + tn
-    precision = tp / (tp + fp) if (tp + fp) else float("nan")
-    recall = tp / (tp + fn) if (tp + fn) else float("nan")
-    if math.isfinite(precision) and math.isfinite(recall):
-        # Conventional F1: a total miss (P=R=0) is F1=0, not undefined.
-        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
-    else:
-        f1 = float("nan")
-    accuracy = (tp + tn) / total if total else float("nan")
-    kappa = _cohen_kappa(tp, fp, fn, tn)
-    return {
-        "tp": tp, "fp": fp, "fn": fn, "tn": tn,
-        "precision": precision, "recall": recall, "f1": f1,
-        "accuracy": accuracy, "kappa": kappa,
-    }
-
-
-def _cohen_kappa(tp: int, fp: int, fn: int, tn: int) -> float:
-    total = tp + fp + fn + tn
-    if total == 0:
-        return float("nan")
-    po = (tp + tn) / total
-    p_pred_pos = (tp + fp) / total
-    p_true_pos = (tp + fn) / total
-    pe = p_pred_pos * p_true_pos + (1 - p_pred_pos) * (1 - p_true_pos)
-    return (po - pe) / (1 - pe) if (1 - pe) else float("nan")
-
-
-def roc_auc(y_true: np.ndarray, scores: np.ndarray) -> float:
-    from scipy.stats import rankdata
-
-    n_pos = int(np.sum(y_true == 1))
-    n_neg = int(np.sum(y_true == 0))
-    if n_pos == 0 or n_neg == 0:
-        return float("nan")
-    ranks = rankdata(scores)
-    sum_pos = float(np.sum(ranks[y_true == 1]))
-    return (sum_pos - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg)
-
-
-def threshold_sweep(y_true: np.ndarray, scores: np.ndarray, step: float = 0.05) -> List[Dict[str, float]]:
-    rows = []
-    thr = step
-    while thr < 1.0:
-        m = binary_metrics(y_true, (scores >= thr).astype(int))
-        rows.append({"threshold": round(thr, 3), **m})
-        thr += step
-    return rows
-
-
-def best_f1_threshold(y_true: np.ndarray, scores: np.ndarray) -> Tuple[float, Dict[str, float]]:
-    best_thr, best = 0.5, binary_metrics(y_true, (scores >= 0.5).astype(int))
-    for thr in np.round(np.arange(0.01, 1.0, 0.01), 2):
-        m = binary_metrics(y_true, (scores >= thr).astype(int))
-        f1 = m["f1"]
-        if math.isfinite(f1) and (not math.isfinite(best["f1"]) or f1 > best["f1"]):
-            best_thr, best = float(thr), m
-    return best_thr, best
-
-
 def feature_columns(predictions: Sequence[RemPrediction]) -> Dict[str, np.ndarray]:
     """The per-epoch score_<name> and value_<name> columns, NaN where an epoch lacks one."""
     rows = [
@@ -549,7 +492,7 @@ def gate_grid(
                     "exit": exit_,
                     "preset_pair": (enter, exit_) == tuple(round(t, 2) for t in preset_pair),
                     "gate_open_epochs": int(g.sum()),
-                    "gate_open_fraction": float(g.mean()) if g.size else float("nan"),
+                    "gate_open_fraction": gate_open_fraction(g),
                     "recall": m["recall"],
                     "precision": m["precision"],
                     "f1": m["f1"],
