@@ -22,7 +22,7 @@ Not before 60 to 90 s, and usually later ([#167](https://github.com/yuriy-mikity
 
 ## Does the eye-movement proxy use AF7 − AF8?
 
-Yes, but it does not work yet ([#167](https://github.com/yuriy-mikityuk/remind-eeg/issues/167), [#116](https://github.com/yuriy-mikityuk/remind-eeg/issues/116)). It takes the mean absolute difference of successive raw AF7 − AF8 samples at 256 Hz, which mostly measures high frequencies (muscle and a 64 Hz line from the optics), while eye movements are slow. Its score is 1.0 in every epoch, so it carries no information. The planned fix is a low-pass of about 5 Hz before the difference and thresholds fitted on a REM night.
+Yes, but it does not work yet ([#167](https://github.com/yuriy-mikityuk/remind-eeg/issues/167), [#116](https://github.com/yuriy-mikityuk/remind-eeg/issues/116)). It takes the mean absolute difference of successive raw AF7 − AF8 samples at 256 Hz, which mostly measures high frequencies (muscle and a 64 Hz line from the optics), while eye movements are slow. Its score is 1.0 in every epoch, so it carries no information. Since [#225](https://github.com/yuriy-mikityuk/remind-eeg/issues/225) its weight in `P_REM` is 0; it is still computed and exported. The planned fix is a low-pass of about 5 Hz before the difference and thresholds fitted on a REM night.
 
 ## Why did the EEG have extra samples and gaps?
 

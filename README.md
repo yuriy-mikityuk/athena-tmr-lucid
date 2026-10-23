@@ -17,7 +17,7 @@ Not a medical device. This is n = 1 research software for self-experimentation, 
 - Every accuracy figure comes from one EEG-only night, `overnight_20260707` (`p21`, 8 h, no audio), scored against GSSC, an automated stager used as a proxy, not PSG ([#112](https://github.com/yuriy-mikityuk/remind-eeg/issues/112), [PR #115](https://github.com/yuriy-mikityuk/remind-eeg/pull/115)).
 - The `p21` gate thresholds 0.90/0.85 were tuned in-sample on that night and reported on the same night, so they are not a held-out result ([PR #115](https://github.com/yuriy-mikityuk/remind-eeg/pull/115), [`docs/numbers.md`](docs/numbers.md)).
 - No night with sleep-time audio has been run yet; Pilots 4 and 5 exist as tooling only ([EPIC #1](https://github.com/yuriy-mikityuk/remind-eeg/issues/1)).
-- The heuristic detector is effectively one feature: against GSSC only `low_delta_power` separates REM, and the eye-movement proxy is saturated ([#116](https://github.com/yuriy-mikityuk/remind-eeg/issues/116)).
+- The heuristic detector is effectively one feature: against GSSC only `low_delta_power` separates REM, and the eye-movement proxy is saturated, so its weight is now 0; the `p21` thresholds were tuned before that and wait for a re-grid ([#116](https://github.com/yuriy-mikityuk/remind-eeg/issues/116), [#225](https://github.com/yuriy-mikityuk/remind-eeg/issues/225)).
 - With 30 s epochs and a 60 s stable window, the first cue comes at least 60 to 90 s after REM onset ([#167](https://github.com/yuriy-mikityuk/remind-eeg/issues/167)).
 - The pip distribution is still `athena-tmr-lucid`. It will be renamed `remind-eeg`, keeping the `muse-tmr` command and the `muse_tmr` import; the rename itself is [Initiative 8, #232](https://github.com/yuriy-mikityuk/remind-eeg/issues/232).
 

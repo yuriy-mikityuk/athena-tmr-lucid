@@ -12,6 +12,7 @@ Versions follow `muse_tmr.__version__`; the app shows the running version and bu
 ### REM detection and cueing
 
 - The arousal guard knows when a preset has no optics. `ArousalGuardConfig.optics_capable` is set from `--preset` like the REM gate's, in `simulate-replay-cues`, `run-pilot4-cueing` and `run-pilot5-full-night`. On `p21` missing PPG no longer lowers volume or adds up to a `repeated_artifact_quality` pause, the HR rules are skipped, and each decision logs `ppg_absent_by_design`. Before this, every `p21` night was paused from the third epoch on and no cue could play. Optics presets behave as before (#234).
+- The heuristic REM detector no longer weights the eye-movement proxy, which scores 1.0 in every epoch of a real night (AUC 0.500 against GSSC REM, #116). `DEFAULT_REM_WEIGHTS["eye_movement_proxy"]` is 0 and the other five are divided by 0.75 so they still sum to 1: `low_delta_power` 0.333, `theta_alpha_ratio` 0.200, `stillness` 0.267, `hr_variability` 0.133, `hr_trend` 0.067. The proxy is still scored and exported. Where it scored 1.0, `P_REM` now stays the same or goes down. The `p21` gate thresholds 0.90/0.85 were fitted with the old weights; re-grid pending (#116, #225).
 
 ### Development and docs
 

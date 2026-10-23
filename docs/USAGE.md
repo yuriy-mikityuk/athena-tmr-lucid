@@ -232,7 +232,7 @@ for epoch in epochs:
     print(epoch.index, prediction.probability, prediction.reason_codes)
 ```
 
-`prediction.probability` is `P_REM` in the 0-1 range. The heuristic detector is a non-ML baseline over EEG, IMU, and PPG/HR feature rows. It returns reason codes and feature scores only; it does not play audio or make cue decisions.
+`prediction.probability` is `P_REM` in the 0-1 range. The heuristic detector is a non-ML baseline over EEG, IMU, and PPG/HR feature rows. It returns reason codes and feature scores only; it does not play audio or make cue decisions. Its weights are `DEFAULT_REM_WEIGHTS` in `muse_tmr.models.heuristic_rem_detector`; the eye-movement proxy is still scored but weighted 0, because it is saturated on real nights (#116, #225). The weights and why: `docs/data_model.md`.
 
 ## Manual REM annotation templates
 
@@ -266,7 +266,7 @@ for prediction in rem_predictions:
 
 The gate requires stable REM confidence over time, uses hysteresis for closing, blocks motion/arousal reasons, and applies cooldown after arousal blocks. It still does not play audio; cue code must consume `gate_open` plus reason codes.
 
-`RemGateConfig()` opens at `P_REM` 0.80 and closes below 0.70. The pilot commands take the pair from `--preset` (`muse_tmr.presets.preset_gate_thresholds`): 0.90/0.85 on `p21`, 0.80/0.70 on an optics preset; `--enter-threshold` and `--exit-threshold` override it. On `p21` the gate also stops treating missing PPG as low confidence, and the arousal guard stops treating it as an artifact and skips its HR rules (`docs/safety.md`). Why these values and how far they have been checked: `docs/data_model.md`.
+`RemGateConfig()` opens at `P_REM` 0.80 and closes below 0.70. The pilot commands take the pair from `--preset` (`muse_tmr.presets.preset_gate_thresholds`): 0.90/0.85 on `p21`, 0.80/0.70 on an optics preset; `--enter-threshold` and `--exit-threshold` override it. The `p21` pair was fitted with the detector's earlier weights and has not been re-gridded since the eye-movement proxy went to 0 (#116). On `p21` the gate also stops treating missing PPG as low confidence, and the arousal guard stops treating it as an artifact and skips its HR rules (`docs/safety.md`). Why these values and how far they have been checked: `docs/data_model.md`.
 
 ## Checking the REM detector against a reference stager
 
