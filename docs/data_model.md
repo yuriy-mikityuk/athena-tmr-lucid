@@ -155,7 +155,8 @@ Current EEG features include:
 - theta/alpha, delta/beta, and slow/fast ratios
 - frontal and posterior alpha asymmetry
 - frontal theta asymmetry
-- a simple frontal eye-movement proxy from AF7-AF8 changes
+- a simple frontal eye-movement proxy from AF7-AF8 changes (kept as a column, weighted 0
+  in the heuristic detector, see below)
 - artifact flags for missing EEG, low coverage, flatline, clipping, and non-finite channels
 
 Feature rows carry epoch timing, channel counts, sample counts, coverage, and quality
@@ -213,6 +214,17 @@ Each `RemPrediction` contains:
 - `feature_scores`: normalized heuristic component scores
 - `feature_values`: raw feature values used by the heuristic
 - `source`: currently `heuristic`
+
+Before the caps, `P_REM` is the weighted mean of the component scores that are
+available, with `DEFAULT_REM_WEIGHTS`: `low_delta_power` 0.333, `theta_alpha_ratio`
+0.200, `stillness` 0.267, `hr_variability` 0.133, `hr_trend` 0.067 and
+`eye_movement_proxy` 0. The proxy is still scored and stays in `feature_scores`,
+`feature_values` and the annotation columns, but it is 1.0 in every epoch of a real night
+(AUC 0.500 against GSSC REM, #116), so it no longer moves `P_REM`. The other five are the
+earlier weights divided by 0.75, so they still sum to 1 and a prediction with less than
+0.40 of the weight available still gets `limited_feature_support` and the 0.55 cap; an
+EEG and IMU epoch on `p21` has 0.80. The weights are set by hand; the refit waits for
+REM-bearing `p21` nights (#225).
 
 The REM detector does not play audio and does not return `CueDecision`. Stable gates,
 cooldowns, arousal guards, and cue scheduling remain separate downstream layers.
@@ -279,9 +291,11 @@ Each decision contains:
 `0.80`/`0.70`. The heuristic detector runs hot, so the earlier `0.70`/`0.45` left the
 gate open about 75% of a night. The `p21` pair was tuned in-sample on one EEG-only night
 (`overnight_20260707`, n=1) against GSSC, an automated proxy, not PSG; it was fitted and
-reported on the same night, so it is not held-out validation. Kappa and epoch counts are
-only in PR #115 / #116 (see [`numbers.md`](numbers.md)). The optics pair is provisional
-until a night with REM on an optics preset is recorded (#116).
+reported on the same night, so it is not held-out validation. It was also fitted with the
+detector's earlier weights, before the eye-movement proxy went to 0; re-grid pending
+(#116). Kappa and epoch counts are only in PR #115 / #116 (see [`numbers.md`](numbers.md)).
+The optics pair is provisional until a night with REM on an optics preset is recorded
+(#116).
 
 Motion/arousal reason codes close the gate and start cooldown. Low feature-support
 reason codes cap confidence so single high-probability spikes do not open the gate by

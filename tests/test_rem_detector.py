@@ -1,10 +1,14 @@
+import dataclasses
 import unittest
 
 import numpy as np
 
 from muse_tmr.data.sample_types import EEGSample, HeartRateSample, IMUSample, MuseFrame, PPGSample
+from muse_tmr.features.eeg_features import extract_eeg_features
 from muse_tmr.features.epochs import EpochBuilder, EpochConfig
+from muse_tmr.features.imu_features import extract_imu_features
 from muse_tmr.models import HeuristicRemConfig, HeuristicRemDetector, RemPrediction
+from muse_tmr.models.heuristic_rem_detector import DEFAULT_REM_WEIGHTS
 
 
 EEG_RATE_HZ = 256
@@ -194,6 +198,63 @@ class TestHeuristicRemDetector(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(predictions[0], RemPrediction)
         self.assertGreaterEqual(predictions[0].probability, 0.0)
         self.assertLessEqual(predictions[0].probability, 1.0)
+
+
+class TestHeuristicRemWeights(unittest.TestCase):
+    """The saturated eye-movement proxy carries no weight (#225, #116)."""
+
+    def test_weights_sum_to_one_with_eye_proxy_at_zero(self):
+        self.assertEqual(DEFAULT_REM_WEIGHTS["eye_movement_proxy"], 0.0)
+        self.assertAlmostEqual(sum(DEFAULT_REM_WEIGHTS.values()), 1.0, places=12)
+        earlier = {
+            "low_delta_power": 0.25,
+            "theta_alpha_ratio": 0.15,
+            "stillness": 0.20,
+            "hr_variability": 0.10,
+            "hr_trend": 0.05,
+        }
+        for name, weight in earlier.items():
+            self.assertAlmostEqual(DEFAULT_REM_WEIGHTS[name], weight / 0.75, places=12)
+        self.assertEqual(dict(HeuristicRemConfig().weights), DEFAULT_REM_WEIGHTS)
+
+    def test_p_rem_ignores_eye_movement_proxy(self):
+        epoch = build_epoch(
+            eeg_channels=nrem_like_eeg_channels(),
+            accel_rows=still_accel_rows(),
+            gyro_rows=still_gyro_rows(),
+        )
+        eeg = extract_eeg_features(epoch)
+        imu = extract_imu_features(epoch)
+        detector = HeuristicRemDetector()
+
+        quiet = detector.predict_features(
+            eeg=dataclasses.replace(eeg, eye_movement_proxy=0.0), imu=imu
+        )
+        saturated = detector.predict_features(
+            eeg=dataclasses.replace(eeg, eye_movement_proxy=10.0), imu=imu
+        )
+
+        self.assertEqual(quiet.feature_scores["eye_movement_proxy"], 0.0)
+        self.assertEqual(saturated.feature_scores["eye_movement_proxy"], 1.0)
+        self.assertEqual(saturated.feature_values["eye_movement_proxy"], 10.0)
+        self.assertAlmostEqual(quiet.probability, saturated.probability, places=12)
+        self.assertGreater(quiet.probability, 0.0)
+        self.assertLess(quiet.probability, 1.0)
+
+    def test_p21_eeg_imu_epoch_does_not_trip_limited_feature_support(self):
+        epoch = build_epoch(
+            eeg_channels=rem_like_eeg_channels(),
+            accel_rows=still_accel_rows(),
+            gyro_rows=still_gyro_rows(),
+        )
+        detector = HeuristicRemDetector()
+
+        prediction = detector.predict_epoch(epoch)
+
+        self.assertIn("low_ppg_hr_coverage", prediction.reason_codes)
+        self.assertNotIn("limited_feature_support", prediction.reason_codes)
+        self.assertNotIn("hr_variability", prediction.feature_scores)
+        self.assertGreater(prediction.probability, detector.config.limited_feature_probability_cap)
 
 
 class TestRemPrediction(unittest.TestCase):
