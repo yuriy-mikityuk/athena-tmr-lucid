@@ -9,6 +9,7 @@ plus an agreement strip (gate-open vs YASA-REM: hit / false-alarm / miss).
 
 from __future__ import annotations
 
+import html
 import json
 import math
 from typing import Dict, List
@@ -54,10 +55,21 @@ def build_html(result: Dict[str, object]) -> str:
     except (ValueError, IndexError):
         pass
 
+    provenance = result.get("provenance") or {}
+    stager = provenance.get("stager") or {}
+    run_line = f"Kappa: {result.get('kappa_definition', 'binary REM-vs-not')}."
+    if stager:
+        run_line += (
+            f" Stager {stager.get('tool')} {stager.get('package_version') or 'version unknown'}"
+            f"; channels not given to it: {', '.join(provenance.get('channels_not_passed') or []) or 'none'}"
+            f"; commit {str(provenance.get('git_commit') or 'unknown')[:12]}."
+        )
+
     return _TEMPLATE.format(
         recording=result["recording"],
         eeg=result["reference"]["eeg"],
-        eog=result["reference"].get("eog"),
+        eog=result["reference"].get("eog") or "none",
+        run_line=html.escape(run_line),
         tool=tool,
         caveat=_CAVEATS.get(tool.lower(), _CAVEATS["yasa"]),
         stat_tiles=stat_tiles,
@@ -124,6 +136,7 @@ svg{{display:block; width:100%; height:auto; overflow:visible}}
 <div class="vr"><div class="wrap">
 <h1>REM detection vs {tool} reference &mdash; {recording}</h1>
 <p class="sub">Heuristic p_rem &amp; live gate vs {tool} auto-staging (eeg {eeg}, eog {eog}) &middot; proxy reference, not PSG</p>
+<p class="sub">{run_line}</p>
 <div class="tiles">{stat_tiles}</div>
 <div class="legend">
   <span><i class="sw" style="background:var(--p)"></i>heuristic p_rem</span>
