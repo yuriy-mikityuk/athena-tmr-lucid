@@ -52,6 +52,8 @@ PROVENANCE_KEYS = {
     "preset",
     "enter_threshold",
     "exit_threshold",
+    "weights",
+    "weight_overrides",
     "eeg",
     "eog",
     "channels_not_passed",
@@ -62,13 +64,25 @@ STAGER_KEYS = {"tool", "package_version", "torch_version", "mne_version", "retur
 N_EPOCHS = 12
 T0 = 1000.0
 REM_EPOCHS = range(4, 8)
+COLLECT_WEIGHTS = []
 
 
-def _fake_collect(recording_dir, epoch_seconds):
-    predictions = [
-        (T0 + k * epoch_seconds, RemPrediction(probability=0.95 if k in REM_EPOCHS else 0.2))
-        for k in range(N_EPOCHS)
-    ]
+def _fake_prediction(k):
+    rem = k in REM_EPOCHS
+    return RemPrediction(
+        probability=0.95 if rem else 0.2,
+        feature_scores={
+            "low_delta_power": 0.9 if rem else 0.1 + 0.01 * k,
+            "theta_alpha_ratio": 0.2 if rem else 0.8,
+            "eye_movement_proxy": 1.0,
+        },
+        feature_values={"relative_delta_power": 0.3 if rem else 0.7, "mean_hr_bpm": float("nan")},
+    )
+
+
+def _fake_collect(recording_dir, epoch_seconds, weights=None):
+    COLLECT_WEIGHTS.append(weights)
+    predictions = [(T0 + k * epoch_seconds, _fake_prediction(k)) for k in range(N_EPOCHS)]
     n_samples = int(N_EPOCHS * epoch_seconds * 256)
     channels = {name: np.zeros(n_samples, dtype=np.float32) for name in vrd.EEG_CHANNELS}
     return {"predictions": predictions, "channels": channels, "sfreq": 256.0, "t0": T0, "n_samples": n_samples}
@@ -95,7 +109,7 @@ def _fake_hypnogram(reference, eog):
     }
 
 
-def _run(reference="gssc", eog=None, preset="p21"):
+def _run(reference="gssc", eog=None, preset="p21", weight_overrides=None):
     calls = []
 
     def fake_reference(ref, npz_path, eeg, eog_arg, python_path):
@@ -107,7 +121,7 @@ def _run(reference="gssc", eog=None, preset="p21"):
         with redirect_stdout(io.StringIO()):
             result = vrd.run(
                 Path("synthetic_night"), "AF7", eog, Path(sys.executable), 30.0,
-                preset, reference, None, argv=argv,
+                preset, reference, None, argv=argv, weight_overrides=weight_overrides,
             )
     return result, calls, argv
 
@@ -153,6 +167,8 @@ class ProvenanceTest(unittest.TestCase):
         self.assertEqual(provenance["stager"]["tool"], "gssc")
         self.assertEqual(provenance["stager"]["package_version"], "0.0.9-fake")
         self.assertIs(provenance["stager"]["returns_probabilities"], False)
+        self.assertEqual(provenance["weights"], dict(heuristic_rem_detector.DEFAULT_REM_WEIGHTS))
+        self.assertEqual(provenance["weight_overrides"], {})
         self.assertEqual(provenance["numpy"], np.__version__)
         self.assertTrue(provenance["timestamp_utc"].endswith("+00:00"))
         # The --output file is this dict without "matched"; it has to serialise as is.
@@ -185,6 +201,112 @@ class ProvenanceTest(unittest.TestCase):
         self.assertIn("binary REM-vs-not κ against an automated stager; not five-class", page)
         self.assertIn("Stager gssc 0.0.9-fake", page)
         self.assertIn("channels not given to it: AF8, TP9, TP10", page)
+
+
+class RefitToolingTest(unittest.TestCase):
+    """Per-feature AUC, the enter/exit grid and --weights (#225 1c), on the fake night."""
+
+    def test_feature_metrics(self):
+        result, _, _ = _run("gssc")
+        features = result["feature_metrics"]
+
+        self.assertEqual(
+            list(features),
+            [
+                "score_eye_movement_proxy",
+                "score_low_delta_power",
+                "score_theta_alpha_ratio",
+                "value_mean_hr_bpm",
+                "value_relative_delta_power",
+            ],
+        )
+        eye = features["score_eye_movement_proxy"]
+        self.assertTrue(eye["saturated"])
+        self.assertEqual((eye["min"], eye["max"], eye["n"]), (1.0, 1.0, N_EPOCHS))
+        self.assertEqual(eye["auc"], 0.5)
+        self.assertEqual(features["score_low_delta_power"]["auc"], 1.0)
+        self.assertFalse(features["score_low_delta_power"]["saturated"])
+        self.assertEqual(features["score_theta_alpha_ratio"]["auc"], 0.0)
+        self.assertEqual(features["value_relative_delta_power"]["auc"], 0.0)
+        missing = features["value_mean_hr_bpm"]
+        self.assertEqual(missing["n"], 0)
+        self.assertFalse(missing["saturated"])
+        self.assertTrue(np.isnan(missing["auc"]))
+
+    def test_gate_grid(self):
+        result, _, _ = _run("gssc", preset="p21")
+        grid = result["gate_grid"]
+        pairs = [(row["enter"], row["exit"]) for row in grid]
+
+        self.assertEqual(len(grid), 6 + 7 + 8 + 9 + 10 + 11)
+        for pair in ((0.70, 0.45), (0.80, 0.70), (0.90, 0.85), (0.95, 0.95)):
+            self.assertIn(pair, pairs)
+        self.assertTrue(all(row["exit"] <= row["enter"] for row in grid))
+        preset_rows = [row for row in grid if row["preset_pair"]]
+        self.assertEqual([(row["enter"], row["exit"]) for row in preset_rows], [(0.90, 0.85)])
+        gate = result["gate_vs_ref"]
+        self.assertEqual(preset_rows[0]["gate_open_epochs"], gate["gate_open_epochs"])
+        self.assertEqual(preset_rows[0]["recall"], gate["recall"])
+        self.assertEqual(preset_rows[0]["precision"], gate["precision"])
+        # The REM epochs are 4 to 7; the gate opens on the second of them.
+        self.assertEqual(preset_rows[0]["gate_open_fraction"], 3 / N_EPOCHS)
+        self.assertEqual(preset_rows[0]["recall"], 0.75)
+
+        optics_rows = [row for row in _run("gssc", preset="p1034")[0]["gate_grid"] if row["preset_pair"]]
+        self.assertEqual([(row["enter"], row["exit"]) for row in optics_rows], [(0.80, 0.70)])
+
+    def test_weights_reach_the_detector_and_the_provenance(self):
+        COLLECT_WEIGHTS.clear()
+        result, _, _ = _run("gssc", weight_overrides={"theta_alpha_ratio": 0.0, "rem_event_density": 0.2})
+        weights = COLLECT_WEIGHTS[-1]
+
+        self.assertEqual(set(weights), set(heuristic_rem_detector.DEFAULT_REM_WEIGHTS))
+        self.assertAlmostEqual(sum(weights.values()), 1.0)
+        self.assertEqual(weights["theta_alpha_ratio"], 0.0)
+        self.assertAlmostEqual(weights["rem_event_density"], 0.2 / 1.0)
+        self.assertAlmostEqual(weights["low_delta_power"], (5 / 15) / 1.0)
+        provenance = result["provenance"]
+        self.assertEqual(provenance["weights"], weights)
+        self.assertEqual(provenance["weight_overrides"], {"theta_alpha_ratio": 0.0, "rem_event_density": 0.2})
+        self.assertIn("Detector weights from --weights", html_report.build_html(result))
+
+        _run("gssc")
+        self.assertIsNone(COLLECT_WEIGHTS[-1])
+
+    def test_parse_and_resolve_weights(self):
+        self.assertEqual(
+            vrd.parse_weights("low_delta_power=2, stillness=1,"),
+            {"low_delta_power": 2.0, "stillness": 1.0},
+        )
+        for bad in ("", "low_delta_power", "nope=1", "stillness=-1", "stillness=x",
+                    "stillness=1,stillness=2", "stillness=nan"):
+            with self.subTest(bad=bad), self.assertRaises(vrd.argparse.ArgumentTypeError):
+                vrd.parse_weights(bad)
+        self.assertEqual(vrd.resolve_weights(None), dict(heuristic_rem_detector.DEFAULT_REM_WEIGHTS))
+        resolved = vrd.resolve_weights({"low_delta_power": 2.0})
+        self.assertAlmostEqual(sum(resolved.values()), 1.0)
+        self.assertAlmostEqual(resolved["low_delta_power"], 2.0 / (2.0 + 10 / 15))
+        with self.assertRaises(SystemExit):
+            vrd.resolve_weights({name: 0.0 for name in heuristic_rem_detector.DEFAULT_REM_WEIGHTS})
+
+    def test_summary_and_html_show_the_tables(self):
+        result, _, _ = _run("gssc")
+        output = io.StringIO()
+        with redirect_stdout(output):
+            vrd.print_summary(result)
+        text = output.getvalue()
+        self.assertIn("PER FEATURE", text)
+        self.assertIn("score_eye_movement_proxy", text)
+        self.assertIn("saturated", text)
+        self.assertIn("ENTER/EXIT GRID", text)
+        self.assertIn("25*", text)
+
+        page = html_report.build_html(result)
+        self.assertIn("score_eye_movement_proxy", page)
+        self.assertIn("saturated", page)
+        self.assertIn("Gate enter/exit grid", page)
+        self.assertEqual(page.count('class="preset"'), 1)
+        self.assertNotIn("Detector weights from --weights", page)
 
 
 class GsscUnpackTest(unittest.TestCase):
