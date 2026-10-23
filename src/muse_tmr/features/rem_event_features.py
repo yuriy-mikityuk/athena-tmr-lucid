@@ -484,12 +484,19 @@ class RemEventTracker:
         segment.peak_abs = max(segment.peak_abs, peak)
         if threshold is not None and peak > threshold:
             segment.significant = True
+        before = segment.length
         segment.length += bipolar.size
         if not segment.buffered:
             return
         if segment.length > self._buffer_samples:
+            # Too long to be an event or half of one: a first segment waiting for this
+            # one counts on its own now instead of when this one ends.
             segment.buffered = False
             segment.values, segment.common, segment.times = [], [], []
+            if segment.follows_first and self._first is not None:
+                first, self._first = self._first, None
+                segment.follows_first = False
+                self._emit(first, None, float(times[self._buffer_samples - before]))
             return
         segment.values.append(bipolar)
         segment.common.append(common)
