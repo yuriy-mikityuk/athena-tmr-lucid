@@ -9,3 +9,5 @@ The rules for changing this repository, for people and coding agents alike, live
 - No clinical, medical or lucid-dreaming efficacy claims: report metrics and their limitations.
 
 CI runs `scripts/check_forbidden_files.py` and the test suite on every pull request.
+
+The 2026-10 uniqueness initiatives (sub-issues of EPIC #1 titled `Initiative N: …`) are driven issue → PR → merge by the `initiatives` skill in [`.claude/skills/initiatives/SKILL.md`](../.claude/skills/initiatives/SKILL.md); the research behind them is in [`docs/research/2026-10-uniqueness/`](research/2026-10-uniqueness/report.md).

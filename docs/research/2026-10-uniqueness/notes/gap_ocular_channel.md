@@ -1,0 +1,3 @@
+# Gap: the ocular channel on Muse (pointer)
+
+The full note for this gap lives in [gap_4_the_ocular_channel_on_muse_why_the_eye_m.md](./gap_4_the_ocular_channel_on_muse_why_the_eye_m.md) (same folder). Summary: the eye_movement_proxy saturation is a feature/threshold design defect (unfiltered first difference of AF7−AF8 scored against 0.05–0.20 µV per sample), not a decoder unit mismatch — the whole chain is centered µV at 1450/16383 µV per count, identical to BrainFlow PRs #855/#856; and no validated automatic LRLR detector from frontal EEG exists in the 2021–Oct 2026 literature, so at-home signal-verified lucidity should be flagged as unproven.
