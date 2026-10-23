@@ -222,6 +222,7 @@ class HeuristicRemDetector:
         values["rem_event_density"] = rem_density
         values["rem_event_count"] = eeg.rem_event_count
         values["rem_event_threshold_uv"] = eeg.rem_event_threshold_uv
+        values["rem_event_warmup"] = 1.0 if eeg.rem_event_warmup else 0.0
         if math.isfinite(rem_density):
             scores["rem_event_density"] = _high_score(
                 rem_density,

@@ -58,8 +58,9 @@ class EEGFeatureRow:
     ``eye_movement_proxy`` is deprecated: it saturates on real nights (#116) and stays
     only so older CSVs and model artifacts load. The ``rem_*`` fields come from
     ``RemEventTracker`` on the band-passed AF7 - AF8 difference; they are NaN when AF7 or
-    AF8 is missing or flagged bad, and ``rem_event_warmup`` is true while the tracker's
-    running MAD covers less than ``RemEventConfig.warmup_seconds``.
+    AF8 is missing or flagged bad, or was read for less than half the epoch, and
+    ``rem_event_warmup`` is true while the tracker's running MAD covers less than
+    ``RemEventConfig.warmup_seconds``.
     """
 
     epoch_index: int
