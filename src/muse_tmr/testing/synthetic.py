@@ -195,9 +195,10 @@ def script_night(
 
     After 5 to 10 min awake and a few minutes of N1 the night runs in cycles, each
     N2, N3, N2 and a REM period, with N3 shrinking and REM growing from cycle to cycle.
-    ``rem_periods`` defaults to one per sleep cycle of 90 to 110 min that fits, at most
-    5 (4 or 5 for 8 h); ``wake_bouts`` to a brief awakening after every REM period but
-    the last. ``rem_interruptions`` breaks each REM period with that many awakenings of
+    ``rem_periods`` defaults to the number of sleep cycles of 90 to 110 min the night
+    holds, rounded, with no cycle under 70 min and at most 5 (4 or 5 for 8 h, 1 for 2 h,
+    none for 1 h); ``wake_bouts`` to a brief awakening after every REM period but the
+    last. ``rem_interruptions`` breaks each REM period with that many awakenings of
     30 to 60 s. Arousals of 3 to 15 s come at ``arousals_per_hour`` of sleep, a
     ``movement_share`` of them with movement; every awakening starts with one. Pass
     ``stages`` (as many epochs as ``hours`` holds) to keep a fixed hypnogram and script
@@ -230,7 +231,10 @@ def _script_stages(rng, total, rem_periods, wake_bouts):
     available = total - len(stages)
     cycle_epochs = int(rng.integers(180, 221))
     if rem_periods is None:
-        rem_periods = min(5, max(0, available // cycle_epochs))
+        rem_periods = min(5, max(0, int(round(available / cycle_epochs))))
+        # A cycle squeezed below 70 min would bring REM unusually early.
+        while rem_periods and available / rem_periods < 140:
+            rem_periods -= 1
     if wake_bouts is None:
         wake_bouts = max(0, rem_periods - 1)
     wake_starts: List[int] = []
