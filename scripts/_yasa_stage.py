@@ -13,14 +13,37 @@ central electrodes (C3/C4) referenced to the mastoids or Fpz; the Muse gives onl
 frontal (AF7/AF8) and temporal (TP9/TP10) channels referenced near Fpz, and there
 is no EMG. Treat the resulting hypnogram as an independent second opinion, not
 truth.
+
+The hypnogram's "stager" block records the yasa, torch and mne versions (torch is
+None unless installed; YASA does not use it) and whether proba_rem holds YASA's REM
+probability.
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
 import json
+from typing import Dict, Optional
 
 import numpy as np
+
+
+def _version(distribution: str) -> Optional[str]:
+    try:
+        return importlib.metadata.version(distribution)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def stager_block(returns_probabilities: bool) -> Dict[str, object]:
+    return {
+        "tool": "yasa",
+        "package_version": _version("yasa"),
+        "torch_version": _version("torch"),
+        "mne_version": _version("mne"),
+        "returns_probabilities": bool(returns_probabilities),
+    }
 
 
 def main() -> int:
@@ -78,6 +101,7 @@ def main() -> int:
                 "eeg": args.eeg,
                 "eog": eog_name,
                 "epoch_seconds": 30,
+                "stager": stager_block(rem_col is not None),
                 "stage_counts": stage_counts,
                 "epochs": epochs,
             },
