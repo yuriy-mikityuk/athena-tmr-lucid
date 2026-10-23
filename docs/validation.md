@@ -120,3 +120,7 @@ Use precise language:
 - "Not less effective" criteria, if used for M8 planning, must mean internal operational
   thresholds against previous local runs or planned controls, not a claim against clinical
   or laboratory systems.
+- A κ from `scripts/validate_rem_detection.py` is a binary REM-vs-not κ against an
+  automated stager, as its `kappa_definition` says. Call it that, and do not put it next to
+  a five-class κ against PSG or expert scoring, as published for other headbands, as if the
+  two were comparable.
