@@ -16,6 +16,10 @@ from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 from muse_tmr import __version__
 
+# Commands that can play a cue; main() checks their --backend before anything else runs.
+AUDIO_COMMANDS = ("play-test-cue", "train-tlr-cue", "run-pilot4-cueing", "run-pilot5-full-night")
+ALLOW_DRY_RUN_HELP = "Run silently on dry-run when afplay is missing, instead of exiting with code 2."
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -225,15 +229,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Volume calibration metadata .json. Uses --device-name when provided, else the latest record.",
     )
     play_parser.add_argument(
-        "--allow-dry-run", action="store_true",
-        help="Allow unavailable real audio to fall back to silent dry-run for testing.",
-    )
-    play_parser.add_argument(
         "--backend",
         choices=("system", "afplay", "dry-run", "mock"),
         default="system",
-        help="Playback backend. system requires afplay; silent fallback requires --allow-dry-run.",
+        help="Playback backend. system and afplay need afplay and exit with code 2 without it.",
     )
+    play_parser.add_argument("--allow-dry-run", action="store_true", help=ALLOW_DRY_RUN_HELP)
     play_parser.add_argument(
         "--emergency-stop",
         action="store_true",
@@ -362,15 +363,12 @@ def build_parser() -> argparse.ArgumentParser:
     pilot4_parser.add_argument("--calibration", type=Path, required=True, help="Volume calibration .json path.")
     pilot4_parser.add_argument("--device-name", help="Selected calibration device. Defaults to latest.")
     pilot4_parser.add_argument(
-        "--allow-dry-run", action="store_true",
-        help="Allow unavailable real audio to fall back to silent dry-run for testing.",
-    )
-    pilot4_parser.add_argument(
         "--backend",
         choices=("system", "afplay", "dry-run", "mock"),
         default="dry-run",
         help="Playback backend. Use system for the actual Pilot 4 sleep run.",
     )
+    pilot4_parser.add_argument("--allow-dry-run", action="store_true", help=ALLOW_DRY_RUN_HELP)
     pilot4_parser.add_argument("--hard-max-volume", type=float, default=0.20)
     pilot4_parser.add_argument("--default-volume", type=float, default=0.02)
     pilot4_parser.add_argument("--fade-in-seconds", type=float, default=0.25)
@@ -416,15 +414,12 @@ def build_parser() -> argparse.ArgumentParser:
     pilot5_parser.add_argument("--calibration", type=Path, required=True, help="Volume calibration .json path.")
     pilot5_parser.add_argument("--device-name", help="Selected calibration device. Defaults to latest.")
     pilot5_parser.add_argument(
-        "--allow-dry-run", action="store_true",
-        help="Allow unavailable real audio to fall back to silent dry-run for testing.",
-    )
-    pilot5_parser.add_argument(
         "--backend",
         choices=("system", "afplay", "dry-run", "mock"),
         default="dry-run",
         help="Playback backend. Use system for the actual Pilot 5 sleep run.",
     )
+    pilot5_parser.add_argument("--allow-dry-run", action="store_true", help=ALLOW_DRY_RUN_HELP)
     pilot5_parser.add_argument("--hard-max-volume", type=float, default=0.20)
     pilot5_parser.add_argument("--default-volume", type=float, default=0.02)
     pilot5_parser.add_argument("--fade-in-seconds", type=float, default=0.25)
@@ -486,14 +481,11 @@ def build_parser() -> argparse.ArgumentParser:
     train_tlr_parser.add_argument("--max-volume", type=float, default=0.20)
     train_tlr_parser.add_argument("--device-name")
     train_tlr_parser.add_argument(
-        "--allow-dry-run", action="store_true",
-        help="Allow unavailable real audio to fall back to silent dry-run for testing.",
-    )
-    train_tlr_parser.add_argument(
         "--backend",
         choices=("system", "afplay", "dry-run", "mock"),
         default="dry-run",
     )
+    train_tlr_parser.add_argument("--allow-dry-run", action="store_true", help=ALLOW_DRY_RUN_HELP)
 
     plan_tlr_parser = subparsers.add_parser(
         "plan-tlr-block",
@@ -823,9 +815,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.command in {
-        "play-test-cue", "train-tlr-cue", "run-pilot4-cueing", "run-pilot5-full-night"
-    }:
+    if args.command in AUDIO_COMMANDS:
+        # Refuse before any input is read, any file is written or a headband is touched.
+        # Pilot 4/5 resolve again inside run_pilot4_cueing_night, which records both names.
         from muse_tmr.audio import AudioBackendFallbackError, resolve_audio_backend
 
         try:
