@@ -280,6 +280,7 @@ git diff --check
 - Keep setup instructions reproducible from a clean checkout.
 - Distinguish required dependencies from optional visualization, OpenMuse, or SDK-related adapters.
 - Document any binary output format and generated artifact location before relying on it.
+- A new figure quoted in the README, `TEST_STATUS.md`, `docs/` or a config dataclass needs a row in `docs/numbers.md` with its source and status (code default, in-sample, GitHub only, self-reported, literature).
 
 ## Issue Handoff
 
