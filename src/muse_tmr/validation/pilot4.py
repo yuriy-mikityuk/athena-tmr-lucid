@@ -27,6 +27,7 @@ from muse_tmr.data.sample_types import MuseFrame
 from muse_tmr.features import (
     EpochBuilder,
     EpochConfig,
+    epoch_step_seconds,
     extract_eeg_features,
     extract_imu_features,
     extract_ppg_features,
@@ -146,6 +147,11 @@ class Pilot4CueingSummary:
     resolved_audio_backend_name: str = "unknown"
     emergency_stop_triggered: bool = False
     tlr_block_required: bool = False
+    stride_seconds: float = 30.0
+    # Seconds from the first epoch's start to the end of the epoch whose decision first
+    # opened the gate or first played a cue; None when that never happened.
+    first_gate_open_seconds: Optional[float] = None
+    first_play_seconds: Optional[float] = None
     generated_at_utc: str = ""
     schema_version: int = PILOT4_SCHEMA_VERSION
     pilot_id: str = "m8_pilot4_low_volume_rem_gated_cueing"
@@ -188,6 +194,9 @@ class Pilot4CueingSummary:
             "frame_count": self.frame_count,
             "raw_packet_count": self.raw_packet_count,
             "epoch_count": self.epoch_count,
+            "stride_seconds": self.stride_seconds,
+            "first_gate_open_seconds": self.first_gate_open_seconds,
+            "first_play_seconds": self.first_play_seconds,
             "modality_counts": dict(self.modality_counts),
             "scheduler_event_type_counts": dict(self.scheduler_event_type_counts),
             "audio_status_counts": dict(self.audio_status_counts),
@@ -227,6 +236,9 @@ class _Pilot4State:
     stop_reason: str = "duration_complete"
     emergency_stop_triggered: bool = False
     first_epoch_start: Optional[float] = None
+    previous_epoch_start: Optional[float] = None
+    first_gate_open_seconds: Optional[float] = None
+    first_play_seconds: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -365,7 +377,19 @@ async def run_pilot4_cueing_night(
             imu = extract_imu_features(epoch)
             ppg = extract_ppg_features(epoch)
             prediction = detector.predict_features(eeg=eeg, imu=imu, ppg=ppg)
-            gate_decision = gate.update(prediction, duration_seconds=epoch.duration_seconds)
+            # The gate keeps time in real seconds: the stride, not the epoch length.
+            gate_decision = gate.update(
+                prediction,
+                duration_seconds=epoch_step_seconds(
+                    epoch.start_time,
+                    state.previous_epoch_start,
+                    config.epoch_config.stride_seconds,
+                ),
+            )
+            state.previous_epoch_start = epoch.start_time
+            decision_seconds = epoch.end_time - state.first_epoch_start
+            if gate_decision.gate_open and state.first_gate_open_seconds is None:
+                state.first_gate_open_seconds = decision_seconds
             guard_decision = arousal_guard.evaluate(
                 timestamp_seconds=timestamp_seconds,
                 eeg=eeg,
@@ -379,6 +403,8 @@ async def run_pilot4_cueing_night(
             )
             for event in events:
                 if event.event_type == "play":
+                    if state.first_play_seconds is None:
+                        state.first_play_seconds = decision_seconds
                     result = _play_scheduler_event(event, cue_library, player)
                     state.playback_results.append(result)
                     _append_jsonl(
@@ -605,6 +631,9 @@ def _build_summary(
         resolved_audio_backend_name=player.backend.name,
         emergency_stop_triggered=state.emergency_stop_triggered,
         tlr_block_required=config.require_tlr_block,
+        stride_seconds=config.epoch_config.stride_seconds,
+        first_gate_open_seconds=state.first_gate_open_seconds,
+        first_play_seconds=state.first_play_seconds,
         pilot_id=config.pilot_id,
     )
 

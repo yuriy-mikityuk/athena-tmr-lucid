@@ -114,6 +114,64 @@ class TestPilot4Cueing(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(event["effective_volume"] <= 0.04 for event in audio_events))
         self.assertTrue(all(event["backend_name"] == "mock" for event in audio_events))
 
+    async def test_summary_reports_stride_and_first_cue_times(self):
+        catalog, session, assignment, cue_library = protocol_fixture()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = await run_pilot4_cueing_night(
+                FakeMuseSource(rem_frames(4)),
+                config=pilot4_config(Path(tmpdir)),
+                catalog=catalog,
+                session=session,
+                assignment=assignment,
+                cue_library=cue_library,
+                calibration=VolumeCalibration("Sleep Headphones", 0.01, 0.02, 0.04),
+                backend=MockAudioBackend(),
+            )
+            payload = json.loads(Path(summary.summary_path).read_text(encoding="utf-8"))
+
+        # The second REM epoch opens the gate; its window ends 60 s after the first began.
+        self.assertEqual(summary.stride_seconds, 30.0)
+        self.assertEqual(summary.first_gate_open_seconds, 60.0)
+        self.assertEqual(summary.first_play_seconds, 60.0)
+        self.assertEqual(payload["stride_seconds"], 30.0)
+        self.assertEqual(payload["first_gate_open_seconds"], 60.0)
+        self.assertEqual(payload["first_play_seconds"], 60.0)
+
+    async def test_stride_10_gate_needs_60_s_of_real_time(self):
+        catalog, session, assignment, cue_library = protocol_fixture()
+
+        async def run_at_stride_10(tmpdir):
+            return await run_pilot4_cueing_night(
+                FakeMuseSource(rem_frames(6)),
+                config=replace(
+                    pilot4_config(Path(tmpdir)),
+                    epoch_config=EpochConfig(epoch_seconds=30, stride_seconds=10),
+                ),
+                catalog=catalog,
+                session=session,
+                assignment=assignment,
+                cue_library=cue_library,
+                calibration=VolumeCalibration("Sleep Headphones", 0.01, 0.02, 0.04),
+                backend=MockAudioBackend(),
+            )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = await run_at_stride_10(tmpdir)
+            payload = json.loads(Path(summary.summary_path).read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as tmpdir, mock.patch.object(
+            pilot4_module, "epoch_step_seconds", lambda *args: 30.0
+        ):
+            before = await run_at_stride_10(tmpdir)
+
+        # Six REM windows 10 s apart, the sixth starting at 50 s, so its decision is at
+        # 80 s. Fed the 30 s epoch length, as before #225 1c, it opened on the second.
+        self.assertEqual(summary.stride_seconds, 10.0)
+        self.assertEqual(summary.first_gate_open_seconds, 80.0)
+        self.assertEqual(summary.first_play_seconds, 80.0)
+        self.assertEqual(payload["stride_seconds"], 10.0)
+        self.assertEqual(summary.uncued_puzzle_play_count, 0)
+        self.assertEqual(before.first_gate_open_seconds, 40.0)
+
     async def test_one_rem_event_tracker_for_the_whole_night(self):
         catalog, session, assignment, cue_library = protocol_fixture()
         trackers = []

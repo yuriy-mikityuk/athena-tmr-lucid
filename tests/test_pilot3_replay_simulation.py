@@ -15,7 +15,7 @@ from muse_tmr.audio import CueLibrary, CueMetadata
 from muse_tmr.cli.main import main as cli_main
 from muse_tmr.data.sample_types import EEGSample, HeartRateSample, IMUSample, MuseFrame, PPGSample
 from muse_tmr.features import EpochBuilder, EpochConfig
-from muse_tmr.models import RemGateConfig
+from muse_tmr.models import RemGateConfig, RemPrediction
 from muse_tmr.protocol import (
     NightPuzzleSession,
     PuzzleCatalog,
@@ -66,8 +66,8 @@ def still_gyro_rows():
     return [{"x": 0.0, "y": 0.0, "z": 0.0}] * (30 * IMU_RATE_HZ)
 
 
-def build_rem_epoch(index, *, with_optics=True):
-    timestamp = 1000.0 + index * 30.0
+def build_rem_epoch(index, *, with_optics=True, stride_seconds=30.0):
+    timestamp = 1000.0 + index * stride_seconds
     frames = [
         MuseFrame(
             timestamp=timestamp,
@@ -316,6 +316,147 @@ class TestPilot3ReplaySimulation(unittest.TestCase):
         self.assertFalse(report.audio_playback_executed)
 
 
+class ScriptedDetector:
+    """P_REM by epoch index, so a test decides what the gate sees."""
+
+    def __init__(self, probabilities=None, *, default=0.95, arousal_indexes=()):
+        self.probabilities = dict(probabilities or {})
+        self.default = default
+        self.arousal_indexes = frozenset(arousal_indexes)
+
+    def predict_features(self, *, eeg=None, imu=None, ppg=None):
+        index = eeg.epoch_index
+        return RemPrediction(
+            probability=self.probabilities.get(index, self.default),
+            reason_codes=("motion_arousal_proxy",) if index in self.arousal_indexes else (),
+            source="scripted",
+        )
+
+
+def scripted_run(stride_seconds, count, detector, *, pass_stride=True):
+    """p21 gate (0.90/0.85, 60 s stable, 120 s cooldown) over REM epochs at a stride."""
+    catalog, session, assignment, cue_library = protocol_fixture()
+    return simulate_cue_plan_from_epochs(
+        [
+            build_rem_epoch(index, with_optics=False, stride_seconds=stride_seconds)
+            for index in range(count)
+        ],
+        catalog=catalog,
+        session=session,
+        assignment=assignment,
+        cue_library=cue_library,
+        detector=detector,
+        gate_config=RemGateConfig(enter_threshold=0.90, exit_threshold=0.85, optics_capable=False),
+        scheduler_config=TmrSchedulerConfig(enable_tlr_block=False),
+        stride_seconds=stride_seconds if pass_stride else None,
+    )
+
+
+def epoch_length_wiring(start_time, previous_start_time, stride_seconds):
+    """What the pilots gave the gate before #225 1c: the 30 s epoch length every time."""
+    return 30.0
+
+
+class TestPilot3GateClock(unittest.TestCase):
+    """The gate keeps real time: the stride between epoch starts, not the epoch length."""
+
+    def test_stride_10_gate_needs_60_s_of_real_time(self):
+        for pass_stride in (True, False):
+            with self.subTest(pass_stride=pass_stride):
+                report = scripted_run(10.0, 8, ScriptedDetector(), pass_stride=pass_stride)
+                gate = [result.gate_decision for result in report.epoch_results]
+
+                self.assertEqual(
+                    [decision.stable_seconds for decision in gate[:6]],
+                    [10.0, 20.0, 30.0, 40.0, 50.0, 60.0],
+                )
+                self.assertEqual([decision.gate_open for decision in gate[:6]], [False] * 5 + [True])
+                self.assertEqual(report.epoch_results[5].timestamp_seconds, 50.0)
+                self.assertEqual(report.metrics["stride_seconds"], 10.0)
+                self.assertEqual(report.metrics["first_gate_open_seconds"], 80.0)
+                self.assertEqual(report.metrics["first_play_seconds"], 80.0)
+
+        with mock.patch.object(pilot3_module, "epoch_step_seconds", epoch_length_wiring):
+            before = scripted_run(10.0, 8, ScriptedDetector())
+        self.assertEqual(before.metrics["first_gate_open_seconds"], 40.0)
+
+    def test_stride_10_cooldown_takes_120_s_of_real_time(self):
+        report = scripted_run(10.0, 30, ScriptedDetector(arousal_indexes={8}))
+        results = report.epoch_results
+        cooling = [
+            result.timestamp_seconds
+            for result in results
+            if "cooldown_active" in result.gate_decision.reason_codes
+        ]
+
+        self.assertIn("motion_arousal_block", results[8].gate_decision.reason_codes)
+        self.assertEqual(results[8].gate_decision.cooldown_remaining_seconds, 120.0)
+        self.assertEqual(cooling, [90.0 + 10.0 * step for step in range(11)])
+        self.assertEqual(results[20].timestamp_seconds, 200.0)
+        self.assertEqual(results[20].gate_decision.state, "warming")
+        reopened = next(result for result in results[9:] if result.gate_decision.gate_open)
+        self.assertEqual(reopened.timestamp_seconds, 250.0)
+
+        with mock.patch.object(pilot3_module, "epoch_step_seconds", epoch_length_wiring):
+            before = scripted_run(10.0, 30, ScriptedDetector(arousal_indexes={8}))
+        before_cooling = [
+            result.timestamp_seconds
+            for result in before.epoch_results
+            if "cooldown_active" in result.gate_decision.reason_codes
+        ]
+        self.assertEqual(before_cooling, [90.0, 100.0, 110.0])
+
+    def test_stride_30_output_is_the_same_as_with_the_epoch_length(self):
+        def run(stride_seconds):
+            # REM, a drop to NREM, a motion arousal, a dip into the hysteresis band.
+            detector = ScriptedDetector(
+                {4: 0.30, 5: 0.30, 15: 0.86, 16: 0.80},
+                arousal_indexes={9},
+            )
+            return scripted_run(stride_seconds, 24, detector)
+
+        def outputs(report):
+            return (
+                [event.to_dict() for event in report.scheduler_events],
+                [result.gate_decision.to_dict() for result in report.epoch_results],
+                [result.arousal_guard_decision.to_dict() for result in report.epoch_results],
+            )
+
+        after = run(30.0)
+        with mock.patch.object(pilot3_module, "epoch_step_seconds", epoch_length_wiring):
+            before = run(30.0)
+        self.assertEqual(outputs(after), outputs(before))
+        event_types = {event.event_type for event in after.scheduler_events}
+        self.assertTrue({"play", "pause", "skip"} <= event_types)
+        self.assertTrue(
+            any("cooldown_active" in r.gate_decision.reason_codes for r in after.epoch_results)
+        )
+
+        after_10 = run(10.0)
+        with mock.patch.object(pilot3_module, "epoch_step_seconds", epoch_length_wiring):
+            before_10 = run(10.0)
+        self.assertNotEqual(outputs(after_10)[0], outputs(before_10)[0])
+
+    def test_first_times_are_none_when_the_gate_never_opens(self):
+        report = scripted_run(30.0, 4, ScriptedDetector(default=0.30))
+
+        self.assertEqual(report.metrics["stride_seconds"], 30.0)
+        self.assertIsNone(report.metrics["first_gate_open_seconds"])
+        self.assertIsNone(report.metrics["first_play_seconds"])
+        self.assertTrue(report.passed)
+
+    def test_epoch_starts_must_increase(self):
+        catalog, session, assignment, cue_library = protocol_fixture()
+        with self.assertRaises(ValueError):
+            simulate_cue_plan_from_epochs(
+                [build_rem_epoch(1), build_rem_epoch(0)],
+                catalog=catalog,
+                session=session,
+                assignment=assignment,
+                cue_library=cue_library,
+            )
+
+
 class TestPilot3ReplayPipeline(unittest.IsolatedAsyncioTestCase):
     async def test_replay_recording_generates_mocked_plan_report(self):
         catalog, session, assignment, cue_library = protocol_fixture()
@@ -356,8 +497,8 @@ class TestPilot3EegOnlyPreset(unittest.TestCase):
     def tearDownClass(cls):
         cls._tmpdir.cleanup()
 
-    def _simulate(self, preset):
-        output = self.root / f"report_{preset}.json"
+    def _simulate(self, preset, *extra_args):
+        output = self.root / f"report_{preset}_{len(extra_args)}.json"
         with contextlib.redirect_stdout(io.StringIO()):
             exit_code = cli_main([
                 "simulate-replay-cues", str(self.root / "recording"),
@@ -367,9 +508,22 @@ class TestPilot3EegOnlyPreset(unittest.TestCase):
                 "--cue-library", str(self.root / "cues.json"),
                 "--output", str(output),
                 "--preset", preset,
+                *extra_args,
             ])
         self.assertEqual(exit_code, 0)
         return json.loads(output.read_text(encoding="utf-8"))
+
+    def test_p21_replay_reports_stride_and_first_cue_times(self):
+        # REM-like EEG from 90 s on. At a 30 s stride the gate opens on the second REM
+        # epoch, decided at 150 s; at 10 s it needs six REM windows, the first ending at
+        # 120 s, so it opens at 170 s.
+        for stride, first_open in (("30", 150.0), ("10", 170.0)):
+            with self.subTest(stride=stride):
+                metrics = self._simulate("p21", "--stride-seconds", stride)["metrics"]
+                self.assertEqual(metrics["stride_seconds"], float(stride))
+                self.assertEqual(metrics["first_gate_open_seconds"], first_open)
+                self.assertEqual(metrics["first_play_seconds"], first_open)
+                self.assertEqual(metrics["uncued_puzzle_play_count"], 0)
 
     def test_recording_has_no_optics_packets(self):
         stream = MuseRawStream(str(self.root / "recording" / "raw_amused.bin"))

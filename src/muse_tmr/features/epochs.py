@@ -136,6 +136,29 @@ class EpochBuilder:
         )
 
 
+def epoch_step_seconds(
+    start_time: float,
+    previous_start_time: Optional[float],
+    stride_seconds: float,
+) -> float:
+    """Real time from the previous epoch's start to this one's; one stride for the first.
+
+    A consumer that keeps time per epoch, such as the REM gate's stable window and
+    cooldown, moves on by this much. With overlapping epochs (a stride shorter than the
+    epoch) that is the stride, not the epoch length. The difference is rounded to the
+    microsecond, so float error in the epoch starts cannot turn a 30 s step into
+    29.9999999 s and leave a 60 s window one epoch short.
+    """
+    if previous_start_time is None:
+        if stride_seconds <= 0:
+            raise ValueError("stride_seconds must be positive")
+        return float(stride_seconds)
+    elapsed = round(start_time - previous_start_time, 6)
+    if elapsed <= 0:
+        raise ValueError("epoch start times must increase")
+    return elapsed
+
+
 def _drop_frames_before(frames: Deque[MuseFrame], timestamp: float) -> None:
     while frames and frames[0].timestamp < timestamp:
         frames.popleft()

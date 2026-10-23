@@ -15,7 +15,7 @@ from muse_tmr.features.eeg_features import (
     extract_eeg_features,
     new_rem_event_tracker,
 )
-from muse_tmr.features.epochs import EpochBuilder, EpochConfig, SleepEpoch
+from muse_tmr.features.epochs import EpochBuilder, EpochConfig, SleepEpoch, epoch_step_seconds
 from muse_tmr.features.imu_features import (
     CueMovementLog,
     IMUFeatureConfig,
@@ -64,6 +64,7 @@ __all__ = [
     "analyze_blink_artifact_phases",
     "default_blink_artifact_phases",
     "detect_rem_events",
+    "epoch_step_seconds",
     "export_eeg_feature_rows",
     "export_imu_feature_rows",
     "export_ppg_feature_rows",

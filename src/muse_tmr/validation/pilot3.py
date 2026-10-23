@@ -14,6 +14,7 @@ from muse_tmr.features import (
     EpochBuilder,
     EpochConfig,
     SleepEpoch,
+    epoch_step_seconds,
     extract_eeg_features,
     extract_imu_features,
     extract_ppg_features,
@@ -164,6 +165,7 @@ async def simulate_replay_cue_plan(
     scheduler_config: Optional[TmrSchedulerConfig] = None,
     arousal_guard_config: Optional[ArousalGuardConfig] = None,
 ) -> Pilot3ReplayCueSimulationReport:
+    epoch_config = epoch_config or EpochConfig()
     replay = ReplaySession(
         ReplayConfig(
             input_path=input_path,
@@ -174,7 +176,7 @@ async def simulate_replay_cue_plan(
     )
     await replay.connect()
     try:
-        builder = EpochBuilder(epoch_config or EpochConfig())
+        builder = EpochBuilder(epoch_config)
         epochs = [epoch async for epoch in builder.build(replay.stream())]
     finally:
         await replay.stop()
@@ -189,6 +191,7 @@ async def simulate_replay_cue_plan(
         gate_config=gate_config,
         scheduler_config=scheduler_config,
         arousal_guard_config=arousal_guard_config,
+        stride_seconds=epoch_config.stride_seconds,
     )
 
 
@@ -204,9 +207,19 @@ def simulate_cue_plan_from_epochs(
     gate_config: Optional[RemGateConfig] = None,
     scheduler_config: Optional[TmrSchedulerConfig] = None,
     arousal_guard_config: Optional[ArousalGuardConfig] = None,
+    stride_seconds: Optional[float] = None,
 ) -> Pilot3ReplayCueSimulationReport:
+    """Run the detector, gate, guard and scheduler over consecutive epochs of one session.
+
+    The gate moves on by the real time between epoch starts (``epoch_step_seconds``), so
+    its stable window and cooldown take as long at a 10 s stride as at 30 s.
+    ``stride_seconds`` is the stride the epochs were built with and counts for the first
+    epoch; None takes the gap between the first two epoch starts, or the epoch length
+    when there is only one.
+    """
     assignment.validate_against_session(session)
     _validate_scheduled_cues(catalog, assignment, cue_library)
+    stride_seconds = _resolve_stride_seconds(epochs, stride_seconds)
 
     detector = detector or HeuristicRemDetector()
     gate = StableRemGate(gate_config or RemGateConfig())
@@ -225,6 +238,7 @@ def simulate_cue_plan_from_epochs(
     epoch_results = []
     scheduler_events = []
     rem_tracker = new_rem_event_tracker()
+    previous_start_time = None
 
     for epoch in epochs:
         timestamp_seconds = max(0.0, epoch.start_time - first_start_time)
@@ -232,7 +246,13 @@ def simulate_cue_plan_from_epochs(
         imu = extract_imu_features(epoch)
         ppg = extract_ppg_features(epoch)
         prediction = detector.predict_features(eeg=eeg, imu=imu, ppg=ppg)
-        gate_decision = gate.update(prediction, duration_seconds=epoch.duration_seconds)
+        gate_decision = gate.update(
+            prediction,
+            duration_seconds=epoch_step_seconds(
+                epoch.start_time, previous_start_time, stride_seconds
+            ),
+        )
+        previous_start_time = epoch.start_time
         guard_decision = arousal_guard.evaluate(
             timestamp_seconds=timestamp_seconds,
             eeg=eeg,
@@ -263,6 +283,7 @@ def simulate_cue_plan_from_epochs(
         epoch_results=tuple(epoch_results),
         scheduler_events=scheduler_events_tuple,
         assignment=assignment,
+        stride_seconds=stride_seconds,
     )
     criteria = _build_criteria(metrics, audio_playback_executed=False)
     return Pilot3ReplayCueSimulationReport(
@@ -287,12 +308,37 @@ def _validate_scheduled_cues(
         cue_library.by_id(catalog.get_puzzle(puzzle_id).cue_id)
 
 
+def _resolve_stride_seconds(
+    epochs: Sequence[SleepEpoch],
+    stride_seconds: Optional[float],
+) -> float:
+    if stride_seconds is not None:
+        if stride_seconds <= 0:
+            raise ValueError("stride_seconds must be positive")
+        return float(stride_seconds)
+    if len(epochs) >= 2:
+        gap = round(epochs[1].start_time - epochs[0].start_time, 6)
+        if gap <= 0:
+            raise ValueError("epoch start times must increase")
+        return gap
+    if epochs:
+        return epochs[0].duration_seconds
+    return EpochConfig().stride_seconds
+
+
+def _decision_seconds(result: Pilot3EpochResult) -> float:
+    """Seconds from the first epoch's start to the end of this one, when its decision
+    exists; the scheduler events carry the epoch start instead."""
+    return result.timestamp_seconds + result.duration_seconds
+
+
 def _build_metrics(
     *,
     epochs: Sequence[SleepEpoch],
     epoch_results: Tuple[Pilot3EpochResult, ...],
     scheduler_events: Tuple[TmrSchedulerEvent, ...],
     assignment: PuzzleCueAssignment,
+    stride_seconds: float,
 ) -> Mapping[str, object]:
     event_type_counts: Dict[str, int] = {}
     play_by_puzzle: Dict[str, int] = {}
@@ -308,8 +354,24 @@ def _build_metrics(
     }
     gate_open_count = sum(1 for result in epoch_results if result.gate_decision.gate_open)
     cue_plan = tuple(event for event in scheduler_events if event.event_type == "play")
+    first_gate_open = next(
+        (result for result in epoch_results if result.gate_decision.gate_open), None
+    )
+    first_play = next(
+        (
+            result
+            for result in epoch_results
+            if any(event.event_type == "play" for event in result.scheduler_events)
+        ),
+        None,
+    )
     return {
         "epoch_count": len(epochs),
+        "stride_seconds": stride_seconds,
+        "first_gate_open_seconds": (
+            _decision_seconds(first_gate_open) if first_gate_open is not None else None
+        ),
+        "first_play_seconds": _decision_seconds(first_play) if first_play is not None else None,
         "gate_open_count": gate_open_count,
         "event_type_counts": event_type_counts,
         "scheduler_event_count": len(scheduler_events),

@@ -158,6 +158,10 @@ class StableRemGate:
         *,
         duration_seconds: Optional[float] = None,
     ) -> RemGateDecision:
+        """Take one prediction. ``duration_seconds`` is the real time since the previous
+        update, which the stable window and the cooldown count: with overlapping epochs
+        the time between epoch starts (``epoch_step_seconds``), not the epoch length.
+        None counts ``config.epoch_seconds``."""
         duration = self.config.epoch_seconds if duration_seconds is None else duration_seconds
         if duration <= 0:
             raise ValueError("duration_seconds must be positive")
