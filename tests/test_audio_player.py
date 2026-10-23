@@ -354,5 +354,35 @@ class TestAudioCuePlayerCli(unittest.TestCase):
         self.assertEqual(event["backend_name"], "dry-run")
 
 
+
+
+
+class BackendResolutionTests(unittest.TestCase):
+    def test_available_afplay_resolves_real_backend(self):
+        from unittest.mock import patch
+        from muse_tmr.audio import resolve_audio_backend
+        with patch("muse_tmr.audio.audio_player.shutil.which", return_value="/usr/bin/afplay"):
+            for name in ("system", "afplay"):
+                resolution = resolve_audio_backend(name)
+                self.assertEqual(resolution.requested_name, name)
+                self.assertEqual(resolution.resolved_name, "afplay")
+
+    def test_missing_afplay_requires_explicit_fallback(self):
+        from unittest.mock import patch
+        from muse_tmr.audio import AudioBackendFallbackError, resolve_audio_backend
+        with patch("muse_tmr.audio.audio_player.shutil.which", return_value=None):
+            for name in ("system", "afplay"):
+                with self.assertRaisesRegex(AudioBackendFallbackError, "--allow-dry-run"):
+                    resolve_audio_backend(name)
+                resolution = resolve_audio_backend(name, allow_dry_run_fallback=True)
+                self.assertEqual(resolution.requested_name, name)
+                self.assertEqual(resolution.resolved_name, "dry-run")
+
+    def test_explicit_silent_backends_do_not_need_fallback_permission(self):
+        from muse_tmr.audio import resolve_audio_backend
+        for name in ("dry-run", "mock"):
+            self.assertEqual(resolve_audio_backend(name).resolved_name, name)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -244,5 +244,25 @@ class TestTlrProtocolCli(unittest.TestCase):
         self.assertEqual(block.puzzle_cue_start_offset_seconds, 12.01)
 
 
+
+
+
+class TrainingBackendMetadataTests(unittest.TestCase):
+    def test_training_report_records_actual_player_backend(self):
+        player = AudioCuePlayer(backend=MockAudioBackend())
+        session = train_tlr_cue(
+            default_tlr_cue(), player,
+            config=TlrTrainingConfig(repetitions=1, backend_name="system"),
+        )
+        payload = session.to_dict()["config"]
+        self.assertEqual(payload["requested_backend_name"], "system")
+        self.assertEqual(payload["resolved_backend_name"], "mock")
+        self.assertEqual(TlrTrainingConfig.from_dict(payload).resolved_backend_name, "mock")
+
+    def test_old_training_config_does_not_invent_resolved_backend(self):
+        config = TlrTrainingConfig.from_dict({"backend_name": "system"})
+        self.assertIsNone(config.resolved_backend_name)
+
+
 if __name__ == "__main__":
     unittest.main()

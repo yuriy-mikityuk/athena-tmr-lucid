@@ -2,6 +2,9 @@
 
 from muse_tmr.audio.audio_player import (
     AudioBackend,
+    AudioBackendFallbackError,
+    BackendResolution,
+    resolve_audio_backend,
     AudioCuePlayer,
     AudioPlaybackConfig,
     AudioPlaybackRequest,
@@ -39,6 +42,9 @@ from muse_tmr.audio.volume_calibration import (
 
 __all__ = [
     "AudioBackend",
+    "AudioBackendFallbackError",
+    "BackendResolution",
+    "resolve_audio_backend",
     "AudioCuePlayer",
     "AudioPlaybackConfig",
     "AudioPlaybackRequest",

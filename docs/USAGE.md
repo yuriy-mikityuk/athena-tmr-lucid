@@ -592,3 +592,22 @@ muse-tmr run-pilot5-full-night \
 ```
 
 See `docs/pilot5_full_night.md` for the full runbook. Pilot 5 requires the Pilot 4 safety setup plus a TLR block plan, writes `pilot5_summary.json`, and expects the morning dream report, blind puzzle retest, and cued-vs-uncued analysis before any behavioral interpretation. `--preset` works as in Pilot 4.
+
+## Audio backend preflight
+
+Real audio (`--backend system` or `--backend afplay`) requires an available
+`afplay` command. Otherwise playback commands exit with code 2 and explain the
+fix. Pilot 4/5 check this before connecting the source or creating recording files.
+For intentional testing without sound, add `--allow-dry-run`; explicit
+`--backend dry-run` and `--backend mock` also remain supported test modes.
+This applies to `play-test-cue`, `train-tlr-cue`, `run-pilot4-cueing` and
+`run-pilot5-full-night`.
+
+For example: `muse-tmr play-test-cue --backend system --allow-dry-run` permits
+silent fallback when `afplay` is missing. Metadata and reports preserve requested
+and actual backend names; see [data_model.md](data_model.md#audio-backend-preflight).
+
+Availability does not establish speaker routing or audibility. On the target Mac
+with an available audio device, run `muse-tmr play-test-cue --backend system`
+while awake and confirm sound through the intended output. This manual hardware
+check remains required; silent testing cannot validate audible cues.

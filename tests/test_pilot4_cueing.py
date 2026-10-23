@@ -465,5 +465,51 @@ def still_gyro_rows():
     return [{"x": 0.0, "y": 0.0, "z": 0.0}] * (30 * IMU_RATE_HZ)
 
 
+
+
+
+class AudioPreflightTests(unittest.IsolatedAsyncioTestCase):
+    async def test_refuses_before_connect_and_any_output(self):
+        from unittest.mock import AsyncMock, patch
+        from muse_tmr.audio import AudioBackendFallbackError
+        catalog, session, assignment, library = protocol_fixture()
+        for name in ("system", "afplay"):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                output = Path(tmpdir) / "night"
+                source = FakeMuseSource(())
+                source.connect = AsyncMock(side_effect=AssertionError("must not connect"))
+                with patch("muse_tmr.audio.audio_player.shutil.which", return_value=None):
+                    with self.assertRaises(AudioBackendFallbackError):
+                        await run_pilot4_cueing_night(
+                            source, config=replace(pilot4_config(output), audio_backend_name=name),
+                            catalog=catalog, session=session, assignment=assignment,
+                            cue_library=library,
+                            calibration=VolumeCalibration("Test", 0.01, 0.02, 0.04),
+                        )
+                source.connect.assert_not_awaited()
+                self.assertFalse(output.exists())
+
+    async def test_allowed_fallback_records_requested_and_actual_backend(self):
+        from unittest.mock import patch
+        catalog, session, assignment, library = protocol_fixture()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "night"
+            with patch("muse_tmr.audio.audio_player.shutil.which", return_value=None):
+                summary = await run_pilot4_cueing_night(
+                    FakeMuseSource(rem_frames(4)),
+                    config=replace(pilot4_config(output), audio_backend_name="system",
+                                   allow_dry_run_fallback=True),
+                    catalog=catalog, session=session, assignment=assignment,
+                    cue_library=library,
+                    calibration=VolumeCalibration("Test", 0.01, 0.02, 0.04),
+                )
+            audio = json.loads(Path(summary.metadata_path).read_text())["audio"]
+            self.assertEqual(audio["requested_backend_name"], "system")
+            self.assertEqual(audio["resolved_backend_name"], "dry-run")
+            report = json.loads(Path(summary.summary_path).read_text())
+            self.assertEqual(report["requested_audio_backend_name"], "system")
+            self.assertEqual(report["resolved_audio_backend_name"], "dry-run")
+
+
 if __name__ == "__main__":
     unittest.main()

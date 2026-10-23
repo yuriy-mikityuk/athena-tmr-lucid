@@ -225,10 +225,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Volume calibration metadata .json. Uses --device-name when provided, else the latest record.",
     )
     play_parser.add_argument(
+        "--allow-dry-run", action="store_true",
+        help="Allow unavailable real audio to fall back to silent dry-run for testing.",
+    )
+    play_parser.add_argument(
         "--backend",
         choices=("system", "afplay", "dry-run", "mock"),
         default="system",
-        help="Playback backend. system uses afplay on macOS when available, else dry-run.",
+        help="Playback backend. system requires afplay; silent fallback requires --allow-dry-run.",
     )
     play_parser.add_argument(
         "--emergency-stop",
@@ -358,6 +362,10 @@ def build_parser() -> argparse.ArgumentParser:
     pilot4_parser.add_argument("--calibration", type=Path, required=True, help="Volume calibration .json path.")
     pilot4_parser.add_argument("--device-name", help="Selected calibration device. Defaults to latest.")
     pilot4_parser.add_argument(
+        "--allow-dry-run", action="store_true",
+        help="Allow unavailable real audio to fall back to silent dry-run for testing.",
+    )
+    pilot4_parser.add_argument(
         "--backend",
         choices=("system", "afplay", "dry-run", "mock"),
         default="dry-run",
@@ -407,6 +415,10 @@ def build_parser() -> argparse.ArgumentParser:
     pilot5_parser.add_argument("--tlr-block", type=Path, required=True, help="TLR block plan .json path.")
     pilot5_parser.add_argument("--calibration", type=Path, required=True, help="Volume calibration .json path.")
     pilot5_parser.add_argument("--device-name", help="Selected calibration device. Defaults to latest.")
+    pilot5_parser.add_argument(
+        "--allow-dry-run", action="store_true",
+        help="Allow unavailable real audio to fall back to silent dry-run for testing.",
+    )
     pilot5_parser.add_argument(
         "--backend",
         choices=("system", "afplay", "dry-run", "mock"),
@@ -473,6 +485,10 @@ def build_parser() -> argparse.ArgumentParser:
     train_tlr_parser.add_argument("--volume", type=float)
     train_tlr_parser.add_argument("--max-volume", type=float, default=0.20)
     train_tlr_parser.add_argument("--device-name")
+    train_tlr_parser.add_argument(
+        "--allow-dry-run", action="store_true",
+        help="Allow unavailable real audio to fall back to silent dry-run for testing.",
+    )
     train_tlr_parser.add_argument(
         "--backend",
         choices=("system", "afplay", "dry-run", "mock"),
@@ -807,6 +823,18 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.command in {
+        "play-test-cue", "train-tlr-cue", "run-pilot4-cueing", "run-pilot5-full-night"
+    }:
+        from muse_tmr.audio import AudioBackendFallbackError, resolve_audio_backend
+
+        try:
+            args.audio_resolution = resolve_audio_backend(
+                args.backend, allow_dry_run_fallback=args.allow_dry_run
+            )
+        except AudioBackendFallbackError as exc:
+            print(f"audio preflight failed: {exc}", file=sys.stderr)
+            return 2
 
     if args.command == "status":
         print("Muse REM-TMR project scaffold is installed.")
@@ -1804,7 +1832,6 @@ def _play_test_cue(args: argparse.Namespace) -> int:
         AudioPlaybackConfig,
         TestCue,
         audio_config_with_calibration,
-        create_audio_backend,
         load_volume_calibrations,
     )
 
@@ -1829,7 +1856,7 @@ def _play_test_cue(args: argparse.Namespace) -> int:
             return 1
         config = audio_config_with_calibration(config, calibration)
 
-    player = AudioCuePlayer(config, backend=create_audio_backend(args.backend))
+    player = AudioCuePlayer(config, backend=args.audio_resolution.backend)
     if args.emergency_stop:
         result = player.emergency_stop()
     else:
@@ -1844,7 +1871,7 @@ def _play_test_cue(args: argparse.Namespace) -> int:
     print(
         "test cue "
         f"status={result.status} "
-        f"backend={result.backend_name} "
+        f"backend={result.backend_name} requested_backend={args.backend} "
         f"volume={result.effective_volume} "
         f"requested_volume={result.requested_volume} "
         f"volume_capped={result.volume_capped} "
@@ -2111,6 +2138,7 @@ async def _run_live_cueing_pilot(
         fade_in_seconds=args.fade_in_seconds,
         fade_out_seconds=args.fade_out_seconds,
         audio_backend_name=args.backend,
+        allow_dry_run_fallback=args.allow_dry_run,
         emergency_stop_path=(
             _resolve_output_path(args.emergency_stop_file)
             if args.emergency_stop_file is not None
@@ -2163,6 +2191,8 @@ async def _run_live_cueing_pilot(
         f"tlr_play={summary.tlr_cue_play_count} "
         f"puzzle_play={summary.puzzle_cue_play_count} "
         f"audio_status={dict(summary.audio_status_counts)} "
+        f"requested_backend={summary.requested_audio_backend_name} "
+        f"resolved_backend={summary.resolved_audio_backend_name} "
         f"max_effective_volume={summary.max_effective_volume} "
         f"emergency_stop={summary.emergency_stop_path} "
         f"summary={summary.summary_path}"
@@ -2223,7 +2253,7 @@ def _create_tlr_cue(args: argparse.Namespace) -> int:
 
 
 def _train_tlr_cue(args: argparse.Namespace) -> int:
-    from muse_tmr.audio import AudioCuePlayer, AudioPlaybackConfig, create_audio_backend, load_cue_library
+    from muse_tmr.audio import AudioCuePlayer, AudioPlaybackConfig, load_cue_library
     from muse_tmr.protocol import TlrTrainingConfig, train_tlr_cue
 
     library = load_cue_library(_resolve_output_path(args.cue_library))
@@ -2235,7 +2265,7 @@ def _train_tlr_cue(args: argparse.Namespace) -> int:
             default_volume=default_volume,
             device_name=args.device_name,
         ),
-        backend=create_audio_backend(args.backend),
+        backend=args.audio_resolution.backend,
     )
     session = train_tlr_cue(
         cue,

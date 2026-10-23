@@ -21,7 +21,7 @@ from muse_tmr.audio import (
     TestCue,
     VolumeCalibration,
     audio_config_with_calibration,
-    create_audio_backend,
+    resolve_audio_backend,
 )
 from muse_tmr.data.sample_types import MuseFrame
 from muse_tmr.features import (
@@ -77,6 +77,7 @@ class Pilot4CueingConfig:
     fade_in_seconds: float = 0.25
     fade_out_seconds: float = 0.25
     audio_backend_name: str = "dry-run"
+    allow_dry_run_fallback: bool = False
     emergency_stop_path: Optional[Path] = None
     epoch_config: EpochConfig = field(default_factory=EpochConfig)
     gate_config: RemGateConfig = field(default_factory=RemGateConfig)
@@ -141,6 +142,8 @@ class Pilot4CueingSummary:
     calibration_scheduler_max_volume: float = 0.0
     hard_max_volume: float = 0.20
     audio_backend_name: str = "unknown"
+    requested_audio_backend_name: str = "unknown"
+    resolved_audio_backend_name: str = "unknown"
     emergency_stop_triggered: bool = False
     tlr_block_required: bool = False
     generated_at_utc: str = ""
@@ -198,6 +201,8 @@ class Pilot4CueingSummary:
             "calibration_scheduler_max_volume": self.calibration_scheduler_max_volume,
             "hard_max_volume": self.hard_max_volume,
             "audio_backend_name": self.audio_backend_name,
+            "requested_audio_backend_name": self.requested_audio_backend_name,
+            "resolved_audio_backend_name": self.resolved_audio_backend_name,
             "emergency_stop_triggered": self.emergency_stop_triggered,
             "tlr_block_required": self.tlr_block_required,
         }
@@ -257,6 +262,14 @@ async def run_pilot4_cueing_night(
     tlr_block_plan: Optional[TlrBlockPlan] = None,
 ) -> Pilot4CueingSummary:
     config.validate()
+    # Explicit backend injection is reserved for callers supplying a test/custom
+    # backend. Record its actual name even when it differs from the request.
+    resolved_backend = backend
+    if resolved_backend is None:
+        resolved_backend = resolve_audio_backend(
+            config.audio_backend_name,
+            allow_dry_run_fallback=config.allow_dry_run_fallback,
+        ).backend
     assignment.validate_against_session(session)
     _validate_pilot4_cues(catalog, assignment, cue_library, tlr_block_plan=tlr_block_plan)
     if config.require_tlr_block and tlr_block_plan is None:
@@ -287,7 +300,7 @@ async def run_pilot4_cueing_night(
     started_monotonic = time.monotonic()
     deadline = started_monotonic + config.duration_seconds
     metadata = await source.connect()
-    _write_metadata(metadata_path, metadata, config, calibration, started_at_dt)
+    _write_metadata(metadata_path, metadata, config, calibration, started_at_dt, resolved_backend.name)
     _append_jsonl(
         recording_events_path,
         {
@@ -312,7 +325,7 @@ async def run_pilot4_cueing_night(
     )
     player = AudioCuePlayer(
         audio_config,
-        backend=backend or create_audio_backend(config.audio_backend_name),
+        backend=resolved_backend,
     )
     detector = HeuristicRemDetector()
     gate = StableRemGate(config.gate_config)
@@ -588,6 +601,8 @@ def _build_summary(
         calibration_scheduler_max_volume=calibration.scheduler_max_volume,
         hard_max_volume=config.hard_max_volume,
         audio_backend_name=player.backend.name,
+        requested_audio_backend_name=config.audio_backend_name,
+        resolved_audio_backend_name=player.backend.name,
         emergency_stop_triggered=state.emergency_stop_triggered,
         tlr_block_required=config.require_tlr_block,
         pilot_id=config.pilot_id,
@@ -697,6 +712,7 @@ def _write_metadata(
     config: Pilot4CueingConfig,
     calibration: VolumeCalibration,
     started_at: dt.datetime,
+    resolved_backend_name: str,
 ) -> None:
     payload = {
         "started_at": started_at.isoformat(),
@@ -710,6 +726,9 @@ def _write_metadata(
         },
         "audio": {
             "backend_name": config.audio_backend_name,
+            "requested_backend_name": config.audio_backend_name,
+            "resolved_backend_name": resolved_backend_name,
+            "allow_dry_run_fallback": config.allow_dry_run_fallback,
             "hard_max_volume": config.hard_max_volume,
             "default_volume": config.default_volume,
             "calibration": calibration.to_dict(),

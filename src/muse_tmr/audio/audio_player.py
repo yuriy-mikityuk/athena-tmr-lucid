@@ -308,6 +308,40 @@ def create_audio_backend(name: str) -> AudioBackend:
     raise ValueError("audio backend must be one of: system, afplay, dry-run, mock")
 
 
+class AudioBackendFallbackError(ValueError):
+    """A requested real audio backend cannot produce sound."""
+
+
+@dataclass(frozen=True)
+class BackendResolution:
+    requested_name: str
+    resolved_name: str
+    backend: AudioBackend
+
+
+def resolve_audio_backend(
+    name: str, *, allow_dry_run_fallback: bool = False
+) -> BackendResolution:
+    """Resolve playback without silently replacing requested sound with silence.
+
+    Explicit dry-run and mock requests remain valid. Availability is not a test
+    of the output device or audibility; confirm those on the target Mac.
+    """
+    backend = create_audio_backend(name)
+    unavailable = name in {"system", "afplay"} and (
+        backend.name == "dry-run" or shutil.which("afplay") is None
+    )
+    if unavailable:
+        if not allow_dry_run_fallback:
+            raise AudioBackendFallbackError(
+                f"Audio backend {name!r} requires afplay, but afplay is unavailable. "
+                "Run on macOS with afplay and an audio device, or use "
+                "--allow-dry-run for intentional testing without sound."
+            )
+        backend = DryRunAudioBackend()
+    return BackendResolution(name, backend.name, backend)
+
+
 def _result_from_request(
     request: AudioPlaybackRequest,
     *,

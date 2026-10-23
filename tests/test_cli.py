@@ -1,4 +1,6 @@
 import asyncio
+import argparse
+import tempfile
 import contextlib
 import io
 import unittest
@@ -920,6 +922,57 @@ class TestPilot4OpticsWiring(unittest.IsolatedAsyncioTestCase):
         config = await self._capture_config("p1034")
         self.assertTrue(config.gate_config.optics_capable)
         self.assertTrue(config.arousal_guard_config.optics_capable)
+
+
+
+
+
+class AudioPreflightCliTests(unittest.TestCase):
+    def test_real_audio_refusal_exits_two_without_files(self):
+        from unittest.mock import patch
+        from muse_tmr.cli.main import main
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log = Path(tmpdir) / "audio.jsonl"
+            with patch("muse_tmr.audio.audio_player.shutil.which", return_value=None):
+                self.assertEqual(main(["play-test-cue", "--backend", "system",
+                                       "--log-path", str(log)]), 2)
+            self.assertFalse(log.exists())
+
+    def test_explicit_fallback_is_allowed(self):
+        from unittest.mock import patch
+        from muse_tmr.cli.main import main
+        with patch("muse_tmr.audio.audio_player.shutil.which", return_value=None):
+            self.assertEqual(main(["play-test-cue", "--backend", "system",
+                                   "--allow-dry-run"]), 0)
+
+    def test_all_audio_commands_accept_allow_dry_run(self):
+        from muse_tmr.cli.main import build_parser
+        parser = build_parser()
+        # Inspect subparser help without satisfying unrelated required arguments.
+        for action in parser._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                for command in ("play-test-cue", "train-tlr-cue",
+                                "run-pilot4-cueing", "run-pilot5-full-night"):
+                    self.assertIn("--allow-dry-run", action.choices[command].format_help())
+
+    def test_night_and_training_refuse_before_loading_or_connecting(self):
+        from muse_tmr.cli.main import main
+        commands = [
+            ["train-tlr-cue", "missing.json", "--output", "out.json",
+             "--event-log", "events.jsonl"],
+            ["run-pilot4-cueing", "--output-dir", "out", "--catalog", "missing.json", "--session", "missing.json",
+             "--assignment", "missing.json", "--cue-library", "missing.json",
+             "--calibration", "missing.json"],
+            ["run-pilot5-full-night", "--output-dir", "out", "--catalog", "missing.json", "--session", "missing.json",
+             "--assignment", "missing.json", "--cue-library", "missing.json",
+             "--calibration", "missing.json", "--tlr-block", "missing.json"],
+        ]
+        with patch("muse_tmr.audio.audio_player.shutil.which", return_value=None), \
+                patch("muse_tmr.cli.main._build_source") as build_source:
+            for command in commands:
+                with self.subTest(command=command[0]):
+                    self.assertEqual(main(command + ["--backend", "system"]), 2)
+            build_source.assert_not_called()
 
 
 if __name__ == "__main__":

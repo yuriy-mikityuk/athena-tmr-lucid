@@ -555,3 +555,35 @@ limitations such as `small_n`, `missing_scheduler_events`, or `uncued_cue_play_o
 
 Puzzle protocol files may contain private puzzle content, responses, and night/session
 metadata, so `data/protocol/` is gitignored.
+
+## Audio backend preflight
+
+`play-test-cue`, `train-tlr-cue`, `run-pilot4-cueing` and
+`run-pilot5-full-night` resolve the requested audio backend before playback.
+Pilot 4/5 resolve it before connecting the data source or creating recording
+files. If `system` or `afplay` cannot use `afplay`, the CLI refuses with exit
+code 2 and explains the fix. Run on macOS with `afplay` and an available audio
+device for real playback.
+
+For intentional silent testing only, add `--allow-dry-run` (for example,
+`muse-tmr play-test-cue --backend system --allow-dry-run`).
+Explicit `--backend dry-run` and `--backend mock` also remain silent test modes
+and do not require the fallback flag. Silent runs do not validate audible cues.
+
+Pilot metadata `audio` records `requested_backend_name`,
+`resolved_backend_name` and `allow_dry_run_fallback`; legacy `backend_name`
+continues to mean the requested name. Pilot summaries record
+`requested_audio_backend_name` and `resolved_audio_backend_name`; legacy
+`audio_backend_name` continues to mean the actual backend. TLR training summary
+`config` records requested and resolved backend names too. Old training reports
+without a resolved name load it as unknown (`null`).
+The Python API exposes `resolve_audio_backend(name,
+allow_dry_run_fallback=False)` and `Pilot4CueingConfig.allow_dry_run_fallback`.
+The legacy `create_audio_backend()` factory retains its compatibility behavior.
+
+Preflight checks command availability, not speaker routing, volume or audibility.
+On the target Mac with an available audio device, run
+`muse-tmr play-test-cue --backend system` while awake and confirm the cue is
+audible through the intended output. This manual hardware check is required;
+mock tests and CI cannot establish audibility. REM detection, gating, cue
+scheduling and volume limits are unchanged.
