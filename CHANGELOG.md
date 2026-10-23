@@ -16,6 +16,7 @@ Versions follow `muse_tmr.__version__`; the app shows the running version and bu
 - The `p21` gate thresholds are described as tuned in-sample on one EEG-only night against GSSC, an automated proxy, in `presets.py`, the README, `docs/USAGE.md` and `docs/data_model.md`; GSSC is described by its training channels (C3, C4, F3, F4) instead of as a frontal model; the protocol is described by what it does instead of by a paper's name (#229).
 - The README opens with a dated project status. New pages: `docs/references.md` (the papers), `docs/compare.md` (the open projects inspected on 2026-10-21), `docs/numbers.md` (every quoted figure with its source and status) and `docs/faq.md` (#229).
 - `LICENSE` names the current author above the upstream one, amused-py has one upstream URL (`Amused-EEG/amused-py`) everywhere, and `docs/dependency_strategy.md` makes decoder fixes upstream-first (#229).
+- `scripts/validate_rem_detection.py` writes `provenance` (command line, versions, git commit, resample rate, thresholds, channels given and not given to the stager, stager versions) and `kappa_definition` into its metrics JSON. `--eog` now defaults to `none` for GSSC instead of AF8, and stays AF8 for YASA. Both stager scripts record their package, torch and mne versions in the hypnogram JSON, `_gssc_stage.py` also takes the three-value return of gssc's main branch, and `docs/USAGE.md` pins `gssc==0.0.9` (#229).
 
 ## 0.3.0 (2026-10-19)
 

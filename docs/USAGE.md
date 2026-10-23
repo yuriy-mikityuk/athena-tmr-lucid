@@ -271,12 +271,23 @@ The gate requires stable REM confidence over time, uses hysteresis for closing, 
 ## Checking the REM detector against a reference stager
 
 ```bash
-python -m venv .venv-gssc && .venv-gssc/bin/pip install gssc
+python -m venv .venv-gssc && .venv-gssc/bin/pip install gssc==0.0.9
 .venv/bin/python scripts/validate_rem_detection.py data/recordings/<session> --reference gssc --preset p21 \
   [--output data/reports/rem_validation.json] [--html data/reports/rem_validation.html] [--dump-epochs epochs.csv]
 ```
 
 Replays a recording through the heuristic detector and the gate, stages the same EEG with YASA (the default) or GSSC (`--reference gssc`), each from its own venv (`.venv-yasa`, `.venv-gssc`, both gitignored), and reports REM precision, recall, F1 and kappa at a few thresholds, a threshold sweep, ROC-AUC, and how often the reference calls REM while the gate is open. Both stagers are automated proxies, not PSG. GSSC was trained mostly on C3, C4, F3, F4 (NSRR PSG) and stages from one EEG channel; there is no published evaluation on forehead-only EEG. YASA expects central electrodes and mis-stages this montage. The `p21` thresholds were tuned in-sample on one EEG-only night (`overnight_20260707`, n=1) against GSSC, an automated proxy: fitted and reported on the same night, so this is not held-out validation. Kappa and epoch counts are only in PR #115 / #116; [`numbers.md`](numbers.md) lists them with their source.
+
+`--eog` defaults to `none` for GSSC, so it stages from AF7 alone: its README documents horizontal or left/right EOG only, and AF8 is a second EEG channel. YASA keeps AF8 as its EOG. Before this change GSSC got AF8 as EOG too, and the PR #115 run most likely did (its flags were not logged). To see what AF8 changes, run GSSC both ways on the same night:
+
+```bash
+.venv/bin/python scripts/validate_rem_detection.py data/recordings/<session> --reference gssc --preset p21 \
+  --eog none --output data/reports/rem_validation_eog_none.json
+.venv/bin/python scripts/validate_rem_detection.py data/recordings/<session> --reference gssc --preset p21 \
+  --eog AF8 --output data/reports/rem_validation_eog_af8.json
+```
+
+`gssc` is pinned to 0.0.9, the last PyPI release, whose `mne_infer` returns stage labels only, so `proba_rem` is 0 or 1. `scripts/_gssc_stage.py` also takes the three-value return of gssc's main branch and then uses its class probabilities when they are valid. The metrics JSON carries `kappa_definition` (binary REM-vs-not κ against an automated stager; not five-class) and a `provenance` block: the command line, UTC time, `muse_tmr` version, git commit, Python, numpy and scipy versions, the resample rate, the epoch length, the preset and its gate thresholds, the EEG and EOG channels, the Muse channels the stager was not given, and a `stager` block with the package, torch and mne versions and whether it returned probabilities. Each stager script writes that `stager` block into its hypnogram JSON, because it runs in its own venv.
 
 ## Low-volume test cue player
 

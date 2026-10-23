@@ -11,20 +11,78 @@ electrodes and mis-stages this montage. There is no published evaluation of GSSC
 on forehead-only EEG such as the Muse AF7/AF8. It is an automated proxy, not PSG
 ground truth: an independent second opinion, not truth.
 
-NB: GSSC's mne_infer returns argmax stages (no per-class probabilities), so
-proba_rem here is a hard 0/1 label from the winning stage, not a calibrated
-probability.
+NB: the pinned gssc 0.0.9 mne_infer returns (stages, times): argmax stages, no
+per-class probabilities, so proba_rem is then a hard 0/1 label from the winning
+stage, not a calibrated probability. gssc's main branch returns (stages, times,
+probs); both are accepted, and probs are used only when they look like one row of
+five class probabilities per epoch. The hypnogram's "stager" block records which
+happened (returns_probabilities) and the gssc, torch and mne versions.
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
 import json
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
 # GSSC stage index -> label (gssc.utils graph_summary stage_names).
 STAGE_NAMES = {0: "Wake", 1: "N1", 2: "N2", 3: "N3", 4: "REM"}
+REM_INDEX = 4
+
+
+def _version(distribution: str) -> Optional[str]:
+    try:
+        return importlib.metadata.version(distribution)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def stager_block(returns_probabilities: bool) -> Dict[str, object]:
+    return {
+        "tool": "gssc",
+        "package_version": _version("gssc"),
+        "torch_version": _version("torch"),
+        "mne_version": _version("mne"),
+        "returns_probabilities": bool(returns_probabilities),
+    }
+
+
+def unpack_infer(result: Sequence[object]) -> Tuple[List[int], Optional[np.ndarray]]:
+    """Stages and, when usable, per-class probabilities from ``EEGInfer.mne_infer``.
+
+    gssc 0.0.9 returns ``(stages, times)``; gssc main returns ``(stages, times,
+    probs)``. ``probs`` is kept only if it has one row of five values per epoch,
+    each in [0, 1] and summing to 1; anything else (log-probabilities, a different
+    class count) falls back to the hard stage labels.
+    """
+    if not isinstance(result, (tuple, list)) or len(result) not in (2, 3):
+        size = len(result) if isinstance(result, (tuple, list)) else "n/a"
+        raise ValueError(f"unexpected mne_infer result: {type(result).__name__} of length {size}")
+    stages = [int(s) for s in np.asarray(result[0]).ravel().tolist()]
+    if len(result) == 2 or result[2] is None:
+        return stages, None
+    probs = np.asarray(result[2], dtype=float)
+    usable = (
+        probs.shape == (len(stages), len(STAGE_NAMES))
+        and bool(np.all((probs >= 0.0) & (probs <= 1.0)))
+        and bool(np.allclose(probs.sum(axis=1), 1.0, atol=1e-3))
+    )
+    return stages, (probs if usable else None)
+
+
+def epoch_rows(stages: Sequence[int], probs: Optional[np.ndarray]) -> List[Dict[str, object]]:
+    rows = []
+    for i, s in enumerate(stages):
+        name = STAGE_NAMES.get(s, str(s))
+        if probs is None:
+            proba_rem, confidence = (1.0 if name == "REM" else 0.0), 1.0
+        else:
+            proba_rem, confidence = float(probs[i, REM_INDEX]), float(probs[i].max())
+        rows.append({"epoch": i, "stage": name, "proba_rem": proba_rem, "confidence": confidence})
+    return rows
 
 
 def main() -> int:
@@ -66,22 +124,12 @@ def main() -> int:
     eog = [] if eog_name is None else [eog_name]
 
     ei = EEGInfer(use_cuda=False)
-    stages, _times = ei.mne_infer(raw, eeg=[args.eeg], eog=eog)
-    stages = [int(s) for s in np.asarray(stages).ravel().tolist()]
+    stages, probs = unpack_infer(ei.mne_infer(raw, eeg=[args.eeg], eog=eog))
 
-    epochs = []
+    epochs = epoch_rows(stages, probs)
     stage_counts: dict[str, int] = {}
-    for i, s in enumerate(stages):
-        name = STAGE_NAMES.get(s, str(s))
-        epochs.append(
-            {
-                "epoch": i,
-                "stage": name,
-                "proba_rem": 1.0 if name == "REM" else 0.0,
-                "confidence": 1.0,
-            }
-        )
-        stage_counts[name] = stage_counts.get(name, 0) + 1
+    for row in epochs:
+        stage_counts[row["stage"]] = stage_counts.get(row["stage"], 0) + 1
 
     with open(args.out, "w", encoding="utf-8") as handle:
         json.dump(
@@ -90,6 +138,7 @@ def main() -> int:
                 "eeg": args.eeg,
                 "eog": eog_name,
                 "epoch_seconds": 30,
+                "stager": stager_block(probs is not None),
                 "stage_counts": stage_counts,
                 "epochs": epochs,
             },

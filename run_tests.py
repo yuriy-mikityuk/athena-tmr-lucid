@@ -67,6 +67,7 @@ def run_fast_tests():
         'tests.test_calibration',
         'tests.test_line_check',
         'tests.test_docs_wording',
+        'tests.test_rem_validation_provenance',
     ]
     
     for module in fast_modules:

@@ -23,11 +23,15 @@ What it reports
     * REM precision / recall / F1 / Cohen's kappa of the heuristic vs the
       reference's REM (YASA or GSSC, --reference), at RemGateConfig's default
       thresholds (enter=0.80, exit=0.70), at 0.50, and at the best-F1 threshold;
-      plus a full threshold sweep and ROC-AUC.
+      plus a full threshold sweep and ROC-AUC. The kappa is binary (REM vs not)
+      against an automated stager, not a five-class kappa against PSG.
     * The *system* view: the actual StableRemGate simulated over the p_rem series
       with the --preset thresholds (p21 0.90/0.85, optics presets 0.80/0.70)
       -- when the gate would open (i.e. fire a cue), how often is the reference
       calling REM?
+    * provenance: the command line, versions (muse_tmr, git commit, Python,
+      numpy, scipy, the stager package, torch, mne), the resample rate, the gate
+      thresholds and which Muse channels the stager was and was not given.
 
 Honest caveats (printed in the summary too)
     YASA is a PROXY, not PSG truth. Its model wants central electrodes (C3/C4);
@@ -37,7 +41,7 @@ Honest caveats (printed in the summary too)
 
 Usage
     python scripts/validate_rem_detection.py data/recordings/overnight_20260707
-    # override channels / venv / outputs:
+    # --eog defaults to none for gssc and AF8 for yasa; override channels / venv / outputs:
     python scripts/validate_rem_detection.py <dir> --eeg AF7 --eog AF8 \
         --yasa-python .venv-yasa/bin/python --output out.json --html out.html
 """
@@ -49,17 +53,22 @@ import asyncio
 import csv
 import json
 import math
+import platform
+import shlex
 import subprocess
 import sys
 import tempfile
 from array import array
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "src"))
 
+from muse_tmr import __version__ as MUSE_TMR_VERSION  # noqa: E402
 from muse_tmr.data.replay import ReplayConfig, ReplaySession  # noqa: E402
 from muse_tmr.features.epochs import EpochBuilder, EpochConfig  # noqa: E402
 from muse_tmr.models import HeuristicRemDetector  # noqa: E402
@@ -71,6 +80,12 @@ EEG_CHANNELS = ("AF7", "AF8", "TP9", "TP10")
 REM_STAGES = ("R", "REM")
 NOMINAL_EEG_RATE_HZ = 256.0
 GAP_FILL_THRESHOLD_SECONDS = 0.5
+
+# --eog when it is not given. GSSC's README documents horizontal or left/right EOG
+# only, and AF8 is a second EEG channel, so GSSC stages from AF7 alone unless asked;
+# YASA keeps AF8 as its EOG derivation.
+DEFAULT_EOG = {"gssc": "none", "yasa": "AF8"}
+KAPPA_DEFINITION = "binary REM-vs-not κ against an automated stager; not five-class"
 
 
 # --------------------------------------------------------------------------- #
@@ -235,6 +250,77 @@ def run_reference(
     return json.loads(out_path.read_text())
 
 
+def resolve_eog(reference: str, eog: Optional[str]) -> str:
+    """The --eog value for ``reference``: the one given, or that reference's default."""
+    return DEFAULT_EOG[reference] if eog is None else eog
+
+
+def _eog_channel(eog: Optional[str]) -> Optional[str]:
+    """The channel the stager gets as EOG; None for 'none' or '' (as the stagers read it)."""
+    return None if eog is None or str(eog).lower() in ("", "none") else str(eog)
+
+
+def _git_commit() -> Optional[str]:
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, capture_output=True, text=True, timeout=10
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    commit = out.stdout.strip()
+    return commit if out.returncode == 0 and commit else None
+
+
+def build_provenance(
+    *,
+    argv: Sequence[str],
+    reference: str,
+    hypno: Mapping[str, object],
+    eeg: str,
+    eog: Optional[str],
+    preset: Optional[str],
+    enter_threshold: float,
+    exit_threshold: float,
+    resample_hz: float,
+    epoch_seconds: float,
+) -> Dict[str, object]:
+    """What produced these metrics: command, versions, channels, thresholds, stager.
+
+    The stager versions come from the ``stager`` block the stager script writes into
+    its hypnogram JSON, since it runs in its own venv. They are None when the
+    hypnogram has no such block.
+    """
+    import scipy
+
+    eog_channel = _eog_channel(eog)
+    passed = {eeg} if eog_channel is None else {eeg, eog_channel}
+    stager = hypno.get("stager") or {}
+    return {
+        "command_line": shlex.join(str(arg) for arg in argv),
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "muse_tmr_version": MUSE_TMR_VERSION,
+        "git_commit": _git_commit(),
+        "python": platform.python_version(),
+        "numpy": np.__version__,
+        "scipy": scipy.__version__,
+        "resample_hz": float(resample_hz),
+        "epoch_seconds": float(epoch_seconds),
+        "preset": preset,
+        "enter_threshold": float(enter_threshold),
+        "exit_threshold": float(exit_threshold),
+        "eeg": eeg,
+        "eog": eog_channel,
+        "channels_not_passed": [name for name in EEG_CHANNELS if name not in passed],
+        "stager": {
+            "tool": reference,
+            "package_version": stager.get("package_version"),
+            "torch_version": stager.get("torch_version"),
+            "mne_version": stager.get("mne_version"),
+            "returns_probabilities": stager.get("returns_probabilities"),
+        },
+    }
+
+
 # --------------------------------------------------------------------------- #
 # Metrics
 # --------------------------------------------------------------------------- #
@@ -327,7 +413,9 @@ def run(
     preset: Optional[str] = None,
     reference: str = "yasa",
     dump_epochs: Optional[Path] = None,
+    argv: Optional[Sequence[str]] = None,
 ) -> Dict[str, object]:
+    eog = resolve_eog(reference, eog)
     print(f"[1/4] replaying {recording_dir.name}: heuristic p_rem + EEG reconstruction ...", flush=True)
     collected = collect(recording_dir, epoch_seconds)
     t0 = float(collected["t0"])
@@ -378,6 +466,18 @@ def run(
             **{name: channels[name] for name in EEG_CHANNELS},
         )
         hypno = run_reference(reference, npz_path, eeg, eog, reference_python)
+    provenance = build_provenance(
+        argv=sys.argv if argv is None else argv,
+        reference=reference,
+        hypno=hypno,
+        eeg=eeg,
+        eog=eog,
+        preset=preset,
+        enter_threshold=enter_thr,
+        exit_threshold=exit_thr,
+        resample_hz=stage_sfreq,
+        epoch_seconds=epoch_seconds,
+    )
     hypno_by_index = {int(e["epoch"]): e for e in hypno["epochs"]}
     print(f"      staged {len(hypno_by_index)} epochs; {hypno.get('stage_counts')}", flush=True)
 
@@ -431,6 +531,8 @@ def run(
     result = {
         "recording": recording_dir.name,
         "reference": {"tool": reference, "eeg": eeg, "eog": hypno.get("eog"), "note": "proxy, not PSG"},
+        "kappa_definition": KAPPA_DEFINITION,
+        "provenance": provenance,
         "epochs_matched": len(matched),
         "epoch_seconds": epoch_seconds,
         "ref_rem_epochs": int(y.sum()),
@@ -507,6 +609,17 @@ REFERENCE_CAVEATS = {
 }
 
 
+def stager_label(provenance: Mapping[str, object]) -> str:
+    """One line on the stager run: tool, versions, the channels it got and the ones it did not."""
+    stager = provenance.get("stager") or {}
+    not_passed = ", ".join(provenance.get("channels_not_passed") or []) or "none"
+    return (
+        f"{stager.get('tool')} {stager.get('package_version') or 'version unknown'} "
+        f"(torch {stager.get('torch_version') or 'n/a'}, mne {stager.get('mne_version') or 'n/a'}); "
+        f"eeg {provenance.get('eeg')}, eog {provenance.get('eog') or 'none'}; not passed: {not_passed}"
+    )
+
+
 def print_summary(result: Dict[str, object]) -> None:
     tm = result["threshold_metrics"]
     gate = result["gate_vs_ref"]
@@ -531,6 +644,10 @@ def print_summary(result: Dict[str, object]) -> None:
         print("!" * 78)
     auc = result["roc_auc"]
     print(f"ROC-AUC (p_rem ranks {tool}-REM): {auc:.3f}" if math.isfinite(auc) else "ROC-AUC: n/a")
+    print(f"kappa: {result.get('kappa_definition', KAPPA_DEFINITION)}")
+    provenance = result.get("provenance")
+    if provenance:
+        print(f"stager: {stager_label(provenance)}")
     print("-" * 78)
     for label, m in tm.items():
         print(f"  p_rem >= {label:<14} {_fmt(m)}")
@@ -555,8 +672,13 @@ def print_summary(result: Dict[str, object]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("recording_dir", type=Path)
-    parser.add_argument("--eeg", default="AF7", help="EEG channel for YASA (default AF7)")
-    parser.add_argument("--eog", default="AF8", help="EOG channel for YASA, or 'none' (default AF8)")
+    parser.add_argument("--eeg", default="AF7", help="EEG channel for the stager (default AF7)")
+    parser.add_argument(
+        "--eog",
+        default=None,
+        help="EOG channel for the stager, or 'none'. Default: none for gssc (its README "
+        "documents horizontal or left/right EOG only), AF8 for yasa.",
+    )
     parser.add_argument("--epoch-seconds", type=float, default=30.0)
     parser.add_argument(
         "--preset",
