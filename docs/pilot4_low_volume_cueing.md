@@ -72,6 +72,13 @@ OUTDIR="data/recordings/pilot4_low_volume_$(date +%Y%m%d_%H%M%S)"
 
 The default duration rules require 2-8 hours unless `--allow-short` is present.
 
+If `afplay` is not on PATH, the command exits with code 2 before it connects to the
+headband or creates `$OUTDIR`, instead of running the night without a sound. To run it
+silently on purpose, add `--allow-dry-run`. `metadata.json` then records
+`requested_backend_name` `system` and `resolved_backend_name` `dry-run`, and
+`pilot4_summary.json` has the same pair as `requested_audio_backend_name` and
+`resolved_audio_backend_name`.
+
 `--preset` (default `p1034`) is the headband preset and also picks the REM gate
 thresholds: 0.80/0.70 on `p1034`, still provisional, and 0.90/0.85 on `p21`, where
 the gate does not count the missing PPG against REM confidence. `--enter-threshold`
@@ -127,3 +134,7 @@ The summary passes only when:
 
 An empty cue night can still pass if stable REM or safety conditions were not met.
 That means the system refused to cue rather than forcing audio.
+
+None of these criteria shows that a cue was heard. `resolved_audio_backend_name` in the
+summary says what played the cues: `afplay` for sound, `dry-run` for a night run with
+`--allow-dry-run`.

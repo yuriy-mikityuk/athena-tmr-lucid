@@ -370,9 +370,23 @@ captures:
 - backend name and reason codes
 
 `CuePlaybackResult` records `played`, `skipped`, `blocked`, or `stopped` outcomes and
-can be appended to a JSONL log. The default `system` backend uses macOS `afplay` when
-available and otherwise falls back to `dry-run`; tests use `MockAudioBackend` so CI does
-not need an audio device.
+can be appended to a JSONL log. `create_audio_backend("system")` uses macOS `afplay`
+when it is on PATH and otherwise returns `dry-run`; tests use `MockAudioBackend` so CI
+does not need an audio device.
+
+The commands that can play a cue (`play-test-cue`, `train-tlr-cue`, `run-pilot4-cueing`,
+`run-pilot5-full-night`) go through `resolve_audio_backend(name, *,
+allow_dry_run_fallback=False)` instead. It returns a `BackendResolution` with
+`requested_name`, `resolved_name` and `backend`, and raises `AudioBackendFallbackError`
+when `system` or `afplay` is asked for and `afplay` is not on PATH, because every cue
+would then be silent. With `allow_dry_run_fallback=True` (`--allow-dry-run`) it returns
+`dry-run` instead. Pilot 4 and 5 resolve right after validating
+`Pilot4CueingConfig`, before `connect()` and before any file is written, and take the
+flag as `Pilot4CueingConfig.allow_dry_run_fallback`. Their `metadata.json` `audio`
+block records `requested_backend_name` and `resolved_backend_name` next to
+`backend_name`, which stays the requested name. The summary records
+`requested_audio_backend_name` and `resolved_audio_backend_name` next to
+`audio_backend_name`, which stays the resolved one.
 
 ## Volume Calibration
 

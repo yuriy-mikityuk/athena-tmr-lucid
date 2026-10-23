@@ -54,7 +54,8 @@ cd /path/to/remind-eeg
 ```
 
 Use `--backend system` for `train-tlr-cue` only if you intentionally want audible
-pre-sleep TLR familiarization.
+pre-sleep TLR familiarization. Without `afplay` on PATH it then exits with code 2
+instead of training in silence.
 
 ## Dry-Run Smoke
 
@@ -107,7 +108,10 @@ OUTDIR="data/recordings/pilot5_full_night_$(date +%Y%m%d_%H%M%S)"
 ```
 
 The default duration rules require 2-8 hours unless `--allow-short` is present.
-`--preset` sets the headband preset and the REM gate thresholds, as in Pilot 4.
+`--preset` sets the headband preset and the REM gate thresholds, as in Pilot 4. Also as
+in Pilot 4, the command exits with code 2 before it connects or creates `$OUTDIR` when
+`afplay` is not on PATH, `--allow-dry-run` runs the night silently instead, and
+`pilot5_summary.json` names the requested and the resolved backend.
 
 ## Emergency Stop
 

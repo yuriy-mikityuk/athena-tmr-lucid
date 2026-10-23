@@ -41,6 +41,15 @@ and only uses real audio when an operator explicitly selects a backend such as
 `system`. Its output directory includes scheduler, arousal, audio, awakening, and
 emergency-stop artifacts for post-run review.
 
+A night that asks for sound does not run silently by accident. `system` and `afplay`
+need macOS `afplay`; when it is not on PATH, `run-pilot4-cueing`,
+`run-pilot5-full-night`, `train-tlr-cue` and `play-test-cue` exit with code 2 and say
+how to fix it, and the two night commands do so before they read an input, connect
+the headband or write a file. `--allow-dry-run` runs silently on purpose, and the
+night's `metadata.json` and summary record both the requested and the resolved
+backend. Finding `afplay` does not prove the cue is audible through the intended
+headphones; play a test cue while awake and listen.
+
 Cue libraries must validate private sound-file availability before a sleep session.
 Missing cue files should block the session plan rather than failing after the subject
 is asleep.

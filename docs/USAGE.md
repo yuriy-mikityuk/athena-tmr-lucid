@@ -305,7 +305,7 @@ Replays a recording through the heuristic detector and the gate, stages the same
 muse-tmr play-test-cue --volume 0.05 --max-volume 0.20
 ```
 
-`play-test-cue` uses conservative low-volume defaults, applies fade in/out, caps any requested volume at `--max-volume`, supports backend/device metadata, and can write JSONL playback logs with `--log-path`. On macOS the `system` backend uses `afplay` when available; otherwise it falls back to `dry-run`. Use `--backend dry-run` for non-audible smoke tests and CI.
+`play-test-cue` uses conservative low-volume defaults, applies fade in/out, caps any requested volume at `--max-volume`, supports backend/device metadata, and can write JSONL playback logs with `--log-path`. The `system` and `afplay` backends play through macOS `afplay`. When `afplay` is not on PATH, the command exits with code 2 and says how to fix it instead of playing nothing; `--allow-dry-run` runs it silently on purpose, and the output then shows `backend=dry-run requested_backend=system`. `train-tlr-cue`, `run-pilot4-cueing` and `run-pilot5-full-night` check their `--backend` the same way. Use `--backend dry-run` for non-audible smoke tests and CI. Finding `afplay` does not prove the cue reaches the intended headphones: play one while awake and listen.
 
 ## Pre-sleep volume calibration
 
@@ -565,7 +565,7 @@ muse-tmr run-pilot4-cueing \
   --default-volume 0.02
 ```
 
-See `docs/pilot4_low_volume_cueing.md` before using `--backend system`. Pilot 4 requires volume calibration, enforces the comfortable-volume cap, logs scheduler, arousal, audio, awakening, and emergency-stop artifacts, and only sends playback requests for scheduler `play` events after stable REM. `--preset` (default `p1034`) is the headband preset for the night and also picks the gate thresholds, as above. Mark an awakening with:
+See `docs/pilot4_low_volume_cueing.md` before using `--backend system`. Pilot 4 requires volume calibration, enforces the comfortable-volume cap, logs scheduler, arousal, audio, awakening, and emergency-stop artifacts, and only sends playback requests for scheduler `play` events after stable REM. With `--backend system` and no `afplay` on PATH it exits with code 2 before it reads an input, connects the headband or writes a file. `--allow-dry-run` runs the night silently instead; `metadata.json` and the summary record the requested and the resolved backend. `--preset` (default `p1034`) is the headband preset for the night and also picks the gate thresholds, as above. Mark an awakening with:
 
 ```bash
 muse-tmr log-pilot4-awakening data/recordings/pilot4_low_volume_<timestamp>/awakening_events.jsonl \
@@ -591,4 +591,4 @@ muse-tmr run-pilot5-full-night \
   --default-volume 0.02
 ```
 
-See `docs/pilot5_full_night.md` for the full runbook. Pilot 5 requires the Pilot 4 safety setup plus a TLR block plan, writes `pilot5_summary.json`, and expects the morning dream report, blind puzzle retest, and cued-vs-uncued analysis before any behavioral interpretation. `--preset` works as in Pilot 4.
+See `docs/pilot5_full_night.md` for the full runbook. Pilot 5 requires the Pilot 4 safety setup plus a TLR block plan, writes `pilot5_summary.json`, and expects the morning dream report, blind puzzle retest, and cued-vs-uncued analysis before any behavioral interpretation. `--preset` and `--allow-dry-run` work as in Pilot 4.

@@ -8,7 +8,13 @@ from unittest import mock
 
 import numpy as np
 
-from muse_tmr.audio import CueLibrary, CueMetadata, MockAudioBackend, VolumeCalibration
+from muse_tmr.audio import (
+    AudioBackendFallbackError,
+    CueLibrary,
+    CueMetadata,
+    MockAudioBackend,
+    VolumeCalibration,
+)
 from muse_tmr.data.sample_types import EEGSample, HeartRateSample, IMUSample, MuseFrame, PPGSample
 from muse_tmr.features import EpochConfig
 from muse_tmr.models import RemGateConfig
@@ -299,6 +305,62 @@ class TestPilot4Cueing(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(event["metadata"]["ppg_absent_by_design"] for event in guard_events))
         self.assertGreaterEqual(summary.cue_play_count, 1)
         self.assertEqual(summary.uncued_puzzle_play_count, 0)
+
+    async def test_real_audio_without_afplay_refuses_before_connect_and_any_file(self):
+        catalog, session, assignment, cue_library = protocol_fixture()
+        for name in ("system", "afplay"):
+            with self.subTest(backend=name), tempfile.TemporaryDirectory() as tmpdir:
+                output_dir = Path(tmpdir) / "night"
+                source = FakeMuseSource(rem_frames(1))
+                source.connect = mock.AsyncMock(side_effect=AssertionError("connect() must not run"))
+                with mock.patch("muse_tmr.audio.audio_player.shutil.which", return_value=None):
+                    with self.assertRaisesRegex(AudioBackendFallbackError, "--allow-dry-run"):
+                        await run_pilot4_cueing_night(
+                            source,
+                            config=replace(pilot4_config(output_dir), audio_backend_name=name),
+                            catalog=catalog,
+                            session=session,
+                            assignment=assignment,
+                            cue_library=cue_library,
+                            calibration=VolumeCalibration("Sleep Headphones", 0.01, 0.02, 0.04),
+                        )
+                source.connect.assert_not_awaited()
+                self.assertFalse(output_dir.exists())
+
+    async def test_allowed_fallback_runs_silently_and_records_both_backend_names(self):
+        catalog, session, assignment, cue_library = protocol_fixture()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = replace(
+                pilot4_config(Path(tmpdir)),
+                audio_backend_name="system",
+                allow_dry_run_fallback=True,
+            )
+            with mock.patch("muse_tmr.audio.audio_player.shutil.which", return_value=None):
+                summary = await run_pilot4_cueing_night(
+                    FakeMuseSource(rem_frames(4)),
+                    config=config,
+                    catalog=catalog,
+                    session=session,
+                    assignment=assignment,
+                    cue_library=cue_library,
+                    calibration=VolumeCalibration("Sleep Headphones", 0.01, 0.02, 0.04),
+                )
+            audio_metadata = json.loads(Path(summary.metadata_path).read_text(encoding="utf-8"))["audio"]
+            summary_payload = json.loads(Path(summary.summary_path).read_text(encoding="utf-8"))
+            audio_events = [
+                json.loads(line)
+                for line in Path(summary.audio_log_path).read_text(encoding="utf-8").splitlines()
+            ]
+
+        self.assertTrue(summary.passed)
+        self.assertEqual(summary.cue_play_count, 2)
+        self.assertEqual(audio_metadata["requested_backend_name"], "system")
+        self.assertEqual(audio_metadata["resolved_backend_name"], "dry-run")
+        self.assertEqual(audio_metadata["backend_name"], "system")
+        self.assertEqual(summary_payload["requested_audio_backend_name"], "system")
+        self.assertEqual(summary_payload["resolved_audio_backend_name"], "dry-run")
+        self.assertEqual(summary_payload["audio_backend_name"], "dry-run")
+        self.assertEqual([event["backend_name"] for event in audio_events], ["dry-run", "dry-run"])
 
 
 def pilot4_config(

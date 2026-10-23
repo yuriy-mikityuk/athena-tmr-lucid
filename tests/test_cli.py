@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import io
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -875,9 +876,9 @@ class TestPilot3OpticsWiring(unittest.IsolatedAsyncioTestCase):
 
 
 class TestPilot4OpticsWiring(unittest.IsolatedAsyncioTestCase):
-    """run-pilot4-cueing builds the gate and the guard from the same preset."""
+    """run-pilot4-cueing builds the gate and the guard from one preset and keeps --allow-dry-run."""
 
-    async def _capture_config(self, preset):
+    async def _capture_config(self, preset, *extra_args):
         captured = {}
 
         async def fake_run(source, *, config, **kwargs):
@@ -897,6 +898,7 @@ class TestPilot4OpticsWiring(unittest.IsolatedAsyncioTestCase):
             "--duration-seconds", "60",
             "--allow-short",
             "--preset", preset,
+            *extra_args,
         ])
         with patch("muse_tmr.validation.run_pilot4_cueing_night", new=fake_run), \
                 patch("muse_tmr.audio.load_volume_calibrations", return_value=MagicMock()), \
@@ -920,6 +922,97 @@ class TestPilot4OpticsWiring(unittest.IsolatedAsyncioTestCase):
         config = await self._capture_config("p1034")
         self.assertTrue(config.gate_config.optics_capable)
         self.assertTrue(config.arousal_guard_config.optics_capable)
+
+    async def test_allow_dry_run_reaches_the_night_config(self):
+        self.assertFalse((await self._capture_config("p1034")).allow_dry_run_fallback)
+        config = await self._capture_config("p1034", "--backend", "system", "--allow-dry-run")
+        self.assertEqual(config.audio_backend_name, "system")
+        self.assertTrue(config.allow_dry_run_fallback)
+
+
+class TestAudioPreflightCli(unittest.TestCase):
+    """The commands that can play a cue exit with code 2 when real audio would be silent."""
+
+    def test_audio_commands_take_allow_dry_run(self):
+        required = {
+            "play-test-cue": [],
+            "train-tlr-cue": ["cues.json", "--output", "training.json", "--event-log", "training.jsonl"],
+            "run-pilot4-cueing": [
+                "--output-dir", "out", "--catalog", "catalog.json", "--session", "session.json",
+                "--assignment", "assignment.json", "--cue-library", "cues.json",
+                "--calibration", "calibration.json",
+            ],
+        }
+        required["run-pilot5-full-night"] = required["run-pilot4-cueing"] + ["--tlr-block", "block.json"]
+        self.assertEqual(set(required), set(cli_main.AUDIO_COMMANDS))
+        parser = build_parser()
+        for command, argv in required.items():
+            with self.subTest(command=command):
+                self.assertFalse(parser.parse_args([command, *argv]).allow_dry_run)
+                self.assertTrue(parser.parse_args([command, *argv, "--allow-dry-run"]).allow_dry_run)
+
+    def test_play_test_cue_refuses_real_audio_without_afplay(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = Path(tmp) / "playback.jsonl"
+            for backend in ("system", "afplay"):
+                with self.subTest(backend=backend):
+                    stderr = io.StringIO()
+                    with patch("muse_tmr.audio.audio_player.shutil.which", return_value=None), \
+                            contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(io.StringIO()):
+                        rc = cli_main.main([
+                            "play-test-cue", "--backend", backend,
+                            "--duration-seconds", "0.01", "--log-path", str(log_path),
+                        ])
+                    self.assertEqual(rc, 2)
+                    self.assertIn("needs afplay", stderr.getvalue())
+                    self.assertIn("--allow-dry-run", stderr.getvalue())
+            self.assertFalse(log_path.exists())
+
+    def test_play_test_cue_runs_silently_with_allow_dry_run(self):
+        stdout = io.StringIO()
+        with patch("muse_tmr.audio.audio_player.shutil.which", return_value=None), \
+                contextlib.redirect_stdout(stdout):
+            rc = cli_main.main([
+                "play-test-cue", "--backend", "system", "--allow-dry-run", "--duration-seconds", "0.01",
+            ])
+        self.assertEqual(rc, 0)
+        self.assertIn("status=played", stdout.getvalue())
+        self.assertIn("backend=dry-run requested_backend=system", stdout.getvalue())
+
+    def test_training_and_nights_refuse_before_reading_inputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = str(Path(tmp) / "missing.json")
+            night_inputs = [
+                "--catalog", missing, "--session", missing, "--assignment", missing,
+                "--cue-library", missing, "--calibration", missing,
+                "--duration-seconds", "60", "--allow-short",
+            ]
+            commands = {
+                "train-tlr-cue": [
+                    "train-tlr-cue", missing,
+                    "--output", str(Path(tmp) / "training.json"),
+                    "--event-log", str(Path(tmp) / "training.jsonl"),
+                ],
+                "run-pilot4-cueing": [
+                    "run-pilot4-cueing", "--output-dir", str(Path(tmp) / "pilot4"), *night_inputs,
+                ],
+                "run-pilot5-full-night": [
+                    "run-pilot5-full-night", "--output-dir", str(Path(tmp) / "pilot5"), *night_inputs,
+                    "--tlr-block", missing,
+                ],
+            }
+            with patch("muse_tmr.audio.audio_player.shutil.which", return_value=None), \
+                    patch("muse_tmr.audio.load_cue_library") as load_cue_library, \
+                    patch("muse_tmr.audio.load_volume_calibrations") as load_calibrations, \
+                    patch.object(cli_main, "_build_source") as build_source, \
+                    contextlib.redirect_stderr(io.StringIO()):
+                for command, argv in commands.items():
+                    with self.subTest(command=command):
+                        self.assertEqual(cli_main.main([*argv, "--backend", "system"]), 2)
+            load_cue_library.assert_not_called()
+            load_calibrations.assert_not_called()
+            build_source.assert_not_called()
+            self.assertEqual(list(Path(tmp).iterdir()), [])
 
 
 if __name__ == "__main__":

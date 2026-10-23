@@ -2,16 +2,19 @@
 
 from muse_tmr.audio.audio_player import (
     AudioBackend,
+    AudioBackendFallbackError,
     AudioCuePlayer,
     AudioPlaybackConfig,
     AudioPlaybackRequest,
     AudioPlayer,
+    BackendResolution,
     CuePlaybackResult,
     DryRunAudioBackend,
     MacOSAfplayBackend,
     MockAudioBackend,
     TestCue,
     create_audio_backend,
+    resolve_audio_backend,
 )
 from muse_tmr.audio.cue_library import (
     CUE_LIBRARY_SCHEMA_VERSION,
@@ -39,10 +42,12 @@ from muse_tmr.audio.volume_calibration import (
 
 __all__ = [
     "AudioBackend",
+    "AudioBackendFallbackError",
     "AudioCuePlayer",
     "AudioPlaybackConfig",
     "AudioPlaybackRequest",
     "AudioPlayer",
+    "BackendResolution",
     "CuePlaybackResult",
     "DryRunAudioBackend",
     "MacOSAfplayBackend",
@@ -65,6 +70,7 @@ __all__ = [
     "export_cue_library",
     "load_volume_calibrations",
     "load_cue_library",
+    "resolve_audio_backend",
     "resolve_cue_path",
     "save_volume_calibration",
     "validate_cue_library_file",

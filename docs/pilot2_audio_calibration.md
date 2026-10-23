@@ -33,6 +33,10 @@ for v in 0.01 0.02 0.03 0.04 0.05 0.06; do
 done
 ```
 
+If `afplay` is not on PATH, each `play-test-cue --backend system` call stops with exit
+code 2 instead of playing nothing, so a silent ladder cannot pass for six very quiet
+volumes.
+
 Use conservative thresholds:
 
 - `detectable-volume`: the quietest level where the sound is noticed.

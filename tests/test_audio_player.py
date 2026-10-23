@@ -8,12 +8,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 from muse_tmr.audio import (
+    AudioBackendFallbackError,
     AudioPlayer,
     AudioCuePlayer,
     AudioPlaybackConfig,
     MockAudioBackend,
     TestCue,
     create_audio_backend,
+    resolve_audio_backend,
 )
 from muse_tmr.audio.audio_player import (
     AudioPlaybackRequest,
@@ -352,6 +354,36 @@ class TestAudioCuePlayerCli(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(event["status"], "played")
         self.assertEqual(event["backend_name"], "dry-run")
+
+
+class TestAudioBackendResolution(unittest.TestCase):
+    def test_system_and_afplay_resolve_to_afplay_when_it_is_on_path(self):
+        with patch("muse_tmr.audio.audio_player.shutil.which", return_value="/usr/bin/afplay"):
+            for name in ("system", "afplay"):
+                resolution = resolve_audio_backend(name)
+                self.assertEqual(resolution.requested_name, name)
+                self.assertEqual(resolution.resolved_name, "afplay")
+                self.assertIsInstance(resolution.backend, MacOSAfplayBackend)
+
+    def test_missing_afplay_is_refused_and_names_the_fix(self):
+        with patch("muse_tmr.audio.audio_player.shutil.which", return_value=None):
+            for name in ("system", "afplay"):
+                with self.assertRaisesRegex(AudioBackendFallbackError, "--allow-dry-run"):
+                    resolve_audio_backend(name)
+
+    def test_missing_afplay_falls_back_to_dry_run_only_when_allowed(self):
+        with patch("muse_tmr.audio.audio_player.shutil.which", return_value=None):
+            for name in ("system", "afplay"):
+                resolution = resolve_audio_backend(name, allow_dry_run_fallback=True)
+                self.assertEqual(resolution.requested_name, name)
+                self.assertEqual(resolution.resolved_name, "dry-run")
+                self.assertIsInstance(resolution.backend, DryRunAudioBackend)
+
+    def test_silent_backends_need_no_permission(self):
+        with patch("muse_tmr.audio.audio_player.shutil.which", return_value=None):
+            for name in ("dry-run", "mock"):
+                resolution = resolve_audio_backend(name)
+                self.assertEqual((resolution.requested_name, resolution.resolved_name), (name, name))
 
 
 if __name__ == "__main__":

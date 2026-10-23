@@ -34,7 +34,7 @@ The terminal or app running Python may lack Bluetooth permission, and macOS then
 
 ## Why is there no sound off macOS?
 
-Real playback goes through macOS `afplay`. The `system` backend falls back to `dry-run` when `afplay` is missing, so on Linux or Windows nothing is heard. The fallback is not hidden: `audio_playback.jsonl` records `backend_name` `dry-run` for every request.
+Real playback goes through macOS `afplay`, and there is no other real backend. On Linux or Windows, `--backend system` makes `play-test-cue`, `train-tlr-cue`, `run-pilot4-cueing` and `run-pilot5-full-night` exit with code 2 instead of running without sound. `--backend dry-run`, or `--allow-dry-run` to accept the silent fallback, runs them anyway; `audio_playback.jsonl` then records `backend_name` `dry-run` for every request, and the Pilot 4/5 summary has `resolved_audio_backend_name` `dry-run`.
 
 ## Where did `configs/` go?
 
