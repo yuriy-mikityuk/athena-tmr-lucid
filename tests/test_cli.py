@@ -827,8 +827,9 @@ class TestPilot3OpticsWiring(unittest.IsolatedAsyncioTestCase):
     async def _capture_gate_config(self, preset):
         captured = {}
 
-        async def fake_simulate(*args, gate_config, **kwargs):
+        async def fake_simulate(*args, gate_config, arousal_guard_config, **kwargs):
             captured["gate_config"] = gate_config
+            captured["arousal_guard_config"] = arousal_guard_config
             report = MagicMock()
             report.passed = True
             report.metrics = {}
@@ -853,11 +854,13 @@ class TestPilot3OpticsWiring(unittest.IsolatedAsyncioTestCase):
                 contextlib.redirect_stdout(io.StringIO()):
             rc = await cli_main._simulate_replay_cues(args)
         self.assertEqual(rc, 0)
+        self.guard_config = captured["arousal_guard_config"]
         return captured["gate_config"]
 
     async def test_eeg_only_preset_is_wired_optics_incapable(self):
         gate_config = await self._capture_gate_config("p21")
         self.assertFalse(gate_config.optics_capable)
+        self.assertFalse(self.guard_config.optics_capable)
         self.assertEqual(
             (gate_config.enter_threshold, gate_config.exit_threshold), (0.90, 0.85)
         )
@@ -865,9 +868,58 @@ class TestPilot3OpticsWiring(unittest.IsolatedAsyncioTestCase):
     async def test_optics_preset_is_wired_optics_capable(self):
         gate_config = await self._capture_gate_config("p1034")
         self.assertTrue(gate_config.optics_capable)
+        self.assertTrue(self.guard_config.optics_capable)
         self.assertEqual(
             (gate_config.enter_threshold, gate_config.exit_threshold), (0.80, 0.70)
         )
+
+
+class TestPilot4OpticsWiring(unittest.IsolatedAsyncioTestCase):
+    """run-pilot4-cueing builds the gate and the guard from the same preset."""
+
+    async def _capture_config(self, preset):
+        captured = {}
+
+        async def fake_run(source, *, config, **kwargs):
+            captured["config"] = config
+            summary = MagicMock()
+            summary.passed = True
+            return summary
+
+        args = build_parser().parse_args([
+            "run-pilot4-cueing",
+            "--output-dir", "out",
+            "--catalog", "catalog.json",
+            "--session", "session.json",
+            "--assignment", "assignment.json",
+            "--cue-library", "cues.json",
+            "--calibration", "calibration.json",
+            "--duration-seconds", "60",
+            "--allow-short",
+            "--preset", preset,
+        ])
+        with patch("muse_tmr.validation.run_pilot4_cueing_night", new=fake_run), \
+                patch("muse_tmr.audio.load_volume_calibrations", return_value=MagicMock()), \
+                patch("muse_tmr.audio.load_cue_library", return_value=MagicMock()), \
+                patch("muse_tmr.protocol.load_puzzle_catalog", return_value=MagicMock()), \
+                patch("muse_tmr.protocol.load_night_puzzle_session", return_value=MagicMock()), \
+                patch("muse_tmr.protocol.load_puzzle_cue_assignment", return_value=MagicMock()), \
+                patch.object(cli_main, "_build_source", return_value=MagicMock()), \
+                patch.object(cli_main, "_resolve_output_dir", return_value=Path("out")), \
+                contextlib.redirect_stdout(io.StringIO()):
+            rc = await cli_main._run_pilot4_cueing(args)
+        self.assertEqual(rc, 0)
+        return captured["config"]
+
+    async def test_eeg_only_preset_is_wired_optics_incapable(self):
+        config = await self._capture_config("p21")
+        self.assertFalse(config.gate_config.optics_capable)
+        self.assertFalse(config.arousal_guard_config.optics_capable)
+
+    async def test_optics_preset_is_wired_optics_capable(self):
+        config = await self._capture_config("p1034")
+        self.assertTrue(config.gate_config.optics_capable)
+        self.assertTrue(config.arousal_guard_config.optics_capable)
 
 
 if __name__ == "__main__":

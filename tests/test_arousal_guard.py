@@ -3,9 +3,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from muse_tmr.data.sample_types import EEGSample, MuseFrame
+from muse_tmr.features import EpochBuilder, EpochConfig
 from muse_tmr.features.eeg_features import EEGFeatureRow
 from muse_tmr.features.imu_features import IMUFeatureRow
-from muse_tmr.features.ppg_features import PPGFeatureRow
+from muse_tmr.features.ppg_features import PPGFeatureRow, extract_ppg_features
 from muse_tmr.protocol import (
     ArousalGuard,
     ArousalGuardConfig,
@@ -225,6 +227,95 @@ class TestArousalGuard(unittest.TestCase):
                 alpha_lower_volume_relative_power=0.50,
                 alpha_pause_relative_power=0.40,
             ).validate()
+
+    def test_eeg_only_row_is_allowed_when_preset_has_no_optics(self):
+        ppg = _eeg_only_ppg()
+        self.assertEqual(
+            ppg.artifact_flags,
+            (
+                "heart_rate_missing",
+                "low_heart_rate_coverage",
+                "missing_heart_rate",
+                "missing_ppg",
+                "ppg_missing",
+            ),
+        )
+        guard = ArousalGuard(ArousalGuardConfig(optics_capable=False))
+
+        decisions = [
+            guard.evaluate(
+                timestamp_seconds=index * 30.0,
+                eeg=_eeg(alpha=0.10),
+                imu=_imu(stillness_score=0.99),
+                ppg=ppg,
+            )
+            for index in range(4)
+        ]
+
+        self.assertEqual([decision.action for decision in decisions], ["allow"] * 4)
+        for decision in decisions:
+            self.assertEqual(decision.reason_codes, ())
+            self.assertEqual(decision.volume_multiplier, 1.0)
+            self.assertIs(decision.metadata["ppg_absent_by_design"], True)
+        self.assertEqual(guard.consecutive_artifact_epochs, 0)
+
+    def test_eeg_only_row_on_optics_preset_keeps_lower_lower_pause(self):
+        guard = ArousalGuard()
+
+        decisions = [
+            guard.evaluate(
+                timestamp_seconds=index * 30.0,
+                eeg=_eeg(alpha=0.10),
+                imu=_imu(stillness_score=0.99),
+                ppg=_eeg_only_ppg(),
+            )
+            for index in range(3)
+        ]
+
+        self.assertEqual(
+            [decision.action for decision in decisions],
+            ["lower_volume", "lower_volume", "pause"],
+        )
+        self.assertEqual(
+            decisions[0].reason_codes, ("low_ppg_hr_coverage", "ppg_artifact_flags")
+        )
+        self.assertEqual(
+            decisions[2].reason_codes,
+            ("repeated_artifact_quality", "low_ppg_hr_coverage", "ppg_artifact_flags"),
+        )
+        self.assertTrue(
+            all("ppg_absent_by_design" not in decision.metadata for decision in decisions)
+        )
+
+    def test_hr_rules_are_skipped_when_preset_has_no_optics(self):
+        guard = ArousalGuard(ArousalGuardConfig(optics_capable=False))
+
+        jump = guard.evaluate(
+            timestamp_seconds=60.0,
+            ppg=_ppg(sudden_hr_change_count=1, max_sudden_hr_change_bpm=18.0),
+        )
+        out_of_range = guard.evaluate(
+            timestamp_seconds=90.0,
+            ppg=_ppg(artifact_flags=("heart_rate_out_of_range",)),
+        )
+
+        self.assertEqual(jump.action, "allow")
+        self.assertIs(jump.metadata["ppg_absent_by_design"], True)
+        self.assertNotEqual(out_of_range.action, "pause")
+        self.assertNotIn("heart_rate_out_of_range", out_of_range.reason_codes)
+        self.assertNotIn("sudden_heart_rate_change", out_of_range.reason_codes)
+
+
+def _eeg_only_ppg():
+    frame = MuseFrame(
+        timestamp=0.0,
+        eeg=EEGSample(0.0, {"AF7": [0.0] * 7680, "AF8": [0.0] * 7680}, source="test"),
+        source="test",
+    )
+    epoch = EpochBuilder(EpochConfig(epoch_seconds=30, stride_seconds=30))._build_epoch(
+        0, 0.0, (frame,)
+    )
+    return extract_ppg_features(epoch)
 
 
 def _eeg(

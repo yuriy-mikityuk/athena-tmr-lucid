@@ -1987,6 +1987,7 @@ async def _simulate_replay_cues(args: argparse.Namespace) -> int:
     from muse_tmr.validation import simulate_replay_cue_plan
 
     enter_threshold, exit_threshold = _resolve_gate_thresholds(args)
+    optics_capable = preset_provides_optics(getattr(args, "preset", None))
     report = await simulate_replay_cue_plan(
         _resolve_output_path(args.input),
         catalog=load_puzzle_catalog(_resolve_output_path(args.catalog)),
@@ -2005,7 +2006,7 @@ async def _simulate_replay_cues(args: argparse.Namespace) -> int:
             min_stable_seconds=args.min_stable_seconds,
             epoch_seconds=args.epoch_seconds,
             cooldown_seconds=args.gate_cooldown_seconds,
-            optics_capable=preset_provides_optics(getattr(args, "preset", None)),
+            optics_capable=optics_capable,
         ),
         scheduler_config=TmrSchedulerConfig(
             puzzle_cue_interval_seconds=args.puzzle_cue_interval_seconds,
@@ -2013,7 +2014,10 @@ async def _simulate_replay_cues(args: argparse.Namespace) -> int:
             max_puzzle_cues_per_block=args.max_puzzle_cues_per_block,
             enable_tlr_block=False,
         ),
-        arousal_guard_config=ArousalGuardConfig(enabled=not args.disable_arousal_guard),
+        arousal_guard_config=ArousalGuardConfig(
+            enabled=not args.disable_arousal_guard,
+            optics_capable=optics_capable,
+        ),
     )
     output_path = report.save(_resolve_output_path(args.output))
     scheduler_events_output = None
@@ -2094,6 +2098,7 @@ async def _run_live_cueing_pilot(
     )
     output_dir = _resolve_output_dir(args.output_dir)
     enter_threshold, exit_threshold = _resolve_gate_thresholds(args)
+    optics_capable = preset_provides_optics(getattr(args, "preset", None))
     config = Pilot4CueingConfig(
         output_dir=output_dir,
         duration_seconds=duration_seconds,
@@ -2119,7 +2124,7 @@ async def _run_live_cueing_pilot(
             min_stable_seconds=args.min_stable_seconds,
             epoch_seconds=args.epoch_seconds,
             cooldown_seconds=args.gate_cooldown_seconds,
-            optics_capable=preset_provides_optics(getattr(args, "preset", None)),
+            optics_capable=optics_capable,
         ),
         scheduler_config=TmrSchedulerConfig(
             puzzle_cue_interval_seconds=args.puzzle_cue_interval_seconds,
@@ -2127,7 +2132,7 @@ async def _run_live_cueing_pilot(
             max_puzzle_cues_per_block=args.max_puzzle_cues_per_block,
             enable_tlr_block=enable_tlr_block,
         ),
-        arousal_guard_config=ArousalGuardConfig(),
+        arousal_guard_config=ArousalGuardConfig(optics_capable=optics_capable),
         pilot_id=pilot_id,
         summary_filename=summary_filename,
         require_tlr_block=require_tlr_block,

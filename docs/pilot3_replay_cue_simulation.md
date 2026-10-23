@@ -40,7 +40,11 @@ Pass the preset the night was recorded with; it is in the recording's `metadata.
 under `source.metadata.preset` (the app's night sessions use `p21`; `record` and the
 Pilot 4 and 5 commands default to `p1034`). It sets the gate thresholds, `0.90`/`0.85`
 for `p21` and `0.80`/`0.70` for an optics preset, and on `p21` keeps the missing PPG
-from capping REM confidence. Without `--preset` the replay assumes an optics preset.
+from capping REM confidence. On `p21` the arousal guard also stops treating the missing
+PPG as an artifact and skips its HR rules, and each guard decision carries
+`ppg_absent_by_design`. Without that, a `p21` replay is paused with
+`repeated_artifact_quality` from the third epoch on and plans no cues. Without
+`--preset` the replay assumes an optics preset.
 
 Optional replay and gate tuning flags:
 

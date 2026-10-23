@@ -26,6 +26,15 @@ change, and artifact-quality proxies before scheduler decisions. Its conservativ
 defaults can lower volume, pause cueing with cooldown, or stop the session plan, and
 each decision is JSONL-loggable for replay review.
 
+On a preset without optics (`p21`) the guard is built with `optics_capable=False`,
+like the REM gate. Missing PPG and heart rate is then not an artifact, so it does not
+lower volume and does not count towards the `repeated_artifact_quality` pause, and the
+two HR rules (`sudden_heart_rate_change`, `heart_rate_out_of_range`) are skipped
+because there is no heart rate to judge. Every decision records
+`ppg_absent_by_design` in its metadata. Before this, every `p21` night was paused from
+the third epoch on and no cue could play. Motion, alpha and EEG artifact rules are
+unchanged. On optics presets a PPG dropout still lowers volume and then pauses.
+
 `muse-tmr run-pilot4-cueing` is the first command intended for sleep-time cueing.
 It requires a volume calibration file, defaults to the non-audible `dry-run` backend,
 and only uses real audio when an operator explicitly selects a backend such as

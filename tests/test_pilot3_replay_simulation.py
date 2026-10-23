@@ -1,4 +1,6 @@
+import contextlib
 import datetime as dt
+import io
 import json
 import tempfile
 import unittest
@@ -9,6 +11,7 @@ import numpy as np
 from muse_raw_stream import MuseRawStream
 
 from muse_tmr.audio import CueLibrary, CueMetadata
+from muse_tmr.cli.main import main as cli_main
 from muse_tmr.data.sample_types import EEGSample, HeartRateSample, IMUSample, MuseFrame, PPGSample
 from muse_tmr.features import EpochBuilder, EpochConfig
 from muse_tmr.models import RemGateConfig
@@ -60,7 +63,7 @@ def still_gyro_rows():
     return [{"x": 0.0, "y": 0.0, "z": 0.0}] * (30 * IMU_RATE_HZ)
 
 
-def build_rem_epoch(index):
+def build_rem_epoch(index, *, with_optics=True):
     timestamp = 1000.0 + index * 30.0
     frames = [
         MuseFrame(
@@ -72,11 +75,15 @@ def build_rem_epoch(index):
                 gyroscope_dps=still_gyro_rows(),
                 source="test",
             ),
-            ppg=PPGSample(timestamp, {"LO_NIR": synthetic_ppg(72.0)}, source="test"),
+            ppg=(
+                PPGSample(timestamp, {"LO_NIR": synthetic_ppg(72.0)}, source="test")
+                if with_optics
+                else None
+            ),
             source="test",
         )
     ]
-    for sample_index in range(30):
+    for sample_index in range(30 if with_optics else 0):
         frames.append(
             MuseFrame(
                 timestamp=timestamp + sample_index,
@@ -146,6 +153,60 @@ def write_synthetic_recording(recording_dir: Path) -> Path:
         build_tag_packet(proto.TAG_OPTICS_8CH, bytes(60)),
         base_time + dt.timedelta(seconds=40),
     )
+    stream.close()
+    return raw_path
+
+
+def pack_eeg_4ch(rows_uv):
+    """Pack 4 samples x 4 channels of microvolts into one 28-byte EEG subpacket."""
+    counts = np.clip(
+        np.round(np.asarray(rows_uv) / proto.EEG_SCALE_UV_PER_COUNT) + proto.EEG_MID_COUNT,
+        0,
+        proto.EEG_MAX_COUNT,
+    ).astype(int)
+    packed = 0
+    for index, count in enumerate(counts.ravel()):
+        packed |= int(count) << (proto.EEG_BITS * index)
+    return packed.to_bytes(28, "little")
+
+
+def still_accgyro_subpacket():
+    rows = [[0, 0, round(1.0 / proto.ACC_SCALE), 0, 0, 0]] * 3
+    return np.asarray(rows, dtype="<i2").tobytes()
+
+
+def eeg_only_epoch_uv(kind):
+    timestamps = np.arange(0, 30.0, 1 / EEG_RATE_HZ)
+    if kind == "rem":
+        background = sine_values(6.0, amplitude=12.0) + sine_values(10.0, amplitude=1.0)
+        eye = sine_values(1.0, amplitude=8.0)
+        return np.stack([background, background + eye, background - eye, background], axis=1)
+    slow = 40.0 * np.sin(2 * np.pi * 1.5 * timestamps) + 4.0 * np.sin(2 * np.pi * 6.0 * timestamps)
+    return np.stack([slow] * 4, axis=1)
+
+
+def write_eeg_only_recording(recording_dir: Path, epoch_kinds) -> Path:
+    """A p21-style recording: EEG and IMU notifications, no TAG_OPTICS_* packets."""
+    recording_dir.mkdir(parents=True, exist_ok=True)
+    raw_path = recording_dir / "raw_amused.bin"
+    channels_uv = np.concatenate([eeg_only_epoch_uv(kind) for kind in epoch_kinds])
+    stream = MuseRawStream(str(raw_path))
+    stream.open_write()
+    base_time = stream.session_start
+    eeg_counter = 0
+    for notification, start in enumerate(range(0, channels_uv.shape[0], 16)):
+        header = bytearray(14)
+        header[9] = proto.TAG_EEG_4CH
+        header[10] = eeg_counter % 256
+        payload = bytes(header) + pack_eeg_4ch(channels_uv[start:start + 4])
+        eeg_counter += 1
+        for offset in (4, 8, 12):
+            payload += bytes([proto.TAG_EEG_4CH, eeg_counter % 256, 0, 0, 0])
+            payload += pack_eeg_4ch(channels_uv[start + offset:start + offset + 4])
+            eeg_counter += 1
+        payload += bytes([proto.TAG_ACCGYRO, notification % 256, 0, 0, 0])
+        payload += still_accgyro_subpacket()
+        stream.write_packet(payload, base_time + dt.timedelta(seconds=start / EEG_RATE_HZ))
     stream.close()
     return raw_path
 
@@ -248,6 +309,101 @@ class TestPilot3ReplayPipeline(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(report.metrics["epoch_count"], 0)
         self.assertGreater(report.metrics["scheduler_event_count"], 0)
         self.assertFalse(report.audio_playback_executed)
+
+
+class TestPilot3EegOnlyPreset(unittest.TestCase):
+    """A p21 night has no optics by design; the guard must not pause it for that."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmpdir = tempfile.TemporaryDirectory()
+        cls.root = Path(cls._tmpdir.name)
+        write_eeg_only_recording(cls.root / "recording", ["nrem"] * 3 + ["rem"] * 5)
+        catalog, session, assignment, cue_library = protocol_fixture()
+        catalog.save(cls.root / "catalog.json")
+        session.save(cls.root / "session.json")
+        assignment.save(cls.root / "assignment.json")
+        cue_library.save(cls.root / "cues.json")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmpdir.cleanup()
+
+    def _simulate(self, preset):
+        output = self.root / f"report_{preset}.json"
+        with contextlib.redirect_stdout(io.StringIO()):
+            exit_code = cli_main([
+                "simulate-replay-cues", str(self.root / "recording"),
+                "--catalog", str(self.root / "catalog.json"),
+                "--session", str(self.root / "session.json"),
+                "--assignment", str(self.root / "assignment.json"),
+                "--cue-library", str(self.root / "cues.json"),
+                "--output", str(output),
+                "--preset", preset,
+            ])
+        self.assertEqual(exit_code, 0)
+        return json.loads(output.read_text(encoding="utf-8"))
+
+    def test_recording_has_no_optics_packets(self):
+        stream = MuseRawStream(str(self.root / "recording" / "raw_amused.bin"))
+        stream.open_read()
+        try:
+            tags = set()
+            for packet in stream.read_packets():
+                tags.update(proto.inspect_payload(packet.data)["tags"])
+        finally:
+            stream.close()
+        self.assertEqual(tags, {proto.TAG_EEG_4CH, proto.TAG_ACCGYRO})
+
+    def test_p21_replay_plays_cues_without_repeated_artifact_pauses(self):
+        report = self._simulate("p21")
+        guard = [epoch["arousal_guard_decision"] for epoch in report["epochs"]]
+
+        repeated_artifact_pauses = [
+            decision for decision in guard
+            if decision["action"] == "pause"
+            and "repeated_artifact_quality" in decision["reason_codes"]
+        ]
+        self.assertEqual(repeated_artifact_pauses, [])
+        self.assertTrue(all(decision["action"] == "allow" for decision in guard))
+        self.assertTrue(all(decision["metadata"]["ppg_absent_by_design"] for decision in guard))
+        self.assertGreaterEqual(report["metrics"]["cue_plan_count"], 1)
+        self.assertEqual(report["metrics"]["uncued_puzzle_play_count"], 0)
+        self.assertTrue(report["passed"])
+
+    def test_optics_preset_still_pauses_when_optics_are_missing(self):
+        report = self._simulate("p1034")
+        actions = [epoch["arousal_guard_decision"]["action"] for epoch in report["epochs"]]
+
+        self.assertEqual(actions, ["lower_volume"] * 2 + ["pause"] * 6)
+        for epoch in report["epochs"][2:]:
+            self.assertIn(
+                "repeated_artifact_quality", epoch["arousal_guard_decision"]["reason_codes"]
+            )
+        self.assertEqual(report["metrics"]["uncued_puzzle_play_count"], 0)
+
+    def test_guard_default_follows_gate_optics_capable(self):
+        catalog, session, assignment, cue_library = protocol_fixture()
+        report = simulate_cue_plan_from_epochs(
+            [build_rem_epoch(index, with_optics=False) for index in range(4)],
+            catalog=catalog,
+            session=session,
+            assignment=assignment,
+            cue_library=cue_library,
+            gate_config=RemGateConfig(
+                enter_threshold=0.60,
+                exit_threshold=0.45,
+                min_stable_seconds=60.0,
+                epoch_seconds=30.0,
+                cooldown_seconds=0.0,
+                optics_capable=False,
+            ),
+            scheduler_config=TmrSchedulerConfig(enable_tlr_block=False),
+        )
+
+        decisions = [result.arousal_guard_decision for result in report.epoch_results]
+        self.assertEqual([decision.action for decision in decisions], ["allow"] * 4)
+        self.assertTrue(all(decision.metadata["ppg_absent_by_design"] for decision in decisions))
 
 
 if __name__ == "__main__":

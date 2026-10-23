@@ -2,6 +2,7 @@ import asyncio
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -243,6 +244,32 @@ class TestPilot4Cueing(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(summary.stop_reason, "no_data_timeout")
 
+    async def test_guard_follows_gate_on_eeg_only_preset(self):
+        catalog, session, assignment, cue_library = protocol_fixture()
+        frames = [build_rem_frames(index, with_optics=False)[0] for index in range(4)]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = pilot4_config(Path(tmpdir))
+            config = replace(config, gate_config=replace(config.gate_config, optics_capable=False))
+            summary = await run_pilot4_cueing_night(
+                FakeMuseSource(frames),
+                config=config,
+                catalog=catalog,
+                session=session,
+                assignment=assignment,
+                cue_library=cue_library,
+                calibration=VolumeCalibration("Sleep Headphones", 0.01, 0.02, 0.04),
+                backend=MockAudioBackend(),
+            )
+            guard_events = [
+                json.loads(line)
+                for line in Path(summary.arousal_guard_events_path).read_text(encoding="utf-8").splitlines()
+            ]
+
+        self.assertEqual([event["action"] for event in guard_events], ["allow"] * 4)
+        self.assertTrue(all(event["metadata"]["ppg_absent_by_design"] for event in guard_events))
+        self.assertGreaterEqual(summary.cue_play_count, 1)
+        self.assertEqual(summary.uncued_puzzle_play_count, 0)
+
 
 def pilot4_config(
     output_dir: Path,
@@ -338,7 +365,7 @@ def rem_frames(count):
     return frames
 
 
-def build_rem_frames(index):
+def build_rem_frames(index, *, with_optics=True):
     timestamp = 1000.0 + index * 30.0
     frames = [
         MuseFrame(
@@ -350,7 +377,11 @@ def build_rem_frames(index):
                 gyroscope_dps=still_gyro_rows(),
                 source="test",
             ),
-            ppg=PPGSample(timestamp, {"LO_NIR": synthetic_ppg(72.0)}, source="test"),
+            ppg=(
+                PPGSample(timestamp, {"LO_NIR": synthetic_ppg(72.0)}, source="test")
+                if with_optics
+                else None
+            ),
             source="test",
             raw_packet=b"pilot4",
         )

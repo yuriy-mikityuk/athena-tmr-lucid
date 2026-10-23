@@ -21,6 +21,19 @@ PAUSE_IMU_REASON_CODES = (
     "motion_not_still",
 )
 
+# PPG flags that only say the optics signal is absent. On a preset that has no
+# optics by design (see ArousalGuardConfig.optics_capable) they say nothing about
+# the sleeper. low_ppg_coverage means "present but sparse", so an EEG-only epoch
+# never carries it; it is listed in case optics data turns up anyway.
+PPG_ABSENCE_FLAGS = (
+    "ppg_missing",
+    "missing_ppg",
+    "heart_rate_missing",
+    "missing_heart_rate",
+    "low_heart_rate_coverage",
+    "low_ppg_coverage",
+)
+
 
 @dataclass(frozen=True)
 class ArousalGuardConfig:
@@ -37,6 +50,11 @@ class ArousalGuardConfig:
     alpha_pause_relative_power: float = 0.40
     sudden_hr_change_pause_count: int = 1
     sudden_hr_change_pause_bpm: float = 10.0
+    # Whether the session preset streams optics/PPG at all, as in RemGateConfig.
+    # When False (an EEG-only preset such as p21) the PPG-absence flags are not
+    # artifacts, the HR rules are skipped and decisions carry
+    # metadata["ppg_absent_by_design"]. Defaults True for optics presets.
+    optics_capable: bool = True
 
     def validate(self) -> None:
         if not 0.0 < self.lower_volume_multiplier <= 1.0:
@@ -265,7 +283,16 @@ class ArousalGuard:
                     metadata=metadata,
                 )
             )
-        return self._record(ArousalGuardDecision(action="allow", timestamp_seconds=timestamp_seconds))
+        allow_metadata = (
+            {"ppg_absent_by_design": True} if metadata.get("ppg_absent_by_design") else {}
+        )
+        return self._record(
+            ArousalGuardDecision(
+                action="allow",
+                timestamp_seconds=timestamp_seconds,
+                metadata=allow_metadata,
+            )
+        )
 
     def _collect_imu_reasons(
         self,
@@ -349,6 +376,8 @@ class ArousalGuard:
         artifact_reasons: list,
         metadata: Dict[str, object],
     ) -> None:
+        if not self.config.optics_capable:
+            metadata["ppg_absent_by_design"] = True
         if ppg is None:
             return
         metadata["sudden_hr_change_count"] = ppg.sudden_hr_change_count
@@ -356,20 +385,26 @@ class ArousalGuard:
         metadata["ppg_coverage"] = ppg.ppg_coverage
         metadata["heart_rate_coverage"] = ppg.heart_rate_coverage
 
-        if (
-            ppg.sudden_hr_change_count >= self.config.sudden_hr_change_pause_count
-            or (
-                math.isfinite(ppg.max_sudden_hr_change_bpm)
-                and ppg.max_sudden_hr_change_bpm >= self.config.sudden_hr_change_pause_bpm
+        artifact_flags = ppg.artifact_flags
+        if not self.config.optics_capable:
+            artifact_flags = tuple(
+                flag for flag in artifact_flags if flag not in PPG_ABSENCE_FLAGS
             )
-        ):
-            pause_reasons.append("sudden_heart_rate_change")
-        if "heart_rate_out_of_range" in ppg.artifact_flags:
-            pause_reasons.append("heart_rate_out_of_range")
-        if ppg.artifact_flags:
+        else:
+            if (
+                ppg.sudden_hr_change_count >= self.config.sudden_hr_change_pause_count
+                or (
+                    math.isfinite(ppg.max_sudden_hr_change_bpm)
+                    and ppg.max_sudden_hr_change_bpm >= self.config.sudden_hr_change_pause_bpm
+                )
+            ):
+                pause_reasons.append("sudden_heart_rate_change")
+            if "heart_rate_out_of_range" in artifact_flags:
+                pause_reasons.append("heart_rate_out_of_range")
+        if artifact_flags:
             artifact_reasons.append("ppg_artifact_flags")
-            metadata["ppg_artifact_flags"] = list(ppg.artifact_flags)
-        if "low_ppg_coverage" in ppg.artifact_flags or "low_heart_rate_coverage" in ppg.artifact_flags:
+            metadata["ppg_artifact_flags"] = list(artifact_flags)
+        if "low_ppg_coverage" in artifact_flags or "low_heart_rate_coverage" in artifact_flags:
             lower_reasons.append("low_ppg_hr_coverage")
 
     def _record(self, decision: ArousalGuardDecision) -> ArousalGuardDecision:

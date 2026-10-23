@@ -75,7 +75,11 @@ The default duration rules require 2-8 hours unless `--allow-short` is present.
 `--preset` (default `p1034`) is the headband preset and also picks the REM gate
 thresholds: 0.80/0.70 on `p1034`, still provisional, and 0.90/0.85 on `p21`, where
 the gate does not count the missing PPG against REM confidence. `--enter-threshold`
-and `--exit-threshold` override the pair; see `docs/data_model.md`.
+and `--exit-threshold` override the pair; see `docs/data_model.md`. The same preset
+sets the arousal guard's `optics_capable`: on `p21` missing PPG neither lowers volume
+nor leads to a `repeated_artifact_quality` pause, the HR rules are skipped, and
+`arousal_guard_events.jsonl` records `ppg_absent_by_design` on each decision. Motion,
+alpha and EEG artifact rules still apply. Pilot 5 uses the same wiring.
 
 ## Emergency Stop
 
