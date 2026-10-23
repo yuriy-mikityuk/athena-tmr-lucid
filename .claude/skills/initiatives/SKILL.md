@@ -11,6 +11,8 @@ You are the main agent. You coordinate and verify; worker agents implement. Ever
 
 The ten initiatives are sub-issues of EPIC #1 whose titles start with `Initiative N:` (each draft's first line without `# `). Their evidence base is `docs/research/2026-10-uniqueness/report.md` (part 2 ranks them) and the notes next to it; the drafts they were filed from are in `docs/research/2026-10-uniqueness/issues/initiative_<n>.md`, and the issue body is the draft without its first line.
 
+Issue numbers as filed on 2026-10-23: Initiative 1 #225, 2 #226, 3 #227, 4 #228, 5 #229, 6 #230, 7 #231, 8 #232, 9 #233, 10 #234 (10a and 10b are both in #234). The EPIC body has the same table with the hard dependencies.
+
 Before the loop, count them: `gh issue list --state all --search "Initiative in:title" --json number,title --limit 50`. If fewer than ten exist, file each missing one from its draft, then attach it to the EPIC. Do not add labels.
 
 ```bash
