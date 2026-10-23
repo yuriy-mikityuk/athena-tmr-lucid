@@ -1,5 +1,0 @@
-# Default local configuration for Muse REM-TMR development.
-data_dir: data
-recordings_dir: data/recordings
-reports_dir: data/reports
-log_level: INFO

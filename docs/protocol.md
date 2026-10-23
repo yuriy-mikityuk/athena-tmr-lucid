@@ -15,7 +15,27 @@ Cue metadata lives in `muse_tmr.audio.cue_library` and should be validated befor
 session starts. Protocol layers should reference cue IDs from a validated catalog
 rather than hard-coded file paths.
 
-Protocol settings start in `configs/protocol_konkoly_like.yaml` and should be versioned with each session.
+The cue protocol is one-way and REM-timed: a cue is paired with a puzzle or a lucidity
+intention before sleep and replayed when the stable REM gate opens. Nothing checks for
+eye signals (no LRLR verification), so this is not the two-way communication protocol
+of Konkoly et al. 2021; the papers it draws on are listed in
+[`references.md`](references.md).
+
+Protocol settings are the dataclass defaults in code, versioned with the release
+(`muse_tmr.__version__`); no YAML file is loaded:
+
+- REM gate: `RemGateConfig` in `src/muse_tmr/models/rem_gate.py`, with the per-preset
+  enter/exit pair from `preset_gate_thresholds()` in `src/muse_tmr/presets.py`
+- arousal guard: `ArousalGuardConfig` in `src/muse_tmr/protocol/arousal_guard.py`
+- scheduler: `TmrSchedulerConfig` in `src/muse_tmr/protocol/tmr_scheduler.py`
+- TLR cue, training and block: `TlrCueConfig`, `TlrTrainingConfig` and `TlrBlockConfig`
+  in `src/muse_tmr/protocol/tlr_protocol.py`
+- audio caps and fades: `AudioPlaybackConfig` in `src/muse_tmr/audio/audio_player.py`
+- epochs: `EpochConfig` in `src/muse_tmr/features/epochs.py`
+- puzzle session size and cued split: `src/muse_tmr/protocol/puzzle_protocol.py` and
+  `src/muse_tmr/protocol/randomization.py`
+
+[`numbers.md`](numbers.md) lists each default with its source and status.
 
 ## Pre-Sleep Puzzle Sessions
 

@@ -1,8 +1,8 @@
 # REMind
 
-**REM-gated Targeted Memory Reactivation engine for the Muse S Athena EEG headset — overnight recording, real-time REM detection, and safety-gated audio cueing for a Konkoly-like TLR protocol. Python.**
+**REM-gated Targeted Memory Reactivation engine for the Muse S Athena EEG headset — overnight recording, real-time REM detection, and safety-gated audio cueing for a one-way, REM-timed cue protocol: a cue paired with a puzzle or lucidity intention before sleep, replayed when the stable REM gate opens; no eye-signal verification. Python.**
 
-Repository `remind-eeg`, Python package `muse_tmr`, command `muse-tmr`.
+Repository `remind-eeg`, Python package `muse_tmr`, command `muse-tmr`. The pip distribution in `pyproject.toml` is still `athena-tmr-lucid`; it will be renamed `remind-eeg`.
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -10,7 +10,18 @@ Repository `remind-eeg`, Python package `muse_tmr`, command `muse-tmr`.
 
 The system records sleep biosignals all night (EEG, IMU, PPG), detects REM in real time, and plays quiet audio cues only when a stack of safety gates agrees it is safe to do so. Around that core it implements a full single-subject experimental protocol: pre-sleep puzzle sessions with seeded cued/uncued randomization, TLR cue familiarization, REM-gated cueing at night, and morning dream reports with blind retests and cued-vs-uncued analysis.
 
-> **Status & scope:** not a medical device, n=1 research. Personal research software, self-experimentation only. No clinical, diagnostic, therapeutic, or lucid-dreaming claims. The engineering targets are protocol fidelity, safety guardrails, structured logging, and measurable validation.
+## Project status (2026-10-23)
+
+Not a medical device. This is n = 1 research software for self-experimentation, with no clinical, diagnostic, therapeutic or lucid-dreaming claims. The engineering targets are protocol fidelity, safety guardrails, structured logging and measurable validation. Where the evidence stands:
+
+- Every accuracy figure comes from one EEG-only night, `overnight_20260707` (`p21`, 8 h, no audio), scored against GSSC, an automated stager used as a proxy, not PSG ([#112](https://github.com/yuriy-mikityuk/remind-eeg/issues/112), [PR #115](https://github.com/yuriy-mikityuk/remind-eeg/pull/115)).
+- The `p21` gate thresholds 0.90/0.85 were tuned in-sample on that night and reported on the same night, so they are not a held-out result ([PR #115](https://github.com/yuriy-mikityuk/remind-eeg/pull/115), [`docs/numbers.md`](docs/numbers.md)).
+- No night with sleep-time audio has been run yet; Pilots 4 and 5 exist as tooling only ([EPIC #1](https://github.com/yuriy-mikityuk/remind-eeg/issues/1)).
+- The heuristic detector is effectively one feature: against GSSC only `low_delta_power` separates REM, and the eye-movement proxy is saturated ([#116](https://github.com/yuriy-mikityuk/remind-eeg/issues/116)).
+- With 30 s epochs and a 60 s stable window, the first cue comes at least 60 to 90 s after REM onset ([#167](https://github.com/yuriy-mikityuk/remind-eeg/issues/167)).
+- The pip distribution is still `athena-tmr-lucid`. It will be renamed `remind-eeg`, keeping the `muse-tmr` command and the `muse_tmr` import; the rename itself is [Initiative 8, #232](https://github.com/yuriy-mikityuk/remind-eeg/issues/232).
+
+How REMind relates to the other open projects: [`docs/compare.md`](docs/compare.md). Answers to what comes up in the issues: [`docs/faq.md`](docs/faq.md). The papers: [`docs/references.md`](docs/references.md).
 
 ![The Record tab of the app: the headband's contact on the left, the recording modes on the right](docs/images/app-record.png)
 
@@ -112,7 +123,7 @@ The engine lives under `src/muse_tmr/`; the top-level `muse_*.py` modules are th
 
 ## The experiment
 
-A Konkoly-style targeted-lucidity protocol combined with puzzle-based TMR, run end to end by the CLI:
+A one-way, REM-timed cue protocol combined with puzzle-based TMR. A cue is paired with a puzzle or a lucidity intention before sleep and replayed when the stable REM gate opens; nothing checks for eye signals, so it is not the two-way protocol of Konkoly et al. 2021. The papers behind it are in [`docs/references.md`](docs/references.md). The CLI runs it end to end:
 
 1. **Pre-sleep:** timed puzzle attempts against a private catalog, cue–solution association checks, TLR cue familiarization, and per-device volume calibration (detectable / identifiable / comfortable thresholds — the comfortable level becomes the hard scheduler cap).
 2. **Session generation:** a seeded night session of four eligible unsolved puzzles; a second seeded step assigns half to the **cued** group. The scheduler only ever sees the cued IDs, so uncued puzzles physically cannot be played.
@@ -124,7 +135,7 @@ A Konkoly-style targeted-lucidity protocol combined with puzzle-based TMR, run e
 
 The REM detector ships in two layers. A transparent **heuristic baseline** (`HeuristicRemDetector`) scores each epoch from EEG/IMU/PPG feature rows and returns `P_REM` with human-readable reason codes — no ML, fully inspectable. On top of it, `annotate-template` exports per-epoch CSVs overlaid with `P_REM` and features for manual labeling (`wake` / `nrem` / `probable_rem`), and `train-rem-classifier` fits a **class-balanced logistic regression** on those labels. The saved artifact is versioned JSON containing the coefficients, **calibration metrics, feature importance, and training metrics** — so every model used at night is auditable. By design, model probabilities never reach the audio path directly; only the stable gate plus arousal guard can authorize a cue.
 
-There is no PSG ground truth here, so `scripts/validate_rem_detection.py` replays a night through the detector and the gate and scores them against an automated stager (YASA or GSSC). The gate thresholds were raised after that check: the detector runs hot, and at the old 0.70/0.45 the gate stayed open about 75% of a night. They now depend on the recording preset (0.90/0.85 on the EEG-only `p21`, fitted on one night; 0.80/0.70 on optics presets, provisional).
+There is no PSG ground truth here, so `scripts/validate_rem_detection.py` replays a night through the detector and the gate and scores them against an automated stager (YASA or GSSC). The gate thresholds were raised after that check: the detector runs hot, and at the old 0.70/0.45 the gate stayed open about 75% of a night. They now depend on the recording preset: 0.90/0.85 on the EEG-only `p21`, 0.80/0.70 on optics presets, provisional. The `p21` pair was tuned in-sample on one EEG-only night (`overnight_20260707`, n=1) against GSSC, an automated proxy, and fitted and reported on the same night; kappa and epoch counts are only in [PR #115](https://github.com/yuriy-mikityuk/remind-eeg/pull/115) and [#116](https://github.com/yuriy-mikityuk/remind-eeg/issues/116). GSSC was trained mostly on C3, C4, F3, F4 (NSRR PSG); there is no published evaluation of it on forehead-only EEG. Every figure and its source: [`docs/numbers.md`](docs/numbers.md).
 
 ## Validation pilots
 
@@ -168,7 +179,7 @@ python -m pytest tests/
 
 ## Data source layer & attribution
 
-The BLE protocol layer is based on **[amused-py](https://github.com/nexon33/amused)** by Adrian Tadeusz Belmans — the first open-source BLE implementation for the Muse S Athena. This repository uses a forked-source strategy pinned to upstream commit `bce20f98ddc7fa2efe3219d1b5d2f7554a55eb97`; the sync and contribution policy is recorded in [`docs/dependency_strategy.md`](docs/dependency_strategy.md). The original upstream documentation — including the reverse-engineered BLE protocol details, presets, and packet formats — is preserved in [`docs/amused_upstream.md`](docs/amused_upstream.md).
+The BLE protocol layer is based on **[amused-py](https://github.com/Amused-EEG/amused-py)** by Adrian Tadeusz Belmans — the first open-source BLE implementation for the Muse S Athena. This repository uses a forked-source strategy pinned to upstream commit `bce20f98ddc7fa2efe3219d1b5d2f7554a55eb97`; the sync and contribution policy is recorded in [`docs/dependency_strategy.md`](docs/dependency_strategy.md). The original upstream documentation — including the reverse-engineered BLE protocol details, presets, and packet formats — is preserved in [`docs/amused_upstream.md`](docs/amused_upstream.md).
 
 Optional backends: OpenMuse (LSL) and BrainFlow adapters map into the same `MuseFrame` contract; an official-SDK source exists only as a policy-enforcing stub, and `scripts/check_forbidden_files.py` guards against committing any vendor binaries.
 

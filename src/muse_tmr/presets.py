@@ -25,9 +25,11 @@ NO_OPTICS_PRESETS = frozenset({"p21"})
 # the historical 0.70/0.45. Raising EXIT is the dominant lever: NREM p_rem rarely
 # drops below ~0.6, so a low exit never closes the gate.
 #
-#   - p21 (EEG-only): VALIDATED against a GSSC reference on one full night
-#     (overnight_20260707, n=1). 0.90/0.85 cuts gate-open from ~75% to ~36% of
-#     the night while holding REM recall ~0.80.
+#   - p21 (EEG-only): tuned in-sample on one EEG-only night (overnight_20260707,
+#     n=1) against GSSC, an automated proxy, not PSG; fitted and reported on the
+#     same night, so this is not held-out validation. 0.90/0.85 cut gate-open from
+#     ~75% to ~36% of that night while holding REM recall ~0.80. Kappa and epoch
+#     counts are only in PR #115 / #116 (see docs/numbers.md).
 #   - Optics presets: PROVISIONAL. The only p1034 recording is a 0-REM nap, so
 #     p1034 REM *recall* at these thresholds is UNVERIFIED (false-alarm collapse
 #     only). 0.80/0.70 is the recall-protective (lower-enter) choice on purpose;
@@ -54,7 +56,8 @@ def preset_gate_thresholds(preset: Optional[str]) -> Tuple[float, float]:
     """Default ``(enter, exit)`` REM-gate thresholds for ``preset``.
 
     Unknown/None or any optics preset returns the conservative, recall-protective
-    provisional point; only p21 (EEG-only) is validated against a reference.
+    provisional point; only p21 (EEG-only) has its own pair, tuned in-sample on
+    one night against GSSC, an automated proxy.
     """
     if not preset:
         return _DEFAULT_OPTICS_GATE_THRESHOLDS

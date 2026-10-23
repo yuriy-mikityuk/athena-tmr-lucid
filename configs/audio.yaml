@@ -1,6 +1,0 @@
-# Conservative defaults for sleep-time cue playback.
-max_volume: 0.2
-fade_in_seconds: 1.5
-fade_out_seconds: 1.5
-cooldown_seconds: 60
-emergency_stop_enabled: true

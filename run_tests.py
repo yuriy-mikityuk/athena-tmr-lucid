@@ -66,6 +66,7 @@ def run_fast_tests():
         'tests.test_night_cardio',
         'tests.test_calibration',
         'tests.test_line_check',
+        'tests.test_docs_wording',
     ]
     
     for module in fast_modules:

@@ -5,11 +5,11 @@ Reads the same .npz that _yasa_stage.py consumes (Muse EEG channel arrays in
 microvolts + sfreq) and writes the identical per-30s-epoch hypnogram JSON, so it
 is a drop-in reference for validate_rem_detection.py (--reference gssc).
 
-Why GSSC beside YASA: GSSC's pretrained network was trained on a channel set that
-INCLUDES frontal derivations (F3/F4) and it can stage from a single EEG channel
-with no EOG/EMG -- a far better fit for the Muse frontal montage than YASA's
-central-electrode model, which mis-stages this montage. It is still an automated
-proxy, not PSG ground truth: an independent second opinion, not truth.
+Why GSSC beside YASA: GSSC was trained mostly on C3, C4, F3, F4 (NSRR PSG) and
+stages from one EEG channel without EOG/EMG, while YASA's model expects central
+electrodes and mis-stages this montage. There is no published evaluation of GSSC
+on forehead-only EEG such as the Muse AF7/AF8. It is an automated proxy, not PSG
+ground truth: an independent second opinion, not truth.
 
 NB: GSSC's mne_infer returns argmax stages (no per-class probabilities), so
 proba_rem here is a hard 0/1 label from the winning stage, not a calibrated

@@ -1,0 +1,121 @@
+# Numbers and where they come from
+
+Every figure the README, `TEST_STATUS.md`, the pages in `docs/` (outside `docs/research/`) and the config dataclasses quote, with its source and how far it can be trusted. Dated 2026-10-23. A new quoted figure needs a row here (see the Documentation Rules in [`AGENTS.md`](../AGENTS.md)).
+
+A figure here is a number the repository reports as a measurement, a count, a default that behaviour depends on, or a result from someone else's work. Constants that only define a metric (an embedding dimension, a filter band) are described next to their code in [`meditation_metrics.md`](meditation_metrics.md) and [`polar_h10.md`](polar_h10.md) and not repeated here.
+
+Status words used below:
+
+- **code**: a default or constant in the named file. It says what the software does, not that the value is right.
+- **in-sample, n = 1**: measured on one of the maintainer's nights and tuned on that same night.
+- **GitHub only**: the figure is only in a pull request or issue. The maintainer decided not to commit the hypnograms or metrics behind it (personal sleep data, see `AGENTS.md`), so it cannot be re-derived from this repository.
+- **measured, n = 1, not committed**: from one of the maintainer's own recordings, which stay local.
+- **self-reported**: written into a file by hand and not re-measured since.
+- **count**: counted from the repository on 2026-10-23.
+- **literature** or **preprint**: from a cited paper; preprints are not peer reviewed.
+- **not re-run**: the recording is not available, so the figure could not be produced again.
+
+## REM detection and the gate
+
+| Figure | Quoted in | Source | Status |
+|---|---|---|---|
+| `p21` gate thresholds 0.90 (enter) / 0.85 (exit) | README, `presets.py`, `USAGE.md`, `data_model.md`, Pilot 3 and 4 runbooks, CHANGELOG | `_PRESET_GATE_THRESHOLDS` in `src/muse_tmr/presets.py`; fitted in [PR #115](https://github.com/yuriy-mikityuk/remind-eeg/pull/115) on `overnight_20260707` against GSSC | code; in-sample, n = 1 |
+| Optics-preset gate thresholds 0.80 / 0.70, also the bare `RemGateConfig` default | same pages | `_DEFAULT_OPTICS_GATE_THRESHOLDS` in `presets.py`; `RemGateConfig` in `src/muse_tmr/models/rem_gate.py` | code; provisional: the only `p1034` recording is a nap without REM ([#116](https://github.com/yuriy-mikityuk/remind-eeg/issues/116)) |
+| At the old 0.70 / 0.45 the gate was open about 75 % of a night (724 of 960 epochs) | README, `data_model.md`, Pilot 3 runbook | [#112](https://github.com/yuriy-mikityuk/remind-eeg/issues/112) comment of 2026-07-08; PR #115 | in-sample, n = 1; the epoch counts are GitHub only |
+| 0.90 / 0.85 cut gate-open time from about 75 % to about 36 % of the night, REM recall about 0.80 | `presets.py` | PR #115 | in-sample, n = 1; GitHub only |
+| Gate open 342 of 959 epochs (35.7 %), κ 0.30, precision 0.30, recall 0.80 | here only | PR #115 | in-sample, n = 1; GitHub only. The κ is binary (gate open against GSSC REM), not five-class, and cannot be compared with the vendor's five-class κ 0.76 |
+| ROC-AUC 0.758, mean `p_rem` 0.82; at enter 0.70 recall 0.97 and precision 0.15; best F1 0.41 at about 0.94 (κ 0.26) | here only | #112 comments of 2026-07-08 | in-sample, n = 1; GitHub only |
+| GSSC staged 13.6 % REM and 7.9 % N3 on that night; YASA 1.9 % REM and 0.5 % N3 | here only | #112 comment | n = 1; GitHub only |
+| Per-feature AUC against GSSC REM: `low_delta_power` 0.776, `stillness` 0.53, `eye_movement_proxy` 0.500 (saturated), `theta_alpha_ratio` 0.42 | README status ("effectively one feature") | [#116](https://github.com/yuriy-mikityuk/remind-eeg/issues/116) | in-sample, n = 1; GitHub only |
+| Metrics of the harness with `--eog none` against `--eog AF8` on `overnight_20260707` | none yet | would come from `scripts/validate_rem_detection.py` | not re-run: the recording is not on the maintainer's machine (#116 comment of 2026-10-09) |
+| `RemGateConfig`: 60 s stable time, 30 s epochs, 120 s cooldown, low-confidence cap 0.55, arousal cap 0.20 | README status, `data_model.md` | `src/muse_tmr/models/rem_gate.py` | code; not tuned against data |
+| First cue at least 60 to 90 s after REM onset | README status, `faq.md` | follows from the 30 s epochs and the 60 s stable time; raised in [#167](https://github.com/yuriy-mikityuk/remind-eeg/issues/167) | derived from code defaults, not measured on a night |
+| Heuristic weights `low_delta_power` 0.25, `theta_alpha_ratio` 0.15, `eye_movement_proxy` 0.25, `stillness` 0.20, `hr_variability` 0.10, `hr_trend` 0.05, and the thresholds of `HeuristicRemConfig` | (config dataclass) | `DEFAULT_REM_WEIGHTS` and `HeuristicRemConfig` in `src/muse_tmr/models/heuristic_rem_detector.py` | code; set by hand. #116 shows 0.40 of the weight on a saturated feature and an anti-signal |
+| Probability caps 0.55 (available weight below 0.40) and 0.35 (motion); minimum coverage 0.30 per modality | (config dataclass) | `HeuristicRemConfig` | code |
+| Eye-movement proxy 3.4 to 11.7 µV per sample (median 4.8) on the 23 min calibration run, about 40 % from the 64 Hz line in the first minutes; 0.09 to 0.35 (median 0.14) after a 5 Hz low-pass | `faq.md` | #116 comment | measured, n = 1, not committed; GitHub only |
+| Personal classifier: learning rate 0.05, 1,200 epochs, L2 0.01, threshold 0.5, at least 4 rows, 5 calibration bins, at most 8 leave-one-recording-out folds | (config dataclass) | `PersonalRemClassifierConfig` in `src/muse_tmr/models/ml_rem_detector.py` | code; no trained model is committed |
+| Epochs of 30 s with a 30 s stride, minimum coverage 0.5; expected rates EEG 256 Hz, IMU 52 Hz, PPG 64 Hz, HR 1 Hz | `data_model.md` | `EpochConfig` and `DEFAULT_SAMPLE_RATES` in `src/muse_tmr/features/epochs.py` | code |
+
+## Arousal guard, scheduler, TLR and audio
+
+| Figure | Quoted in | Source | Status |
+|---|---|---|---|
+| Arousal guard: volume ×0.50 on lower-volume, 120 s pause, stop after 3 consecutive pause epochs or 3 artifact epochs, 3 bad EEG channels count as critical, stillness at least 0.90 for a cue, alpha 0.25 lowers volume and 0.40 pauses, an HR jump of 10 bpm pauses | (config dataclass) | `ArousalGuardConfig` in `src/muse_tmr/protocol/arousal_guard.py` | code; nothing in the repository justifies these values ([report, part 1](research/2026-10-uniqueness/report.md)) |
+| Puzzle cues 30 s apart, 120 s cooldown, at most 4 puzzle cues per block | README (as limits) | `TmrSchedulerConfig` in `src/muse_tmr/protocol/tmr_scheduler.py` | code |
+| TLR tone 396 Hz, 1 s, volume hint 0.05; training 3 repetitions 2 s apart; REM block 3 repetitions 8 s apart, then a 10 s pause | `protocol.md` (by file) | `TlrCueConfig`, `TlrTrainingConfig`, `TlrBlockConfig` in `src/muse_tmr/protocol/tlr_protocol.py` | code; no rationale for 396 Hz is recorded |
+| Volume cap 0.20, default volume 0.05, fades 0.25 s; calibration hard cap 0.20 | README, `safety.md` | `AudioPlaybackConfig` in `src/muse_tmr/audio/audio_player.py`; `calibrated_max_volume()` in `src/muse_tmr/audio/volume_calibration.py` | code; volume is a software gain from 0 to 1, not dB SPL |
+| A night session of 4 puzzles, half of them cued | README, `protocol.md` | `src/muse_tmr/protocol/puzzle_protocol.py`; `split_cued_uncued()` in `src/muse_tmr/protocol/randomization.py` | code |
+| Nights with sleep-time audio run so far: 0 | README status | [EPIC #1](https://github.com/yuriy-mikityuk/remind-eeg/issues/1) ("No live BLE or sleep-time audio run was part of this update") | count from the issue tracker |
+
+## Recording, battery and the app
+
+| Figure | Quoted in | Source | Status |
+|---|---|---|---|
+| Overnight recordings 2 to 8 h (7,200 to 28,800 s) unless `--allow-short` | README, `USAGE.md`, Pilot 4 and 5 runbooks | `src/muse_tmr/data/recorder.py` | code |
+| Pilot 1 needs at least 6 h (21,600 s) | `pilot1_no_audio.md` | `DEFAULT_PILOT1_MIN_DURATION_SECONDS` in `src/muse_tmr/validation/pilot1.py` | code |
+| Replay from 0× to 20× speed | README architecture, CHANGELOG 0.1.0 | `ReplayConfig` in `src/muse_tmr/data/replay.py` | code accepts any speed of 0 or more; 20× is not a limit |
+| Battery: `p21` 10.01 %/h on a 1 h bench test (about 10 h) and 10.60 %/h over a full 8 h night; `p1034` 23.34 %/h (about 4.3 h); BrainFlow `p1041` 21.10 %/h and about 26 %/h | `faq.md` | [#108](https://github.com/yuriy-mikityuk/remind-eeg/issues/108) | measured, n = 1, not committed; GitHub only |
+| The first overnight attempt died at about 2 h 29 min (battery) | `faq.md` | #108 | GitHub only |
+| The first complete night: 835,926 frames, 2 reconnects with about 3 s of downtime | `faq.md` | #108 comment | measured, n = 1; GitHub only |
+| EEG at about 257.2 Hz (360,044 samples over 1,400 s of host time); 888 of 90,011 EEG subpackets lost (1.0 %) and 169 of 44,950 optics (0.4 %); 43 repeated packets in 23 min | `faq.md` | [#160](https://github.com/yuriy-mikityuk/remind-eeg/issues/160), the 23 min calibration run of 2026-10-09 | measured, n = 1, not committed; GitHub only |
+| EEG at about 254 samples/s on a 13 min `p1034` session | `meditation_metrics.md` | that session | measured, n = 1, not committed; not reconciled with the 257.2 Hz above, which came from another session and a counter-based count |
+| Repeated subpackets dropped against the last 16 of each TAG | `data_model.md` | `REPEAT_WINDOW` in `muse_athena_protocol.py` | code |
+| App: session on `p1034` up to 1 h, night on `p21` for 8 h; a start waits for 5 s of good contact on all four channels | README, `USAGE.md`, `contact_setup_local_app.md`, CHANGELOG | `src/muse_tmr/app/server.py`; `required_stability_seconds` in `src/muse_tmr/contact.py` | code |
+| App: recorder heartbeat stale after 10 s, stop grace 5 s (50 s with the H10), update check every 120 s, binds `127.0.0.1:8765` | `contact_setup_local_app.md`, `architecture.md` | `src/muse_tmr/app/server.py`, `src/muse_tmr/app/auto_update.py` | code |
+
+## Repository counts and tests
+
+| Figure | Quoted in | Source | Status |
+|---|---|---|---|
+| 41 CLI commands | README | `add_parser(` calls in `src/muse_tmr/cli/main.py` | count: 41. About a dozen are diagnostics or side tracks (meditation, calibration, Polar) |
+| Five staged pilots, each with a runbook and a validator | README, `validation.md` | `docs/pilot1_no_audio.md` to `docs/pilot5_full_night.md`, `src/muse_tmr/validation/` | count |
+| 724 tests passing, 5 skipped, 0 failing; 88 % line coverage; measured in CI on 2026-10-19 with Python 3.11 on Ubuntu | `TEST_STATUS.md` | written by hand at release 0.3.0 | self-reported. A local `python -m pytest tests/` on 2026-10-23, on the branch of #229 with its wording test, gave 731 passed and 5 skipped; coverage was not re-measured |
+| Coverage per module: `cli/main.py` 66 %, `data/watchdog.py` 78 %, `app/auto_update.py` 79 %, `reports/source_diagnostics.py` 80 %, `sources/polar_h10.py` 81 %, app server 87 %, well-covered modules 92 to 98 % | `TEST_STATUS.md` | written by hand at release 0.3.0 | self-reported, not re-measured |
+| Python 3.8 or newer (README badge, `requires-python >=3.8`) | README | `pyproject.toml` | claimed; CI runs Python 3.11 only (`.github/workflows/guardrails.yml`) |
+| Four CI jobs: policy, tests, package, page | `TEST_STATUS.md` (by name) | `.github/workflows/guardrails.yml` | count |
+| Guide pictures 1536 × 1024 WebP, about 220 KB each | `guide_pictures.md` | `src/muse_tmr/app/static/guide-why-*.webp` (236,590 and 206,978 bytes) | count |
+
+## Meditation, calibration run and Polar H10
+
+| Figure | Quoted in | Source | Status |
+|---|---|---|---|
+| p-values only from 8 sessions on; exact sign-flip test up to 16 sessions; bootstrap 95 % CI | README, `USAGE.md`, `meditation_metrics.md`, `contact_setup_local_app.md` | `MIN_SESSIONS_FOR_INFERENCE` and the aggregation in `src/muse_tmr/reports/meditation_analysis.py` | code |
+| EMG confound flag beyond 0.1 log10 units (about 26 %); the 55 to 95 Hz indicator only when at least 3 dB above the 110 to 125 Hz floor | `meditation_metrics.md` | `emg_confound_log10_threshold`, `emg_band_min_over_floor_db` in `meditation_analysis.py` | code |
+| Mago et al. 2025: 10 practitioners, 32-channel EEG, 10 s epochs | `meditation_metrics.md` | arXiv:2511.20990 | preprint |
+| TP9/TP10 EMG fell about 5 dB over the first 10 min; 1 dB of EMG goes with about 0.1 in the 1/f slope | `meditation_metrics.md` | the first calibration run | measured, n = 1, not committed |
+| 55 to 95 Hz about 23 dB above 110 to 125 Hz on a 13 min session; the 64 Hz line 23 to 45 dB above its neighbours, AF7 about 41 to 8 µV over 23 min, at 63.93 to 63.95 Hz in sample terms; its effect on SampEn, LZC and Hjorth mobility (−0.25, −0.05, −0.12 early, −0.04 and −0.01 later) | `meditation_metrics.md` | three of the maintainer's sessions | measured, n = 1, not committed |
+| Without the line 55 to 95 Hz about 13 dB above the floor at rest; clench +8 to 9 dB, slight forehead tension 1.6 dB, slight jaw tension 1.0 dB on the first run; second run jaw +0.8/+1.0, clench +6.3/+8.8, forehead +3.8/+3.0; exponent and LZC shifts per run | `meditation_metrics.md` | the two calibration runs | measured, n = 1, not committed |
+| Line check: 32 to 47 dB above the neighbours on both `p1034` pieces, 4 to 6 dB on both `p21` pieces | `meditation_metrics.md`, `calibration_run.md` | the line check of 2026-10-09 | measured, n = 1, not committed |
+| A notch rings about 0.7 s at each end of a 10 s epoch | `meditation_metrics.md` | the first calibration run | measured, n = 1 |
+| 40 min of synthetic 4-channel data with Lyapunov takes about 40 s on an M-series laptop | `meditation_metrics.md` | one timing run | measured once, synthetic input |
+| Breathing estimates on the first H10 session 8.6, 8.2 and 3.8/min, EDR 3.7 to 3.8/min; peak counting gave 9.8/min at a paced 6/min; cycles gave 6.0 and 12.0 on the first run, 6.2 and 11.8 on the second | `meditation_metrics.md` | the first H10 session and the two calibration runs | measured, n = 1, not committed |
+| Breathing trusted only with no slow chest shift above 150 mG in more than 10 % of the block and estimates within 2/min | `meditation_metrics.md` | `src/muse_tmr/features/cardio_resp_features.py` (`posture_change_mg`) | code |
+| Calibration run about 23 min (schedule in minutes 0 to 23), second run about 33 min, line check 2 min per piece, battery out about 10 s | `calibration_run.md`, `USAGE.md`, README | `src/muse_tmr/protocol/calibration.py` | code (schedule); the 33 min is one run |
+| RSA swing 13.5 bpm at 6/min and 1.2 bpm at 12/min; exhale peak 0.3 s and 0.1 s after the cue; trough-to-peak 0.76 and 0.64 of the cycle | `calibration_run.md` | the first calibration run | measured, n = 1, not committed |
+| H10 ECG 130 Hz (R-peak resolution about 7.7 ms); RR flagged outside 300 to 2,000 ms or more than 20 % off the median of 10 beats; HRV only for windows of at least 60 s; breathing band 0.05 to 0.7 Hz; LF 0.04 to 0.15 Hz, HF 0.15 to 0.4 Hz | `polar_h10.md` | `src/muse_tmr/sources/polar_h10.py`, `src/muse_tmr/features/cardio_resp_features.py` | code |
+| Time alignment within a few ms over 8 h with 50 ppm drift and random BLE delays | `polar_h10.md` | the Polar recording tests | synthetic input, not a recording |
+| RR notifications a median 2 s (up to about 3 s) after the last beat; off-skin ECG ±19.6 mV and RR 390 to 3,800 ms; battery pulled RR 260 to 5,900 ms; normal seconds peaked at 1,200 to 1,900 µV (p99.9 3,800 µV); a 25 s restart that a 30 s rule missed and a 22 % false drift | `polar_h10.md` | the maintainer's H10 sessions | measured, n = 1, not committed |
+| No-contact spans 15 s before to 10 s after; ECG swing threshold 4,000 µV with spans 5 s before to 15 s after, joined when less than 10 s apart; drift fits beyond 1,000 ppm rejected; segments split on jumps over 10 s or backward steps over 1 s | `polar_h10.md` | `src/muse_tmr/data/polar_session.py` | code |
+
+## Other people's figures
+
+| Figure | Quoted in | Source | Status |
+|---|---|---|---|
+| Muse-S against PSG: five-class κ 0.76, REM κ 0.85 | `compare.md`, `references.md` | [Lanthier et al. 2025](https://pmc.ncbi.nlm.nih.gov/articles/PMC12782022/) | literature; the vendor's closed algorithm on Muse-S, not Athena and not REMind |
+| GSSC trained on 3,314 NSRR nights, mostly C3, C4, F3, F4 | README, `references.md`, the REM check scripts | [Hanna & Flöel 2023](https://www.frontiersin.org/articles/10.3389/fninf.2023.1086634/full) and the GSSC README | literature |
+| GSSC REM F1 0.76 against YASA 0.35 on clinical PSG | `references.md` | [Hanif et al. 2025](https://doi.org/10.1111/jsr.70048) | literature |
+| Cues disrupted sleep in about a quarter of cued REM periods | `references.md` | [Picard-Deland et al., v2](https://www.biorxiv.org/content/10.1101/2024.06.21.600133) (23.7 %) | preprint |
+| 100 home nights of forehead EEG | `references.md` | [Parry & Briganti 2026](https://www.medrxiv.org/content/10.64898/2026.06.01.26354591v1.full) | preprint |
+| Portiloop detect-and-stimulate F1 0.71 on MODA | `compare.md` | Valenchon et al. 2022, PLoS ONE, via [`verify_cueing_tools_landscape.md`](research/2026-10-uniqueness/notes/verify_cueing_tools_landscape.md) row 3 | literature |
+| EazzZyLearn_pc 85.88 % staging accuracy | `compare.md` | a code comment in that repository about 46 lab recordings, not Muse | another project's unpublished figure |
+| Licences, push dates and release dates of other projects | `compare.md`, `dependency_strategy.md` | GitHub API through the notes, 2026-10-21 | point in time |
+| Packet formats, rates and presets of the upstream amused-py README | `amused_upstream.md` | the preserved upstream README | upstream's own text, not re-measured here; this fork's constants are in `muse_athena_protocol.py` |
+
+## History
+
+Wording that this page replaced, so the old phrases can still be found:
+
+- `presets.py` called the `p21` pair `VALIDATED against a GSSC reference on one full night`. It was tuned in-sample on one night against GSSC, an automated proxy, and reported on the same night.
+- The REM check scripts and `USAGE.md` called GSSC `frontal-trained`, `a far better fit for the Muse frontal montage` and said it `fits the Muse montage better`. Its training channels were mostly C3, C4, F3, F4, and nobody has published an evaluation on forehead-only EEG.
+- The README headline and its experiment section called the protocol `Konkoly-like` and `Konkoly-style`. It is a one-way, REM-timed cue protocol without eye-signal verification.
+- `docs/protocol.md` pointed at `configs/protocol_konkoly_like.yaml`. The four YAML files under `configs/` were never loaded and had drifted from the code (REM probability 0.7 against 0.80/0.70, a 30 s stable window against 60 s, 1.5 s fades against 0.25 s, a 60 s cooldown against 120 s); they were deleted in favour of the dataclass defaults.

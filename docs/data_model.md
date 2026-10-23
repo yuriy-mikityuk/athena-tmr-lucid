@@ -277,9 +277,11 @@ Each decision contains:
 `scripts/validate_rem_detection.py` take their pair from the recording preset instead
 (`muse_tmr.presets.preset_gate_thresholds`): `p21` uses `0.90`/`0.85`, any optics preset
 `0.80`/`0.70`. The heuristic detector runs hot, so the earlier `0.70`/`0.45` left the
-gate open about 75% of a night. The `p21` pair was fitted against a GSSC reference on
-one night (n=1); the optics pair is provisional until a night with REM on an optics
-preset is recorded (#116).
+gate open about 75% of a night. The `p21` pair was tuned in-sample on one EEG-only night
+(`overnight_20260707`, n=1) against GSSC, an automated proxy, not PSG; it was fitted and
+reported on the same night, so it is not held-out validation. Kappa and epoch counts are
+only in PR #115 / #116 (see [`numbers.md`](numbers.md)). The optics pair is provisional
+until a night with REM on an optics preset is recorded (#116).
 
 Motion/arousal reason codes close the gate and start cooldown. Low feature-support
 reason codes cap confidence so single high-probability spikes do not open the gate by
