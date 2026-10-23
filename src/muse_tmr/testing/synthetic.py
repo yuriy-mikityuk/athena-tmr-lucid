@@ -34,6 +34,7 @@ import muse_athena_protocol as proto
 from muse_raw_stream import MuseRawStream
 
 from muse_tmr import __version__
+from muse_tmr.data.recorder import RecordingSummary
 from muse_tmr.presets import preset_provides_optics
 from muse_tmr.testing import tag_encoder as enc
 
@@ -1176,8 +1177,6 @@ def _write_ground_truth(output_dir: Path, night: ScriptedNight, arousals, rem_ev
 
 
 def _write_recording_files(output_dir: Path, config: SyntheticNightConfig, duration, stop_reason, ble):
-    from muse_tmr.data.recorder import RecordingSummary
-
     metadata = {
         "started_at": _iso(0.0),
         "synthetic": True,
