@@ -54,7 +54,8 @@ cd /path/to/remind-eeg
 ```
 
 Use `--backend system` for `train-tlr-cue` only if you intentionally want audible
-pre-sleep TLR familiarization.
+pre-sleep TLR familiarization. Without `afplay` on PATH it then exits with code 2
+instead of training in silence.
 
 ## Dry-Run Smoke
 
@@ -107,7 +108,10 @@ OUTDIR="data/recordings/pilot5_full_night_$(date +%Y%m%d_%H%M%S)"
 ```
 
 The default duration rules require 2-8 hours unless `--allow-short` is present.
-`--preset` sets the headband preset and the REM gate thresholds, as in Pilot 4.
+`--preset` sets the headband preset and the REM gate thresholds, as in Pilot 4. Also as
+in Pilot 4, the command exits with code 2 before it connects or creates `$OUTDIR` when
+`afplay` is not on PATH, `--allow-dry-run` runs the night silently instead, and
+`pilot5_summary.json` names the requested and the resolved backend.
 
 ## Emergency Stop
 
@@ -196,22 +200,3 @@ The summary passes only when the Pilot 4 safety criteria pass and at least one T
 block cue was logged as a scheduler `play` event. A night with no puzzle cues can still
 be valid if REM gate or safety conditions did not allow puzzle cueing after the TLR
 block.
-
-## Audio backend preflight
-
-Real audio (`--backend system` or `--backend afplay`) requires an available
-`afplay` command. Otherwise playback commands exit with code 2 and explain the
-fix. Pilot 4/5 check this before connecting the source or creating recording files.
-For intentional testing without sound, add `--allow-dry-run`; explicit
-`--backend dry-run` and `--backend mock` also remain supported test modes.
-This applies to `play-test-cue`, `train-tlr-cue`, `run-pilot4-cueing` and
-`run-pilot5-full-night`.
-
-For example: `muse-tmr play-test-cue --backend system --allow-dry-run` permits
-silent fallback when `afplay` is missing. Metadata and reports preserve requested
-and actual backend names; see [data_model.md](data_model.md#audio-backend-preflight).
-
-Availability does not establish speaker routing or audibility. On the target Mac
-with an available audio device, run `muse-tmr play-test-cue --backend system`
-while awake and confirm sound through the intended output. This manual hardware
-check remains required; silent testing cannot validate audible cues.

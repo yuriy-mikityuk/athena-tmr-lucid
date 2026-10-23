@@ -72,6 +72,13 @@ OUTDIR="data/recordings/pilot4_low_volume_$(date +%Y%m%d_%H%M%S)"
 
 The default duration rules require 2-8 hours unless `--allow-short` is present.
 
+If `afplay` is not on PATH, the command exits with code 2 before it connects to the
+headband or creates `$OUTDIR`, instead of running the night without a sound. To run it
+silently on purpose, add `--allow-dry-run`. `metadata.json` then records
+`requested_backend_name` `system` and `resolved_backend_name` `dry-run`, and
+`pilot4_summary.json` has the same pair as `requested_audio_backend_name` and
+`resolved_audio_backend_name`.
+
 `--preset` (default `p1034`) is the headband preset and also picks the REM gate
 thresholds: 0.80/0.70 on `p1034`, still provisional, and 0.90/0.85 on `p21`, where
 the gate does not count the missing PPG against REM confidence. `--enter-threshold`
@@ -128,21 +135,6 @@ The summary passes only when:
 An empty cue night can still pass if stable REM or safety conditions were not met.
 That means the system refused to cue rather than forcing audio.
 
-## Audio backend preflight
-
-Real audio (`--backend system` or `--backend afplay`) requires an available
-`afplay` command. Otherwise playback commands exit with code 2 and explain the
-fix. Pilot 4/5 check this before connecting the source or creating recording files.
-For intentional testing without sound, add `--allow-dry-run`; explicit
-`--backend dry-run` and `--backend mock` also remain supported test modes.
-This applies to `play-test-cue`, `train-tlr-cue`, `run-pilot4-cueing` and
-`run-pilot5-full-night`.
-
-For example: `muse-tmr play-test-cue --backend system --allow-dry-run` permits
-silent fallback when `afplay` is missing. Metadata and reports preserve requested
-and actual backend names; see [data_model.md](data_model.md#audio-backend-preflight).
-
-Availability does not establish speaker routing or audibility. On the target Mac
-with an available audio device, run `muse-tmr play-test-cue --backend system`
-while awake and confirm sound through the intended output. This manual hardware
-check remains required; silent testing cannot validate audible cues.
+None of these criteria shows that a cue was heard. `resolved_audio_backend_name` in the
+summary says what played the cues: `afplay` for sound, `dry-run` for a night run with
+`--allow-dry-run`.
