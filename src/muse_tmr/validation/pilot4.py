@@ -82,7 +82,8 @@ class Pilot4CueingConfig:
     scheduler_config: TmrSchedulerConfig = field(
         default_factory=lambda: TmrSchedulerConfig(enable_tlr_block=False)
     )
-    arousal_guard_config: ArousalGuardConfig = field(default_factory=ArousalGuardConfig)
+    # None builds the guard default with gate_config.optics_capable.
+    arousal_guard_config: Optional[ArousalGuardConfig] = None
     pilot_id: str = "m8_pilot4_low_volume_rem_gated_cueing"
     summary_filename: str = "pilot4_summary.json"
     require_tlr_block: bool = False
@@ -315,7 +316,8 @@ async def run_pilot4_cueing_night(
     detector = HeuristicRemDetector()
     gate = StableRemGate(config.gate_config)
     arousal_guard = ArousalGuard(
-        config.arousal_guard_config,
+        config.arousal_guard_config
+        or ArousalGuardConfig(optics_capable=config.gate_config.optics_capable),
         event_log_path=arousal_guard_events_path,
     )
     scheduler = TmrCueScheduler(

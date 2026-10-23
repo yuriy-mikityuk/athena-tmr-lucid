@@ -209,7 +209,10 @@ def simulate_cue_plan_from_epochs(
 
     detector = detector or HeuristicRemDetector()
     gate = StableRemGate(gate_config or RemGateConfig())
-    arousal_guard = ArousalGuard(arousal_guard_config or ArousalGuardConfig())
+    arousal_guard = ArousalGuard(
+        arousal_guard_config
+        or ArousalGuardConfig(optics_capable=gate.config.optics_capable)
+    )
     scheduler = TmrCueScheduler(
         assignment=assignment,
         catalog=catalog,
