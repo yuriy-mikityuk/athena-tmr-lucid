@@ -12,6 +12,10 @@ Versions follow `muse_tmr.__version__`; the app shows the running version and bu
 ### Development and docs
 
 - `docs/guide_pictures.md` holds the prompts behind the guide's pictures and the rules for regenerating them.
+- The four `configs/*.yaml` files are gone. No module loaded them, and their values had drifted from the code (REM probability 0.7 against the gate's 0.80/0.70, a 30 s stable window against 60 s, 1.5 s fades against 0.25 s, a 60 s cooldown against 120 s). `docs/protocol.md` now points at the dataclass defaults in code (#229).
+- The `p21` gate thresholds are described as tuned in-sample on one EEG-only night against GSSC, an automated proxy, in `presets.py`, the README, `docs/USAGE.md` and `docs/data_model.md`; GSSC is described by its training channels (C3, C4, F3, F4) instead of as a frontal model; the protocol is described by what it does instead of by a paper's name (#229).
+- The README opens with a dated project status. New pages: `docs/references.md` (the papers), `docs/compare.md` (the open projects inspected on 2026-10-21), `docs/numbers.md` (every quoted figure with its source and status) and `docs/faq.md` (#229).
+- `LICENSE` names the current author above the upstream one, amused-py has one upstream URL (`Amused-EEG/amused-py`) everywhere, and `docs/dependency_strategy.md` makes decoder fixes upstream-first (#229).
 
 ## 0.3.0 (2026-10-19)
 
