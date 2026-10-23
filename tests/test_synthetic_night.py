@@ -56,10 +56,11 @@ def _decode_all(raw_path):
     stream.open_read()
     decoder = MuseRealtimeDecoder()
     try:
-        decoded = [decoder.decode(packet.data, packet.timestamp) for packet in stream.read_packets()]
+        for packet in stream.read_packets():
+            decoder.decode(packet.data, packet.timestamp)
     finally:
         stream.close()
-    return decoder, decoded
+    return decoder
 
 
 async def _replay(recording_dir):
@@ -203,7 +204,7 @@ class GeneratedRecordingTest(unittest.TestCase):
         config = replace(scenario_config("short_allow_short", seed=7), ble_gaps_per_hour=60.0)
         cls.night = generate_night(config, cls.root / "night")
         cls.generation = json.loads((cls.night.recording_dir / "generation.json").read_text(encoding="utf-8"))
-        cls.decoder, cls.decoded = _decode_all(cls.night.raw_path)
+        cls.decoder = _decode_all(cls.night.raw_path)
 
     @classmethod
     def tearDownClass(cls):
