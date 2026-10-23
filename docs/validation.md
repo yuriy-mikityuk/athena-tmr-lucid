@@ -46,6 +46,7 @@ with assumptions.
 | EEG artifact burden | Epochs flagged for clipping, flatline, missing channels, or high artifact proxy | EEG feature rows | High burden limits REM confidence and should be called out. |
 | IMU stillness and arousal events | Stillness score distribution, movement event count, cue-window motion count | IMU feature rows | Used by arousal guard and to explain blocked cues. |
 | PPG/HR availability | PPG-derived HR rows, `HeartRateSample` rows, missing-modality flags | PPG feature rows | HRV metrics are proxies until beat-level validation exists. |
+| REM-event density | `rem_event_count` and `rem_density_per_min` per epoch, epochs in warm-up, epochs where they are NaN | EEG feature rows, `feature_value_rem_event_*` annotation columns | A supporting term at weight 0 until fitted on REM-bearing nights; against a reference stager it gives an AUC against an automated proxy, not REM accuracy. |
 | REM gate stability | Open/closed counts, consecutive-open streaks, reason codes, and transition times | `StableRemGate` decisions | Stable REM eligibility is separate from raw classifier probability. |
 | Scheduler behavior | Counts of `play`, `skip`, `pause`, `stop`; cooldown and interval reason codes | Scheduler JSONL | Audits whether cue timing rules were enforced. |
 | Arousal guard burden | Counts by guard action and reason code: motion, alpha, HR jump, artifact quality | Guard decisions, scheduler metadata | Explains cue suppression or volume lowering. |
