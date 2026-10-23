@@ -266,7 +266,7 @@ for prediction in rem_predictions:
 
 The gate requires stable REM confidence over time, uses hysteresis for closing, blocks motion/arousal reasons, and applies cooldown after arousal blocks. It still does not play audio; cue code must consume `gate_open` plus reason codes.
 
-`RemGateConfig()` opens at `P_REM` 0.80 and closes below 0.70. The pilot commands take the pair from `--preset` (`muse_tmr.presets.preset_gate_thresholds`): 0.90/0.85 on `p21`, 0.80/0.70 on an optics preset; `--enter-threshold` and `--exit-threshold` override it. On `p21` the gate also stops treating missing PPG as low confidence. Why these values and how far they have been checked: `docs/data_model.md`.
+`RemGateConfig()` opens at `P_REM` 0.80 and closes below 0.70. The pilot commands take the pair from `--preset` (`muse_tmr.presets.preset_gate_thresholds`): 0.90/0.85 on `p21`, 0.80/0.70 on an optics preset; `--enter-threshold` and `--exit-threshold` override it. On `p21` the gate also stops treating missing PPG as low confidence, and the arousal guard stops treating it as an artifact and skips its HR rules (`docs/safety.md`). Why these values and how far they have been checked: `docs/data_model.md`.
 
 ## Checking the REM detector against a reference stager
 
@@ -535,7 +535,7 @@ muse-tmr simulate-replay-cues data/recordings/<pilot-session> \
   --scheduler-events-output data/reports/pilot3_scheduler_events.jsonl
 ```
 
-See `docs/pilot3_replay_cue_simulation.md` for the replay-only runbook. The simulator runs epochs, REM detection, the stable gate, arousal guard, and scheduler on a recording with mocked audio. It writes an inspectable cue plan and fails if any uncued puzzle receives a scheduler `play` event. No real audio is played. Pass the preset the night was recorded with (`source.metadata.preset` in its `metadata.json`); without it the gate assumes an optics preset.
+See `docs/pilot3_replay_cue_simulation.md` for the replay-only runbook. The simulator runs epochs, REM detection, the stable gate, arousal guard, and scheduler on a recording with mocked audio. It writes an inspectable cue plan and fails if any uncued puzzle receives a scheduler `play` event. No real audio is played. Pass the preset the night was recorded with (`source.metadata.preset` in its `metadata.json`); without it the gate and the arousal guard assume an optics preset.
 
 ### Pilot 4: low-volume REM-gated cueing
 

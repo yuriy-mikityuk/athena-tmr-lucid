@@ -424,7 +424,18 @@ appended to JSONL with `append_tmr_scheduler_events()` and read with
 - `reason_codes`: motion, alpha, HR-jump, or artifact-quality explanations
 - `volume_multiplier`: multiplier for lower-volume cue events
 - `pause_seconds`: requested pause duration for pause decisions
-- `metadata`: feature values, artifact flags, and consecutive guard counters
+- `metadata`: feature values, artifact flags, and consecutive guard counters;
+  `ppg_absent_by_design: true` when the guard runs with `optics_capable=False`
+
+`ArousalGuardConfig.optics_capable` (default `true`) says whether the session preset
+streams optics at all. The CLI sets it from `preset_provides_optics(preset)`, the same
+call that sets `RemGateConfig.optics_capable`, and the Pilot 3 and Pilot 4 runners copy
+the gate's value when no guard config is passed. When it is `false` the PPG-absence
+flags `ppg_missing`, `missing_ppg`, `heart_rate_missing`, `missing_heart_rate`,
+`low_heart_rate_coverage` and `low_ppg_coverage` are dropped before the PPG checks,
+`sudden_heart_rate_change` and `heart_rate_out_of_range` are not raised, and every
+decision, `allow` included, carries `metadata.ppg_absent_by_design`. On optics presets
+`allow` decisions keep an empty `metadata` as before.
 
 Decisions can be appended to JSONL with `append_arousal_guard_decisions()` and read
 with `load_arousal_guard_decisions()`. The scheduler can consume a decision directly;

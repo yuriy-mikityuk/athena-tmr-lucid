@@ -9,6 +9,10 @@ Versions follow `muse_tmr.__version__`; the app shows the running version and bu
 - The app, its reports and the macOS launcher are called REMind instead of Athena TMR. The launcher installer now puts `REMind.app` on the Desktop; an existing `Athena TMR.app` keeps working and can be deleted.
 - The meditation guide says up front what the session is for, explains the mirrored block order without letters (a bracket under the two middle blocks, a drift drawing, why these two practices) and folds a one-picture version under its intro, in both languages. The meditation and series texts on the main page drop the ABBA/BAAB shorthand too.
 
+### REM detection and cueing
+
+- The arousal guard knows when a preset has no optics. `ArousalGuardConfig.optics_capable` is set from `--preset` like the REM gate's, in `simulate-replay-cues`, `run-pilot4-cueing` and `run-pilot5-full-night`. On `p21` missing PPG no longer lowers volume or adds up to a `repeated_artifact_quality` pause, the HR rules are skipped, and each decision logs `ppg_absent_by_design`. Before this, every `p21` night was paused from the third epoch on and no cue could play. Optics presets behave as before (#234).
+
 ### Development and docs
 
 - `docs/guide_pictures.md` holds the prompts behind the guide's pictures and the rules for regenerating them.
