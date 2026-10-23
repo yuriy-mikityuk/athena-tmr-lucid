@@ -29,7 +29,8 @@ NO_OPTICS_PRESETS = frozenset({"p21"})
 #     n=1) against GSSC, an automated proxy, not PSG; fitted and reported on the
 #     same night, so this is not held-out validation. 0.90/0.85 cut gate-open from
 #     ~75% to ~36% of that night while holding REM recall ~0.80. Kappa and epoch
-#     counts are only in PR #115 / #116 (see docs/numbers.md).
+#     counts are only in PR #115 / #116 (see docs/numbers.md). p21 thresholds were
+#     fitted with the pre-reweighting weights; re-grid pending (#116).
 #   - Optics presets: PROVISIONAL. The only p1034 recording is a 0-REM nap, so
 #     p1034 REM *recall* at these thresholds is UNVERIFIED (false-alarm collapse
 #     only). 0.80/0.70 is the recall-protective (lower-enter) choice on purpose;

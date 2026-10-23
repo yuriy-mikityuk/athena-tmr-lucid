@@ -13,13 +13,17 @@ from muse_tmr.features.ppg_features import PPGFeatureRow, extract_ppg_features
 from muse_tmr.models.rem_detector import RemPrediction
 
 
+# The eye-movement proxy is still scored and reported but carries no weight: on real
+# nights it is 1.0 in every epoch (AUC 0.500 against GSSC REM, #116). The other five
+# are the earlier 0.25/0.15/0.20/0.10/0.05 divided by 0.75, so they still sum to 1 and
+# limited_feature_weight_threshold keeps its meaning. Set by hand; refit pending (#225).
 DEFAULT_REM_WEIGHTS = {
-    "low_delta_power": 0.25,
-    "theta_alpha_ratio": 0.15,
-    "eye_movement_proxy": 0.25,
-    "stillness": 0.20,
-    "hr_variability": 0.10,
-    "hr_trend": 0.05,
+    "low_delta_power": 5 / 15,
+    "theta_alpha_ratio": 3 / 15,
+    "eye_movement_proxy": 0.0,
+    "stillness": 4 / 15,
+    "hr_variability": 2 / 15,
+    "hr_trend": 1 / 15,
 }
 
 
