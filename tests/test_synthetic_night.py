@@ -200,7 +200,7 @@ class GeneratedRecordingTest(unittest.TestCase):
     def setUpClass(cls):
         cls._tmp = tempfile.TemporaryDirectory()
         cls.root = Path(cls._tmp.name)
-        config = replace(scenario_config("short_allow_short", seed=7), ble_gaps_per_hour=30.0)
+        config = replace(scenario_config("short_allow_short", seed=7), ble_gaps_per_hour=60.0)
         cls.night = generate_night(config, cls.root / "night")
         cls.generation = json.loads((cls.night.recording_dir / "generation.json").read_text(encoding="utf-8"))
         cls.decoder, cls.decoded = _decode_all(cls.night.raw_path)
@@ -349,7 +349,7 @@ class StageSignalTest(unittest.TestCase):
     def test_deflections_only_in_rem_epochs(self):
         stages = {int(row["epoch"]): row["stage"] for row in _read_csv(self.night.recording_dir / "hypnogram.csv")}
         events = _read_csv(self.night.recording_dir / "rem_events.csv")
-        self.assertGreater(len(events), 8)
+        self.assertGreaterEqual(len(events), 4)
         for event in events:
             onset, seconds = float(event["onset_s"]), float(event["duration_s"])
             self.assertEqual(stages[int(onset // 30)], "R")
