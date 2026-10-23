@@ -348,9 +348,10 @@ class SyntheticNightConfig:
 
     BLE: notifications leave ``notifications_per_second`` times a second, each with the
     subpackets made since the one before in the order they were made, split at 244
-    bytes. Subpackets are lost at ``*_loss_fraction``, whole notifications come twice
-    ``repeats_per_hour`` times an hour (1 to 3 notifications later), and
-    ``ble_gaps_per_hour`` gaps of ``ble_gap_seconds`` lose everything in them.
+    bytes. Subpackets are lost at ``*_loss_fraction``. Whole notifications come twice, 1
+    to 3 notifications later, as often as makes ``eeg_repeats_per_hour`` EEG subpackets
+    arrive twice. ``ble_gaps_per_hour`` gaps of ``ble_gap_seconds`` lose everything in
+    them.
     """
 
     seed: int = 0
@@ -387,7 +388,7 @@ class SyntheticNightConfig:
     eeg_loss_fraction: float = 888 / 90011
     optics_loss_fraction: float = 169 / 44950
     imu_loss_fraction: float = 0.0
-    repeats_per_hour: float = 43 / (1400 / 3600)
+    eeg_repeats_per_hour: float = 43 / (1400 / 3600)
     ble_gaps_per_hour: float = 0.25
     ble_gap_seconds: Tuple[float, float] = (0.5, 1.5)
 
@@ -1032,7 +1033,9 @@ def _write_raw(raw_path: Path, streams: List[_Stream], duration: float, config) 
     for stream in streams:
         blobs.append(stream.records.tobytes())
         stream.records = stream.records[:0]
-    repeat_probability = config.repeats_per_hour / 3600.0 / config.notifications_per_second
+    # A copied notification repeats the EEG subpackets in it, so the chance per
+    # notification is the repeated share of all EEG subpackets.
+    repeat_probability = config.eeg_repeats_per_hour / 3600.0 / (EEG_RATE_HZ / 4)
     frames_with = [0] * len(streams)
     unique = copies = 0
     pending: List[_Copy] = []
