@@ -70,6 +70,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from muse_tmr import __version__ as MUSE_TMR_VERSION  # noqa: E402
 from muse_tmr.data.replay import ReplayConfig, ReplaySession  # noqa: E402
+from muse_tmr.features import new_rem_event_tracker  # noqa: E402
 from muse_tmr.features.epochs import EpochBuilder, EpochConfig  # noqa: E402
 from muse_tmr.models import HeuristicRemDetector  # noqa: E402
 from muse_tmr.models.rem_detector import RemPrediction  # noqa: E402
@@ -144,11 +145,13 @@ async def _collect(recording_dir: Path, epoch_seconds: float) -> Dict[str, objec
     session = ReplaySession(ReplayConfig(input_path=recording_dir, speed=0.0))
     await session.connect()
     detector = HeuristicRemDetector()
+    rem_tracker = new_rem_event_tracker()
     builder = EpochBuilder(EpochConfig(epoch_seconds=epoch_seconds, stride_seconds=epoch_seconds))
     predictions: List[Tuple[float, RemPrediction]] = []
     try:
         async for epoch in builder.build(teed(session.stream())):
-            predictions.append((epoch.start_time, detector.predict_epoch(epoch)))
+            prediction = detector.predict_epoch(epoch, rem_tracker=rem_tracker)
+            predictions.append((epoch.start_time, prediction))
     finally:
         await session.stop()
 

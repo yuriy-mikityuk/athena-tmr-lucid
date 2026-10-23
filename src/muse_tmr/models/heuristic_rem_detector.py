@@ -6,10 +6,15 @@ import math
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, Mapping, Optional, Tuple
 
-from muse_tmr.features.eeg_features import EEGFeatureRow, extract_eeg_features
+from muse_tmr.features.eeg_features import (
+    EEGFeatureRow,
+    extract_eeg_features,
+    new_rem_event_tracker,
+)
 from muse_tmr.features.epochs import SleepEpoch
 from muse_tmr.features.imu_features import IMUFeatureRow, extract_imu_features
 from muse_tmr.features.ppg_features import PPGFeatureRow, extract_ppg_features
+from muse_tmr.features.rem_event_features import RemEventTracker
 from muse_tmr.models.rem_detector import RemPrediction
 
 
@@ -17,10 +22,13 @@ from muse_tmr.models.rem_detector import RemPrediction
 # nights it is 1.0 in every epoch (AUC 0.500 against GSSC REM, #116). The other five
 # are the earlier 0.25/0.15/0.20/0.10/0.05 divided by 0.75, so they still sum to 1 and
 # limited_feature_weight_threshold keeps its meaning. Set by hand; refit pending (#225).
+# rem_event_density, its replacement, is scored and exported at weight 0 too until it
+# has been fitted on real nights; never fit it on synthetic data.
 DEFAULT_REM_WEIGHTS = {
     "low_delta_power": 5 / 15,
     "theta_alpha_ratio": 3 / 15,
     "eye_movement_proxy": 0.0,
+    "rem_event_density": 0.0,
     "stillness": 4 / 15,
     "hr_variability": 2 / 15,
     "hr_trend": 1 / 15,
@@ -39,6 +47,9 @@ class HeuristicRemConfig:
     theta_alpha_ratio_strong: float = 1.40
     eye_movement_proxy_min: float = 0.05
     eye_movement_proxy_strong: float = 0.20
+    # UNFITTED: REM events per minute, starting values until real nights exist (#225).
+    rem_event_density_min: float = 1.0
+    rem_event_density_strong: float = 6.0
     stillness_min: float = 0.85
     stillness_strong: float = 0.97
     hrv_rmssd_ms_min: float = 15.0
@@ -62,6 +73,8 @@ class HeuristicRemConfig:
             raise ValueError("theta/alpha thresholds must be ordered")
         if self.eye_movement_proxy_min < 0 or self.eye_movement_proxy_strong <= self.eye_movement_proxy_min:
             raise ValueError("eye-movement thresholds must be ordered")
+        if self.rem_event_density_min < 0 or self.rem_event_density_strong <= self.rem_event_density_min:
+            raise ValueError("REM-event density thresholds must be ordered")
         if not 0 <= self.stillness_min < self.stillness_strong <= 1:
             raise ValueError("stillness thresholds must be ordered inside 0..1")
         if self.hrv_rmssd_ms_min < 0 or self.hrv_rmssd_ms_strong <= self.hrv_rmssd_ms_min:
@@ -94,15 +107,24 @@ class HeuristicRemDetector:
         self.config = config or HeuristicRemConfig()
         self.config.validate()
 
-    def predict_epoch(self, epoch: SleepEpoch) -> RemPrediction:
+    def predict_epoch(
+        self,
+        epoch: SleepEpoch,
+        *,
+        rem_tracker: Optional[RemEventTracker] = None,
+    ) -> RemPrediction:
+        """Predict one epoch; pass the session's REM-event tracker when epochs follow
+        one another (see ``extract_eeg_features``)."""
         return self.predict_features(
-            eeg=extract_eeg_features(epoch),
+            eeg=extract_eeg_features(epoch, rem_tracker=rem_tracker),
             imu=extract_imu_features(epoch),
             ppg=extract_ppg_features(epoch),
         )
 
     def predict_epochs(self, epochs: Iterable[SleepEpoch]) -> Tuple[RemPrediction, ...]:
-        return tuple(self.predict_epoch(epoch) for epoch in epochs)
+        """Predict consecutive epochs of one session with one REM-event tracker."""
+        rem_tracker = new_rem_event_tracker()
+        return tuple(self.predict_epoch(epoch, rem_tracker=rem_tracker) for epoch in epochs)
 
     def predict_features(
         self,
@@ -194,6 +216,22 @@ class HeuristicRemDetector:
                 "eeg_eye_movement_support"
                 if scores["eye_movement_proxy"] >= 0.5
                 else "eeg_eye_movement_low"
+            )
+
+        rem_density = eeg.rem_density_per_min
+        values["rem_event_density"] = rem_density
+        values["rem_event_count"] = eeg.rem_event_count
+        values["rem_event_threshold_uv"] = eeg.rem_event_threshold_uv
+        if math.isfinite(rem_density):
+            scores["rem_event_density"] = _high_score(
+                rem_density,
+                self.config.rem_event_density_min,
+                self.config.rem_event_density_strong,
+            )
+            reasons.append(
+                "eeg_rem_events_support"
+                if scores["rem_event_density"] >= 0.5
+                else "eeg_rem_events_low"
             )
 
         if eeg.artifact_flags:

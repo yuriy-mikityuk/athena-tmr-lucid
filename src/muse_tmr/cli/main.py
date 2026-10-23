@@ -1724,6 +1724,7 @@ def _decode_polar(args: argparse.Namespace) -> int:
 async def _annotate_template(args: argparse.Namespace) -> int:
     from muse_tmr.annotations import build_rem_annotation_rows, export_rem_annotations
     from muse_tmr.data.replay import ReplayConfig, ReplaySession
+    from muse_tmr.features import new_rem_event_tracker
     from muse_tmr.features.epochs import EpochBuilder, EpochConfig
     from muse_tmr.models import HeuristicRemDetector
 
@@ -1752,6 +1753,7 @@ async def _annotate_template(args: argparse.Namespace) -> int:
         detector=HeuristicRemDetector(),
         recording_id=str(session.recording_dir),
         label=args.label,
+        rem_tracker=new_rem_event_tracker(),
     )
     output_path = export_rem_annotations(rows, _resolve_output_path(args.output))
     print(f"annotation template complete rows={len(rows)} output={output_path}")

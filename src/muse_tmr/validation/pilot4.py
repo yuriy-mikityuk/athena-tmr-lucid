@@ -30,6 +30,7 @@ from muse_tmr.features import (
     extract_eeg_features,
     extract_imu_features,
     extract_ppg_features,
+    new_rem_event_tracker,
 )
 from muse_tmr.models import HeuristicRemDetector, RemGateConfig, StableRemGate
 from muse_tmr.protocol import PuzzleCatalog, PuzzleCueAssignment
@@ -340,13 +341,14 @@ async def run_pilot4_cueing_night(
             no_data_timeout_seconds=config.no_data_timeout_seconds,
         )
         builder = EpochBuilder(config.epoch_config)
+        rem_tracker = new_rem_event_tracker()
         async for epoch in builder.build(frame_stream):
             state.epoch_count += 1
             if state.first_epoch_start is None:
                 state.first_epoch_start = epoch.start_time
             _maybe_trigger_emergency_stop(player, state, emergency_stop_path, recording_events_path)
             timestamp_seconds = max(0.0, epoch.start_time - state.first_epoch_start)
-            eeg = extract_eeg_features(epoch)
+            eeg = extract_eeg_features(epoch, rem_tracker=rem_tracker)
             imu = extract_imu_features(epoch)
             ppg = extract_ppg_features(epoch)
             prediction = detector.predict_features(eeg=eeg, imu=imu, ppg=ppg)

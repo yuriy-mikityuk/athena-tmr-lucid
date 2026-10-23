@@ -10,7 +10,9 @@ from typing import Dict, Iterable, Mapping, Optional, Sequence, Tuple
 
 import pandas as pd
 
+from muse_tmr.features.eeg_features import new_rem_event_tracker
 from muse_tmr.features.epochs import SleepEpoch
+from muse_tmr.features.rem_event_features import RemEventTracker
 from muse_tmr.models import HeuristicRemDetector, RemPrediction
 
 REM_LABELS = ("wake", "nrem", "probable_rem", "unknown")
@@ -91,8 +93,11 @@ def build_rem_annotation(
     recording_id: str = "",
     label: str = "unknown",
     notes: str = "",
+    rem_tracker: Optional[RemEventTracker] = None,
 ) -> RemAnnotation:
-    prediction = prediction or (detector or HeuristicRemDetector()).predict_epoch(epoch)
+    prediction = prediction or (detector or HeuristicRemDetector()).predict_epoch(
+        epoch, rem_tracker=rem_tracker
+    )
     return RemAnnotation(
         recording_id=recording_id,
         epoch_index=epoch.index,
@@ -115,14 +120,18 @@ def build_rem_annotation_rows(
     detector: Optional[HeuristicRemDetector] = None,
     recording_id: str = "",
     label: str = "unknown",
+    rem_tracker: Optional[RemEventTracker] = None,
 ) -> Tuple[RemAnnotation, ...]:
+    """Rows for consecutive epochs of one recording, with one REM-event tracker."""
     detector = detector or HeuristicRemDetector()
+    rem_tracker = rem_tracker or new_rem_event_tracker()
     return tuple(
         build_rem_annotation(
             epoch,
             detector=detector,
             recording_id=recording_id,
             label=label,
+            rem_tracker=rem_tracker,
         )
         for epoch in epochs
     )
