@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 
@@ -28,6 +29,8 @@ from muse_tmr.validation import (
     append_awakening_event,
     run_pilot4_cueing_night,
 )
+from muse_tmr.validation import pilot4 as pilot4_module
+from tests.rem_event_synthetic import rem_deflection_train
 
 
 EEG_RATE_HZ = 256
@@ -104,6 +107,33 @@ class TestPilot4Cueing(unittest.IsolatedAsyncioTestCase):
         self.assertLessEqual(summary.max_effective_volume, 0.04)
         self.assertTrue(all(event["effective_volume"] <= 0.04 for event in audio_events))
         self.assertTrue(all(event["backend_name"] == "mock" for event in audio_events))
+
+    async def test_one_rem_event_tracker_for_the_whole_night(self):
+        catalog, session, assignment, cue_library = protocol_fixture()
+        trackers = []
+        extract = pilot4_module.extract_eeg_features
+
+        def recording_extract(epoch, *args, **kwargs):
+            trackers.append(kwargs.get("rem_tracker"))
+            return extract(epoch, *args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as tmpdir, mock.patch.object(
+            pilot4_module, "extract_eeg_features", recording_extract
+        ):
+            await run_pilot4_cueing_night(
+                FakeMuseSource(rem_frames(4)),
+                config=pilot4_config(Path(tmpdir)),
+                catalog=catalog,
+                session=session,
+                assignment=assignment,
+                cue_library=cue_library,
+                calibration=VolumeCalibration("Sleep Headphones", 0.01, 0.02, 0.04),
+                backend=MockAudioBackend(),
+            )
+
+        self.assertGreaterEqual(len(trackers), 4)
+        self.assertIsNotNone(trackers[0])
+        self.assertTrue(all(tracker is trackers[0] for tracker in trackers))
 
     async def test_full_night_tlr_block_runs_before_puzzle_cues(self):
         catalog, session, assignment, cue_library = protocol_fixture(include_tlr=True)
@@ -410,7 +440,7 @@ def sine_values(frequency_hz, *, seconds=30.0, sample_rate_hz=EEG_RATE_HZ, ampli
 def rem_like_eeg_channels():
     theta = sine_values(6.0, amplitude=12.0)
     alpha = sine_values(10.0, amplitude=1.0)
-    eye = sine_values(1.0, amplitude=4.5)
+    eye = rem_deflection_train()
     return {
         "TP9": (theta + alpha).tolist(),
         "AF7": (theta + alpha + eye).tolist(),

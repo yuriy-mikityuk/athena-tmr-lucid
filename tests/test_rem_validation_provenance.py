@@ -18,6 +18,7 @@ import numpy as np
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 
+from muse_tmr.models import heuristic_rem_detector  # noqa: E402
 from muse_tmr.models.rem_detector import RemPrediction  # noqa: E402
 from muse_tmr.presets import preset_gate_thresholds  # noqa: E402
 
@@ -218,6 +219,43 @@ class GsscUnpackTest(unittest.TestCase):
             self.assertEqual(set(block), STAGER_KEYS)
             self.assertEqual(block["tool"], tool)
             self.assertIs(block["returns_probabilities"], True)
+
+
+class CollectTrackerTest(unittest.TestCase):
+    def test_one_rem_event_tracker_for_the_whole_recording(self):
+        import datetime as dt
+        import tempfile
+
+        import muse_athena_protocol as proto
+        from muse_raw_stream import MuseRawStream
+
+        trackers = []
+        extract = heuristic_rem_detector.extract_eeg_features
+
+        def recording_extract(epoch, *args, **kwargs):
+            trackers.append(kwargs.get("rem_tracker"))
+            return extract(epoch, *args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            recording_dir = Path(tmp)
+            stream = MuseRawStream(str(recording_dir / "raw_amused.bin"))
+            stream.open_write()
+            for counter, seconds in enumerate((0, 35, 70)):
+                header = bytearray(14)
+                header[9] = proto.TAG_EEG_4CH
+                header[10] = counter  # an unchanged counter reads as a repeated packet
+                stream.write_packet(
+                    bytes(header) + bytes(range(28)),
+                    stream.session_start + dt.timedelta(seconds=seconds),
+                )
+            stream.close()
+            with mock.patch.object(heuristic_rem_detector, "extract_eeg_features", recording_extract):
+                collected = vrd.collect(recording_dir, 30.0)
+
+        self.assertEqual(len(collected["predictions"]), len(trackers))
+        self.assertGreaterEqual(len(trackers), 2)
+        self.assertIsNotNone(trackers[0])
+        self.assertTrue(all(tracker is trackers[0] for tracker in trackers))
 
 
 if __name__ == "__main__":

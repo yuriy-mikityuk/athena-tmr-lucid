@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 import muse_athena_protocol as proto
 import pandas as pd
@@ -21,6 +22,7 @@ from muse_tmr.annotations import (
 from muse_tmr.cli.main import main
 from muse_tmr.features.epochs import SleepEpoch
 from muse_tmr.models import RemPrediction
+from muse_tmr.models import heuristic_rem_detector
 
 
 def empty_epoch(index=0):
@@ -180,6 +182,29 @@ class TestRemAnnotations(unittest.TestCase):
         self.assertTrue(set(frame["label"]) == {"unknown"})
         self.assertIn("p_rem", frame.columns)
         self.assertIn("reason_codes", frame.columns)
+
+    def test_annotate_template_runs_one_rem_event_tracker_per_recording(self):
+        trackers = []
+        extract = heuristic_rem_detector.extract_eeg_features
+
+        def recording_extract(epoch, *args, **kwargs):
+            trackers.append(kwargs.get("rem_tracker"))
+            return extract(epoch, *args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            recording_dir = Path(tmp) / "recording"
+            output_path = Path(tmp) / "annotations.csv"
+            write_synthetic_recording(recording_dir)
+            with redirect_stdout(io.StringIO()), mock.patch.object(
+                heuristic_rem_detector, "extract_eeg_features", recording_extract
+            ):
+                main(["annotate-template", str(recording_dir), "--output", str(output_path)])
+            frame = pd.read_csv(output_path)
+
+        self.assertEqual(len(trackers), len(frame))
+        self.assertGreaterEqual(len(trackers), 2)
+        self.assertIsNotNone(trackers[0])
+        self.assertTrue(all(tracker is trackers[0] for tracker in trackers))
 
 
 if __name__ == "__main__":

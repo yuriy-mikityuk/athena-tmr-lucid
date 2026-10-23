@@ -9,6 +9,7 @@ from muse_tmr.features.epochs import EpochBuilder, EpochConfig
 from muse_tmr.features.imu_features import extract_imu_features
 from muse_tmr.models import HeuristicRemConfig, HeuristicRemDetector, RemPrediction
 from muse_tmr.models.heuristic_rem_detector import DEFAULT_REM_WEIGHTS
+from tests.rem_event_synthetic import rem_deflection_train
 
 
 EEG_RATE_HZ = 256
@@ -37,7 +38,7 @@ def synthetic_ppg(heart_rate_bpm, *, seconds=30.0):
 def rem_like_eeg_channels():
     theta = sine_values(6.0, amplitude=12.0)
     alpha = sine_values(10.0, amplitude=1.0)
-    eye = sine_values(1.0, amplitude=4.5)
+    eye = rem_deflection_train()
     return {
         "TP9": (theta + alpha).tolist(),
         "AF7": (theta + alpha + eye).tolist(),
@@ -129,6 +130,8 @@ class TestHeuristicRemDetector(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(prediction.source, "heuristic")
         self.assertIn("eeg_low_delta_support", prediction.reason_codes)
         self.assertIn("eeg_eye_movement_support", prediction.reason_codes)
+        self.assertIn("eeg_rem_events_support", prediction.reason_codes)
+        self.assertEqual(prediction.feature_values["rem_event_count"], 8.0)
         self.assertIn("imu_stillness_support", prediction.reason_codes)
         self.assertIn("low_delta_power", prediction.feature_scores)
 
@@ -146,6 +149,8 @@ class TestHeuristicRemDetector(unittest.IsolatedAsyncioTestCase):
         self.assertLess(prediction.probability, 0.45)
         self.assertIn("eeg_delta_power_high", prediction.reason_codes)
         self.assertIn("eeg_eye_movement_low", prediction.reason_codes)
+        self.assertIn("eeg_rem_events_low", prediction.reason_codes)
+        self.assertEqual(prediction.feature_values["rem_event_count"], 0.0)
 
     def test_motion_arousal_caps_rem_probability_without_audio_decision(self):
         epoch = build_epoch(
@@ -241,6 +246,25 @@ class TestHeuristicRemWeights(unittest.TestCase):
         self.assertGreater(quiet.probability, 0.0)
         self.assertLess(quiet.probability, 1.0)
 
+    def test_rem_event_density_is_scored_at_weight_zero(self):
+        self.assertEqual(DEFAULT_REM_WEIGHTS["rem_event_density"], 0.0)
+        epoch = build_epoch(
+            eeg_channels=nrem_like_eeg_channels(),
+            accel_rows=still_accel_rows(),
+            gyro_rows=still_gyro_rows(),
+        )
+        eeg = extract_eeg_features(epoch)
+        imu = extract_imu_features(epoch)
+        detector = HeuristicRemDetector()
+
+        quiet = detector.predict_features(eeg=dataclasses.replace(eeg, rem_density_per_min=0.0), imu=imu)
+        dense = detector.predict_features(eeg=dataclasses.replace(eeg, rem_density_per_min=30.0), imu=imu)
+
+        self.assertEqual(quiet.feature_scores["rem_event_density"], 0.0)
+        self.assertEqual(dense.feature_scores["rem_event_density"], 1.0)
+        self.assertIn("eeg_rem_events_support", dense.reason_codes)
+        self.assertAlmostEqual(quiet.probability, dense.probability, places=12)
+
     def test_p21_eeg_imu_epoch_does_not_trip_limited_feature_support(self):
         epoch = build_epoch(
             eeg_channels=rem_like_eeg_channels(),
@@ -280,6 +304,8 @@ class TestRemPrediction(unittest.TestCase):
     def test_config_rejects_invalid_thresholds(self):
         with self.assertRaises(ValueError):
             HeuristicRemConfig(rem_delta_relative_power=0.7, nrem_delta_relative_power=0.6).validate()
+        with self.assertRaises(ValueError):
+            HeuristicRemConfig(rem_event_density_min=6.0, rem_event_density_strong=1.0).validate()
 
 
 if __name__ == "__main__":

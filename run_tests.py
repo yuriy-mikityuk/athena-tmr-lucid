@@ -44,6 +44,7 @@ def run_fast_tests():
         'tests.test_contact_monitor',
         'tests.test_contact_gate',
         'tests.test_rem_detector',
+        'tests.test_rem_event_features',
         'tests.test_rem_annotations',
         'tests.test_personal_rem_classifier',
         'tests.test_rem_gate',

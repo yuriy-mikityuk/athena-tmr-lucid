@@ -5,6 +5,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import muse_athena_protocol as proto
 import numpy as np
@@ -22,7 +23,9 @@ from muse_tmr.protocol import (
     PuzzleTask,
     TmrSchedulerConfig,
 )
+from muse_tmr.validation import pilot3 as pilot3_module
 from muse_tmr.validation import simulate_cue_plan_from_epochs, simulate_replay_cue_plan
+from tests.rem_event_synthetic import rem_deflection_train
 
 
 EEG_RATE_HZ = 256
@@ -38,7 +41,7 @@ def sine_values(frequency_hz, *, seconds=30.0, sample_rate_hz=EEG_RATE_HZ, ampli
 def rem_like_eeg_channels():
     theta = sine_values(6.0, amplitude=12.0)
     alpha = sine_values(10.0, amplitude=1.0)
-    eye = sine_values(1.0, amplitude=4.5)
+    eye = rem_deflection_train()
     return {
         "TP9": (theta + alpha).tolist(),
         "AF7": (theta + alpha + eye).tolist(),
@@ -273,6 +276,30 @@ class TestPilot3ReplaySimulation(unittest.TestCase):
         self.assertFalse(saved["audio_playback_executed"])
         self.assertGreaterEqual(len(saved["scheduler_events"]), 2)
         self.assertGreaterEqual(len(event_lines), 2)
+
+    def test_one_rem_event_tracker_for_the_whole_replay(self):
+        catalog, session, assignment, cue_library = protocol_fixture()
+        trackers = []
+        extract = pilot3_module.extract_eeg_features
+
+        def recording_extract(epoch, *args, **kwargs):
+            trackers.append(kwargs.get("rem_tracker"))
+            return extract(epoch, *args, **kwargs)
+
+        with mock.patch.object(pilot3_module, "extract_eeg_features", recording_extract):
+            report = simulate_cue_plan_from_epochs(
+                [build_rem_epoch(index) for index in range(4)],
+                catalog=catalog,
+                session=session,
+                assignment=assignment,
+                cue_library=cue_library,
+            )
+
+        self.assertEqual(len(trackers), 4)
+        self.assertIsNotNone(trackers[0])
+        self.assertTrue(all(tracker is trackers[0] for tracker in trackers))
+        counts = [result.prediction.feature_values["rem_event_count"] for result in report.epoch_results]
+        self.assertEqual(counts, [8.0] * 4)
 
     def test_empty_replay_epochs_fail_without_calling_audio(self):
         catalog, session, assignment, cue_library = protocol_fixture()
