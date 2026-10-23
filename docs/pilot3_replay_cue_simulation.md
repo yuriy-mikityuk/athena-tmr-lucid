@@ -59,6 +59,38 @@ Optional replay and gate tuning flags:
 `--enter-threshold` and `--exit-threshold` override the preset's pair. The old
 `0.70`/`0.45` kept the gate open about three quarters of a night (#115).
 
+## Stride and first-cue latency
+
+`--stride-seconds` sets how far apart the 30-second epochs start. Below 30 s the epochs
+overlap, and the gate is fed the time between epoch starts, so its 60 s stable window
+and its 120 s cooldown take as long as at 30 s (#225). At 30 s nothing changed: a replay
+gives the same scheduler events as before.
+
+The report's `metrics` carry `stride_seconds`, `first_gate_open_seconds` and
+`first_play_seconds`. The last two count from the start of the first epoch to the end of
+the epoch whose decision first opened the gate or first planned a cue, which is when
+that decision exists; the scheduler events and `epochs[].timestamp_seconds` give the
+epoch start, 30 s earlier. They are `null` when it never happened.
+
+On a scripted stream, synthetic input, not sleep (a 40 µV 1.5 Hz wave, then 6 Hz theta
+with eye-movement deflections, a still IMU, no optics, the `p21` gate 0.90/0.85), the
+first gate opening, which was also the first planned cue, came this many seconds after
+REM onset, for onsets 0, 5, 10, 15, 20 and 25 s past an epoch boundary:
+
+| Stride | Seconds after REM onset |
+|---|---|
+| 30 s | 60 to 85 (60 with the onset on an epoch boundary) |
+| 10 s | 80 to 85 |
+| 5 s | 85 |
+
+With the gate as it is, a shorter stride does not bring the first cue earlier. A window
+that was still partly NREM did not look like REM, so the first REM-like window ended at
+least about 30 s after onset at every stride, and at a 30 s stride that window counts
+30 s towards the 60 s, at 10 s only 10 s. What the shorter stride removes is the spread
+that comes from where the onset falls in the epoch grid. The table comes from
+`tests/test_first_cue_latency.py`. For a real night, run the command above with
+`--preset p21` at `--stride-seconds 30` and `10` and compare the two metrics.
+
 ## Validate
 
 The command exits `0` only when:
@@ -73,6 +105,8 @@ Inspect `data/reports/pilot3_replay_cue_plan.json`:
 - `cue_plan`: scheduler `play` events only;
 - `scheduler_events`: all `play`, `skip`, `pause`, and `stop` decisions;
 - `epochs`: per-epoch prediction, gate, guard, and scheduler context;
+- `metrics.stride_seconds`, `metrics.first_gate_open_seconds`,
+  `metrics.first_play_seconds`: the stride and the first-cue timing above;
 - `metrics.uncued_puzzle_play_count`: must be `0`;
 - `audio_backend`: must be `mock`;
 - `audio_playback_executed`: must be `false`.

@@ -132,6 +132,10 @@ is skipped. Decoded files, alignment and features are described in `docs/polar_h
 objects, including live `AmusedSource.stream()` and offline `ReplaySession.stream()`.
 The default configuration builds 30-second epochs with a 30-second stride. Strides
 of 5 or 10 seconds create overlapping windows for smoother downstream REM features.
+Every epoch is still 30 seconds long, so anything that keeps time per epoch, such as the
+REM gate, has to move on by the time between epoch starts, not by the epoch length:
+`epoch_step_seconds(start_time, previous_start_time, stride_seconds)` gives that time,
+and one stride for the first epoch.
 
 Each `SleepEpoch` contains:
 
@@ -267,7 +271,11 @@ available, with `DEFAULT_REM_WEIGHTS`: `low_delta_power` 0.333, `theta_alpha_rat
 earlier weights divided by 0.75, so they still sum to 1 and a prediction with less than
 0.40 of the weight available still gets `limited_feature_support` and the 0.55 cap; an
 EEG and IMU epoch on `p21` has 0.80. The weights are set by hand; the refit waits for
-REM-bearing `p21` nights (#225).
+REM-bearing `p21` nights (#225). For that refit `scripts/validate_rem_detection.py`
+reports, against its reference stager, the ROC-AUC, minimum and maximum of every
+`feature_scores` and `feature_values` entry, with `saturated` when an entry has one
+value in every epoch, and replays the night with other weights given as
+`--weights name=w,...` (see `docs/USAGE.md`).
 
 `rem_event_density`, the proxy's replacement, is scored from `rem_density_per_min`
 between `rem_event_density_min` 1 and `rem_event_density_strong` 6 events per minute,
@@ -335,6 +343,15 @@ Each decision contains:
 - `stable_seconds`: consecutive stable REM time tracked by the gate
 - `cooldown_remaining_seconds`: remaining cooldown after motion/arousal blocks
 - `reason_codes`: threshold, stability, hysteresis, cooldown, and block reasons
+
+`update(prediction, duration_seconds=...)` adds `duration_seconds` to the stable time
+and takes it off the cooldown. Pilot 3, 4 and 5 pass the time between epoch starts
+(`epoch_step_seconds`), so both run in real time at any `--stride-seconds`: at a 10 s
+stride the gate opens on the sixth REM-like epoch in a row instead of the second, and a
+cooldown lasts twelve epochs instead of four. At the default 30 s stride the step is the
+epoch length, as before. Before #225 the pilots passed the 30 s epoch length at every
+stride, so at 10 s the window and the cooldown ran three times too fast. What this means
+for the first cue after REM onset: `docs/pilot3_replay_cue_simulation.md`.
 
 `RemGateConfig` defaults to an entry threshold of `0.80`, exit threshold of `0.70`, a
 60-second stability window, and a 120-second cooldown. The pilot commands and

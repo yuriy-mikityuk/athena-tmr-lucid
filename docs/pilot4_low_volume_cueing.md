@@ -138,3 +138,10 @@ That means the system refused to cue rather than forcing audio.
 None of these criteria shows that a cue was heard. `resolved_audio_backend_name` in the
 summary says what played the cues: `afplay` for sound, `dry-run` for a night run with
 `--allow-dry-run`.
+
+The summary also has `stride_seconds`, `first_gate_open_seconds` and
+`first_play_seconds`: seconds from the start of the first epoch to the end of the epoch
+whose decision first opened the gate or first played a cue, `null` when that never
+happened. The gate counts the time between epoch starts, so its 60 s stable window and
+120 s cooldown take as long at `--stride-seconds 10` as at the default 30; see
+`docs/pilot3_replay_cue_simulation.md` for what a shorter stride does to the first cue.

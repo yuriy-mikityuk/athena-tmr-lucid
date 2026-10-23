@@ -173,6 +173,8 @@ for epoch in epochs:
 
 The same builder accepts live `MuseFrame` streams from `AmusedSource`; missing modalities are represented as coverage/quality flags instead of errors. The feature and REM examples below take this `epochs` list. Without Python, `muse-tmr annotate-template` writes the same per-epoch features with `P_REM` to a CSV.
 
+A `stride_seconds` below `epoch_seconds` gives overlapping epochs that are each still 30 s long. Code that keeps time per epoch, like the REM gate below, moves on by `epoch_step_seconds(epoch.start_time, previous_start_time, stride_seconds)` from `muse_tmr.features`: the time between epoch starts, and one stride for the first epoch.
+
 ## Feature extraction: EEG
 
 ```python
@@ -242,7 +244,7 @@ for epoch, prediction in zip(epochs, detector.predict_epochs(epochs)):
     print(epoch.index, prediction.probability, prediction.reason_codes)
 ```
 
-`prediction.probability` is `P_REM` in the 0-1 range. The heuristic detector is a non-ML baseline over EEG, IMU, and PPG/HR feature rows. It returns reason codes and feature scores only; it does not play audio or make cue decisions. Its weights are `DEFAULT_REM_WEIGHTS` in `muse_tmr.models.heuristic_rem_detector`; the eye-movement proxy is still scored but weighted 0, because it is saturated on real nights (#116, #225). Its replacement, `rem_event_density`, is scored and exported with the reason codes `eeg_rem_events_support`/`eeg_rem_events_low`, also at weight 0 until it is fitted on real nights. `predict_epochs()` runs one REM-event tracker over all its epochs; when you call `predict_epoch()` per epoch, pass `rem_tracker=` the same `new_rem_event_tracker()` each time. The weights and why: `docs/data_model.md`.
+`prediction.probability` is `P_REM` in the 0-1 range. The heuristic detector is a non-ML baseline over EEG, IMU, and PPG/HR feature rows. It returns reason codes and feature scores only; it does not play audio or make cue decisions. Its weights are `DEFAULT_REM_WEIGHTS` in `muse_tmr.models.heuristic_rem_detector`; the eye-movement proxy is still scored but weighted 0, because it is saturated on real nights (#116, #225). Its replacement, `rem_event_density`, is scored and exported with the reason codes `eeg_rem_events_support`/`eeg_rem_events_low`, also at weight 0 until it is fitted on real nights. `predict_epochs()` runs one REM-event tracker over all its epochs; when you call `predict_epoch()` per epoch, pass `rem_tracker=` the same `new_rem_event_tracker()` each time. The weights and why: `docs/data_model.md`. To see how each feature separates REM on a recorded night, and what other weights would do, use the REM check below with `--weights`.
 
 ## Manual REM annotation templates
 
@@ -276,6 +278,8 @@ for prediction in rem_predictions:
 
 The gate requires stable REM confidence over time, uses hysteresis for closing, blocks motion/arousal reasons, and applies cooldown after arousal blocks. It still does not play audio; cue code must consume `gate_open` plus reason codes.
 
+Each `update()` counts `RemGateConfig.epoch_seconds` (30 s) towards the stable window and off the cooldown unless you pass `duration_seconds`. With overlapping epochs pass the time between epoch starts, `duration_seconds=epoch_step_seconds(epoch.start_time, previous_start_time, stride_seconds)`, as `simulate-replay-cues`, `run-pilot4-cueing` and `run-pilot5-full-night` do; then the 60 s window and the 120 s cooldown take as long at a 10 s stride as at 30 s.
+
 `RemGateConfig()` opens at `P_REM` 0.80 and closes below 0.70. The pilot commands take the pair from `--preset` (`muse_tmr.presets.preset_gate_thresholds`): 0.90/0.85 on `p21`, 0.80/0.70 on an optics preset; `--enter-threshold` and `--exit-threshold` override it. The `p21` pair was fitted with the detector's earlier weights and has not been re-gridded since the eye-movement proxy went to 0 (#116). On `p21` the gate also stops treating missing PPG as low confidence, and the arousal guard stops treating it as an artifact and skips its HR rules (`docs/safety.md`). Why these values and how far they have been checked: `docs/data_model.md`.
 
 ## Checking the REM detector against a reference stager
@@ -298,6 +302,15 @@ Replays a recording through the heuristic detector and the gate, stages the same
 ```
 
 `gssc` is pinned to 0.0.9, the last PyPI release, whose `mne_infer` returns stage labels only, so `proba_rem` is 0 or 1. `scripts/_gssc_stage.py` also takes the three-value return of gssc's main branch and then uses its class probabilities when they are valid. The metrics JSON carries `kappa_definition` (binary REM-vs-not κ against an automated stager; not five-class) and a `provenance` block: the command line, UTC time, `muse_tmr` version, git commit, Python, numpy and scipy versions, the resample rate, the epoch length, the preset and its gate thresholds, the EEG and EOG channels, the Muse channels the stager was not given, and a `stager` block with the package, torch and mne versions and whether it returned probabilities. Each stager script writes that `stager` block into its hypnogram JSON, because it runs in its own venv.
+
+For refitting the detector (#225) the summary, the metrics JSON and the HTML also carry two tables. `feature_metrics` has, for every per-epoch `score_*` and `value_*` column (the ones `--dump-epochs` writes), its ROC-AUC against the reference's REM, its minimum and maximum, the number of epochs where it is not NaN, and `saturated` when it has one value in every epoch, as the eye-movement proxy had on `overnight_20260707` (#116). An AUC below 0.5 means the column runs against REM. `gate_grid` runs the real gate over the night for each enter threshold from 0.70 to 0.95 and each exit from 0.45 up to the enter value, in steps of 0.05, with the preset's `optics_capable`, and gives the gate-open fraction, REM recall and precision (with F1 and κ) per pair; `preset_pair` marks the pair the preset uses. `--weights` replays the night with other detector weights:
+
+```bash
+.venv/bin/python scripts/validate_rem_detection.py data/recordings/<session> --reference gssc --preset p21 \
+  --weights theta_alpha_ratio=0,rem_event_density=0.2 --output data/reports/rem_validation_weights.json
+```
+
+The names are those of `DEFAULT_REM_WEIGHTS`; the ones not named keep their default, and then all are divided by their sum so they add up to 1, like the defaults. `provenance.weights` has the weights used and `provenance.weight_overrides` the ones given. The pilots always use the defaults. All of these are agreement with an automated proxy, not REM accuracy.
 
 ## Low-volume test cue player
 
@@ -547,6 +560,8 @@ muse-tmr simulate-replay-cues data/recordings/<pilot-session> \
 
 See `docs/pilot3_replay_cue_simulation.md` for the replay-only runbook. The simulator runs epochs, REM detection, the stable gate, arousal guard, and scheduler on a recording with mocked audio. It writes an inspectable cue plan and fails if any uncued puzzle receives a scheduler `play` event. No real audio is played. Pass the preset the night was recorded with (`source.metadata.preset` in its `metadata.json`); without it the gate and the arousal guard assume an optics preset.
 
+`--stride-seconds` (default 30) sets how far apart the 30 s epochs start; the gate counts the time between epoch starts, so its stable window and cooldown run in real time at any stride. The report's `metrics` carry `stride_seconds`, `first_gate_open_seconds` and `first_play_seconds`, counted from the first epoch's start to the end of the epoch whose decision first opened the gate or first planned a cue (`null` when it never happened). How they come out at strides of 30, 10 and 5 s on synthetic input: `docs/pilot3_replay_cue_simulation.md`.
+
 ### Pilot 4: low-volume REM-gated cueing
 
 ```bash
@@ -565,7 +580,7 @@ muse-tmr run-pilot4-cueing \
   --default-volume 0.02
 ```
 
-See `docs/pilot4_low_volume_cueing.md` before using `--backend system`. Pilot 4 requires volume calibration, enforces the comfortable-volume cap, logs scheduler, arousal, audio, awakening, and emergency-stop artifacts, and only sends playback requests for scheduler `play` events after stable REM. With `--backend system` and no `afplay` on PATH it exits with code 2 before it reads an input, connects the headband or writes a file. `--allow-dry-run` runs the night silently instead; `metadata.json` and the summary record the requested and the resolved backend. `--preset` (default `p1034`) is the headband preset for the night and also picks the gate thresholds, as above. Mark an awakening with:
+See `docs/pilot4_low_volume_cueing.md` before using `--backend system`. Pilot 4 requires volume calibration, enforces the comfortable-volume cap, logs scheduler, arousal, audio, awakening, and emergency-stop artifacts, and only sends playback requests for scheduler `play` events after stable REM. With `--backend system` and no `afplay` on PATH it exits with code 2 before it reads an input, connects the headband or writes a file. `--allow-dry-run` runs the night silently instead; `metadata.json` and the summary record the requested and the resolved backend. `--preset` (default `p1034`) is the headband preset for the night and also picks the gate thresholds, as above. `--stride-seconds` works as in Pilot 3, and `pilot4_summary.json` has the same `stride_seconds`, `first_gate_open_seconds` and `first_play_seconds`. Mark an awakening with:
 
 ```bash
 muse-tmr log-pilot4-awakening data/recordings/pilot4_low_volume_<timestamp>/awakening_events.jsonl \
