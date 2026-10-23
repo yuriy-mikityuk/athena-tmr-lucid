@@ -1,6 +1,0 @@
-# Protocol-fidelity target for future TMR/TLR implementation.
-puzzles_per_night: 4
-cued_fraction: 0.5
-cue_sound_seconds: 10
-cue_silence_seconds: 5
-tlr_tone_count: 3

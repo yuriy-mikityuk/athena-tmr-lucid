@@ -1,5 +1,0 @@
-# Baseline REM gate settings. Later milestones will tune these from data.
-min_rem_probability: 0.7
-stable_window_seconds: 30
-max_motion_level: 0.2
-min_signal_quality: 0.8
