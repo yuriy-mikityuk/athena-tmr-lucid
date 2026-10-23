@@ -4,17 +4,21 @@ Runs scripts/validate_rem_detection.py on synthetic input with the stager
 subprocess replaced by a fake hypnogram, so no YASA or GSSC venv is needed.
 """
 
+import datetime as dt
 import importlib.util
 import io
 import json
 import shlex
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
+import muse_athena_protocol as proto
 import numpy as np
+from muse_raw_stream import MuseRawStream
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 
@@ -223,12 +227,6 @@ class GsscUnpackTest(unittest.TestCase):
 
 class CollectTrackerTest(unittest.TestCase):
     def test_one_rem_event_tracker_for_the_whole_recording(self):
-        import datetime as dt
-        import tempfile
-
-        import muse_athena_protocol as proto
-        from muse_raw_stream import MuseRawStream
-
         trackers = []
         extract = heuristic_rem_detector.extract_eeg_features
 

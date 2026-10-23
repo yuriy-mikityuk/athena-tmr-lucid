@@ -20,10 +20,9 @@ in the same band carries no more power than the difference over those samples, w
 drops in-phase blinks. The width is a property of the waveform, not of the threshold,
 so a larger copy of a counted deflection counts the same.
 
-The filter is a first-order Butterworth high-pass, the usual EOG setting, so a saccade
-(a step in AF7 - AF8) decays without ringing, and a fourth-order low-pass, which takes a
-40 µV line at about 64 Hz (the optics line, #154) below 0.001 µV, so no line removal
-runs first. The tracker is causal and deterministic: the threshold for a sample comes
+The filter is a first-order Butterworth high-pass, so a saccade (a step in AF7 - AF8)
+decays without ringing, and a fourth-order low-pass, which takes a 40 µV line at about
+64 Hz (the optics line, #154) below 0.001 µV, so no line removal runs first. The tracker is causal and deterministic: the threshold for a sample comes
 from samples before it, the filter state is carried between calls, and the result does
 not depend on how the stream is cut into epochs. Overlapping epochs (a stride shorter
 than the epoch) feed each sample once. Run one tracker per session.
@@ -61,7 +60,7 @@ class RemEventConfig:
     """UNFITTED: starting values, not fitted on any night; the refit waits for
     REM-bearing p21 nights (#225). Never fit them on synthetic data.
 
-    The low-pass alone takes a 40 µV ~64 Hz line below 0.1 µV, so no line removal runs
+    The low-pass alone takes a 40 µV ~64 Hz line below 0.001 µV, so no line removal runs
     first (tests/test_rem_event_features.py).
     """
 
