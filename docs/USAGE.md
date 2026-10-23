@@ -266,7 +266,7 @@ for prediction in rem_predictions:
 
 The gate requires stable REM confidence over time, uses hysteresis for closing, blocks motion/arousal reasons, and applies cooldown after arousal blocks. It still does not play audio; cue code must consume `gate_open` plus reason codes.
 
-`RemGateConfig()` opens at `P_REM` 0.80 and closes below 0.70. The pilot commands take the pair from `--preset` (`muse_tmr.presets.preset_gate_thresholds`): 0.90/0.85 on `p21`, 0.80/0.70 on an optics preset; `--enter-threshold` and `--exit-threshold` override it. On `p21` the gate also stops treating missing PPG as low confidence. Why these values and how far they are validated: `docs/data_model.md`.
+`RemGateConfig()` opens at `P_REM` 0.80 and closes below 0.70. The pilot commands take the pair from `--preset` (`muse_tmr.presets.preset_gate_thresholds`): 0.90/0.85 on `p21`, 0.80/0.70 on an optics preset; `--enter-threshold` and `--exit-threshold` override it. On `p21` the gate also stops treating missing PPG as low confidence. Why these values and how far they have been checked: `docs/data_model.md`.
 
 ## Checking the REM detector against a reference stager
 
@@ -276,7 +276,7 @@ python -m venv .venv-gssc && .venv-gssc/bin/pip install gssc
   [--output data/reports/rem_validation.json] [--html data/reports/rem_validation.html] [--dump-epochs epochs.csv]
 ```
 
-Replays a recording through the heuristic detector and the gate, stages the same EEG with YASA (the default) or GSSC (`--reference gssc`), each from its own venv (`.venv-yasa`, `.venv-gssc`, both gitignored), and reports REM precision, recall, F1 and kappa at a few thresholds, a threshold sweep, ROC-AUC, and how often the reference calls REM while the gate is open. Both stagers are automated proxies, not PSG; GSSC was trained with frontal channels and fits the Muse montage better than YASA. The `p21` thresholds were checked this way against GSSC on one night.
+Replays a recording through the heuristic detector and the gate, stages the same EEG with YASA (the default) or GSSC (`--reference gssc`), each from its own venv (`.venv-yasa`, `.venv-gssc`, both gitignored), and reports REM precision, recall, F1 and kappa at a few thresholds, a threshold sweep, ROC-AUC, and how often the reference calls REM while the gate is open. Both stagers are automated proxies, not PSG. GSSC was trained mostly on C3, C4, F3, F4 (NSRR PSG) and stages from one EEG channel; there is no published evaluation on forehead-only EEG. YASA expects central electrodes and mis-stages this montage. The `p21` thresholds were tuned in-sample on one EEG-only night (`overnight_20260707`, n=1) against GSSC, an automated proxy: fitted and reported on the same night, so this is not held-out validation. Kappa and epoch counts are only in PR #115 / #116; [`numbers.md`](numbers.md) lists them with their source.
 
 ## Low-volume test cue player
 

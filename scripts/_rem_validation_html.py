@@ -66,8 +66,9 @@ def build_html(result: Dict[str, object]) -> str:
     )
 
 
-# Reference-specific caveat (HTML). YASA mis-fits the Muse montage; GSSC fits it
-# far better but is still an automated proxy.
+# Reference-specific caveat (HTML). YASA mis-fits the Muse montage; GSSC was
+# trained mostly on C3, C4, F3, F4 and has no published forehead-only evaluation.
+# Both are automated proxies.
 _CAVEATS = {
     "yasa": (
         "<strong>Read as directional, not a grade.</strong> YASA is an automated proxy trained on "
@@ -76,9 +77,9 @@ _CAVEATS = {
         "between two imperfect estimators on one night, not accuracy against sleep-lab truth."
     ),
     "gssc": (
-        "<strong>Read as directional, not truth.</strong> GSSC is a neural stager whose training set "
-        "includes frontal derivations and which stages from a single channel, so it fits the Muse montage "
-        "far better than YASA &mdash; but it is still an automated proxy, not PSG. Validate against a few "
+        "<strong>Read as directional, not truth.</strong> GSSC is a neural stager trained mostly on "
+        "C3, C4, F3, F4 (NSRR PSG) that stages from one EEG channel; there is no published evaluation on "
+        "forehead-only EEG like the Muse. It is an automated proxy, not PSG. Validate against a few "
         "manually-scored nights before treating its REM calls as ground truth."
     ),
 }

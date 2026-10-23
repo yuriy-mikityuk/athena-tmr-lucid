@@ -499,9 +499,10 @@ REFERENCE_CAVEATS = {
         "  mis-scores this montage badly -- treat it as a weak proxy, not a grade."
     ),
     "gssc": (
-        "  CAVEAT: GSSC is frontal-trained (a much better montage fit than YASA), but\n"
-        "  still an automated proxy, not PSG. Validate against a few manually-scored\n"
-        "  nights before treating its REM calls as ground truth."
+        "  CAVEAT: GSSC was trained mostly on C3, C4, F3, F4 (NSRR PSG) and stages\n"
+        "  from one EEG channel, but there is no published evaluation on forehead-only\n"
+        "  EEG. It is an automated proxy, not PSG. Validate against a few\n"
+        "  manually-scored nights before treating its REM calls as ground truth."
     ),
 }
 
@@ -567,8 +568,9 @@ def main() -> int:
         "--reference",
         choices=("yasa", "gssc"),
         default="yasa",
-        help="Offline reference stager. gssc is a frontal-trained model (better fit "
-        "for the Muse montage than YASA's central-electrode model).",
+        help="Offline reference stager. gssc was trained mostly on C3, C4, F3, F4 "
+        "(NSRR PSG) and stages from one EEG channel; no published evaluation on "
+        "forehead-only EEG. Both are automated proxies, not PSG.",
     )
     parser.add_argument(
         "--yasa-python",
