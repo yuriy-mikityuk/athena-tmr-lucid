@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Mapping, Optional, Tuple
 
@@ -45,7 +45,6 @@ class TlrTrainingConfig:
     interval_seconds: float = 2.0
     volume: Optional[float] = None
     backend_name: str = "dry-run"
-    resolved_backend_name: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.repetitions <= 0:
@@ -63,8 +62,6 @@ class TlrTrainingConfig:
             "interval_seconds": self.interval_seconds,
             "volume": self.volume,
             "backend_name": self.backend_name,
-            "requested_backend_name": self.backend_name,
-            "resolved_backend_name": self.resolved_backend_name,
         }
 
     @classmethod
@@ -75,7 +72,6 @@ class TlrTrainingConfig:
             interval_seconds=float(payload.get("interval_seconds", 2.0)),
             volume=None if volume is None else float(volume),
             backend_name=str(payload.get("backend_name", "dry-run")),
-            resolved_backend_name=payload.get("resolved_backend_name"),
         )
 
 
@@ -351,7 +347,7 @@ def train_tlr_cue(
     session_id: str = "tlr-training",
     event_log_path: Optional[Path] = None,
 ) -> TlrTrainingSession:
-    config = replace(config or TlrTrainingConfig(), resolved_backend_name=player.backend.name)
+    config = config or TlrTrainingConfig()
     _validate_training_cue(cue)
     volume = config.volume if config.volume is not None else (cue.volume_hint or player.config.default_volume)
     test_cue = TestCue(
