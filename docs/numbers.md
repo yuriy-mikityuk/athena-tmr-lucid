@@ -69,7 +69,7 @@ Status words used below:
 |---|---|---|---|
 | 41 CLI commands | README | `add_parser(` calls in `src/muse_tmr/cli/main.py` | count: 41. About a dozen are diagnostics or side tracks (meditation, calibration, Polar) |
 | Five staged pilots, each with a runbook and a validator | README, `validation.md` | `docs/pilot1_no_audio.md` to `docs/pilot5_full_night.md`, `src/muse_tmr/validation/` | count |
-| 724 tests passing, 5 skipped, 0 failing; 88 % line coverage; measured in CI on 2026-10-19 with Python 3.11 on Ubuntu | `TEST_STATUS.md` | written by hand at release 0.3.0 | self-reported. A local `python -m pytest tests/` on 2026-10-23, at the commit that added this page, gave 731 passed and 5 skipped; coverage was not re-measured |
+| 724 tests passing, 5 skipped, 0 failing; 88 % line coverage; measured in CI on 2026-10-19 with Python 3.11 on Ubuntu | `TEST_STATUS.md` | written by hand at release 0.3.0 | self-reported. A local `python -m pytest tests/` on 2026-10-23, on the branch of #229 with its wording test, gave 731 passed and 5 skipped; coverage was not re-measured |
 | Coverage per module: `cli/main.py` 66 %, `data/watchdog.py` 78 %, `app/auto_update.py` 79 %, `reports/source_diagnostics.py` 80 %, `sources/polar_h10.py` 81 %, app server 87 %, well-covered modules 92 to 98 % | `TEST_STATUS.md` | written by hand at release 0.3.0 | self-reported, not re-measured |
 | Python 3.8 or newer (README badge, `requires-python >=3.8`) | README | `pyproject.toml` | claimed; CI runs Python 3.11 only (`.github/workflows/guardrails.yml`) |
 | Four CI jobs: policy, tests, package, page | `TEST_STATUS.md` (by name) | `.github/workflows/guardrails.yml` | count |
