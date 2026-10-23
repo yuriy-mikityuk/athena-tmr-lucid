@@ -4,7 +4,8 @@
 Two stacked panels share one time axis (no dual-axis):
   * p_rem over the night, with the gate enter-threshold and gate-open shading
   * YASA hypnogram staircase, REM epochs highlighted
-plus an agreement strip (gate-open vs YASA-REM: hit / false-alarm / miss).
+plus an agreement strip (gate-open vs YASA-REM: hit / false-alarm / miss), the
+per-feature AUC table and the gate's enter/exit grid.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from __future__ import annotations
 import html
 import json
 import math
-from typing import Dict, List
+from typing import Dict, List, Mapping, Sequence
 
 
 def build_html(result: Dict[str, object]) -> str:
@@ -64,6 +65,10 @@ def build_html(result: Dict[str, object]) -> str:
             f"; channels not given to it: {', '.join(provenance.get('channels_not_passed') or []) or 'none'}"
             f"; commit {str(provenance.get('git_commit') or 'unknown')[:12]}."
         )
+    if provenance.get("weight_overrides"):
+        run_line += " Detector weights from --weights: " + ", ".join(
+            f"{name} {weight:.3f}" for name, weight in (provenance.get("weights") or {}).items()
+        ) + "."
 
     return _TEMPLATE.format(
         recording=result["recording"],
@@ -75,6 +80,62 @@ def build_html(result: Dict[str, object]) -> str:
         stat_tiles=stat_tiles,
         data_json=json.dumps(points, separators=(",", ":")),
         enter_thr=enter_thr,
+        feature_card=_feature_card(result.get("feature_metrics") or {}, tool),
+        grid_card=_grid_card(result.get("gate_grid") or [], tool),
+    )
+
+
+def _cell(value: object, decimals: int = 3, scale: float = 1.0) -> str:
+    if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+        return "n/a"
+    return f"{float(value) * scale:.{decimals}f}"
+
+
+def _feature_card(features: Mapping[str, Mapping[str, object]], tool: str) -> str:
+    """ROC-AUC, min and max of every score_*/value_* column against the reference's REM."""
+    if not features:
+        return ""
+    rows = "".join(
+        f'<tr><td class="name">{html.escape(name)}</td><td>{m["n"]}</td>'
+        f'<td>{_cell(m["auc"])}</td><td>{_cell(m["min"])}</td><td>{_cell(m["max"])}</td>'
+        f'<td>{"saturated" if m["saturated"] else ""}</td></tr>'
+        for name, m in features.items()
+    )
+    return (
+        f'<div class="card"><h2>Per feature against {tool} REM (AUC below 0.5 runs against REM; '
+        f"saturated means one value in every epoch)</h2>"
+        f'<div class="scroll"><table class="tbl"><thead><tr><th class="name">Column</th><th>n</th>'
+        f"<th>AUC</th><th>min</th><th>max</th><th></th></tr></thead><tbody>{rows}</tbody></table></div></div>"
+    )
+
+
+def _grid_card(grid: Sequence[Mapping[str, object]], tool: str) -> str:
+    """The gate's enter/exit grid: gate-open % of the epochs, REM recall and precision."""
+    if not grid:
+        return ""
+    exits = sorted({float(row["exit"]) for row in grid})  # type: ignore[arg-type]
+    enters = sorted({float(row["enter"]) for row in grid})  # type: ignore[arg-type]
+    by_pair = {(float(row["enter"]), float(row["exit"])): row for row in grid}  # type: ignore[arg-type]
+    head = "".join(f"<th>{x:.2f}</th>" for x in exits)
+    body = ""
+    for enter in enters:
+        cells = ""
+        for x in exits:
+            row = by_pair.get((enter, x))
+            if row is None:
+                cells += "<td></td>"
+                continue
+            css = ' class="preset"' if row.get("preset_pair") else ""
+            cells += (
+                f"<td{css}>{_cell(row['gate_open_fraction'], 0, 100.0)}%"
+                f"<br>R {_cell(row['recall'], 2)}<br>P {_cell(row['precision'], 2)}</td>"
+            )
+        body += f'<tr><th class="name">{enter:.2f}</th>{cells}</tr>'
+    return (
+        f'<div class="card"><h2>Gate enter/exit grid: gate open (% of epochs), REM recall (R) and '
+        f"precision (P) against {tool}; outlined = this preset's pair</h2>"
+        f'<div class="scroll"><table class="tbl grid"><thead><tr><th class="name">enter \\ exit</th>'
+        f"{head}</tr></thead><tbody>{body}</tbody></table></div></div>"
     )
 
 
@@ -132,6 +193,11 @@ svg{{display:block; width:100%; height:auto; overflow:visible}}
 .sw{{width:11px; height:11px; border-radius:2px; display:inline-block}}
 .caveat{{font-size:12px; color:var(--ink2); background:var(--surface); border:1px solid var(--border);
   border-radius:10px; padding:12px 14px; line-height:1.5}}
+.scroll{{overflow-x:auto; margin-bottom:10px}}
+.tbl{{border-collapse:collapse; font-size:12px; font-variant-numeric:tabular-nums; width:100%; color:var(--ink)}}
+.tbl th,.tbl td{{padding:4px 7px; text-align:right; border-bottom:1px solid var(--grid); white-space:nowrap}}
+.tbl th{{color:var(--muted); font-weight:600}} .tbl .name{{text-align:left}}
+.tbl.grid td{{line-height:1.35}} .tbl td.preset{{outline:2px solid var(--p); outline-offset:-2px}}
 </style>
 <div class="vr"><div class="wrap">
 <h1>REM detection vs {tool} reference &mdash; {recording}</h1>
@@ -150,6 +216,8 @@ svg{{display:block; width:100%; height:auto; overflow:visible}}
   <svg id="prem" viewBox="0 0 900 170" preserveAspectRatio="none"></svg></div>
 <div class="card"><h2>{tool} hypnogram &amp; agreement strip</h2>
   <svg id="hyp" viewBox="0 0 900 170" preserveAspectRatio="none"></svg></div>
+{feature_card}
+{grid_card}
 <div class="caveat">{caveat}</div>
 </div></div>
 <script>

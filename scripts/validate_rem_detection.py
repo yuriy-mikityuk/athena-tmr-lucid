@@ -29,9 +29,14 @@ What it reports
       with the --preset thresholds (p21 0.90/0.85, optics presets 0.80/0.70)
       -- when the gate would open (i.e. fire a cue), how often is the reference
       calling REM?
+    * For a refit: ROC-AUC, min, max and a `saturated` flag (one value in every
+      epoch) for each per-epoch score_*/value_* column, and an enter/exit grid of
+      the gate (gate-open fraction, REM recall and precision per pair). --weights
+      name=w,... replays with other detector weights.
     * provenance: the command line, versions (muse_tmr, git commit, Python,
       numpy, scipy, the stager package, torch, mne), the resample rate, the gate
-      thresholds and which Muse channels the stager was and was not given.
+      thresholds, the detector weights and which Muse channels the stager was and
+      was not given.
 
 Honest caveats (printed in the summary too)
     YASA is a PROXY, not PSG truth. Its model wants central electrodes (C3/C4);
@@ -44,6 +49,9 @@ Usage
     # --eog defaults to none for gssc and AF8 for yasa; override channels / venv / outputs:
     python scripts/validate_rem_detection.py <dir> --eeg AF7 --eog AF8 \
         --yasa-python .venv-yasa/bin/python --output out.json --html out.html
+    # other detector weights; the rest keep their defaults, then all are scaled to sum 1:
+    python scripts/validate_rem_detection.py <dir> --reference gssc --preset p21 \
+        --weights theta_alpha_ratio=0,rem_event_density=0.2
 """
 
 from __future__ import annotations
@@ -73,6 +81,10 @@ from muse_tmr.data.replay import ReplayConfig, ReplaySession  # noqa: E402
 from muse_tmr.features import new_rem_event_tracker  # noqa: E402
 from muse_tmr.features.epochs import EpochBuilder, EpochConfig  # noqa: E402
 from muse_tmr.models import HeuristicRemDetector  # noqa: E402
+from muse_tmr.models.heuristic_rem_detector import (  # noqa: E402
+    DEFAULT_REM_WEIGHTS,
+    HeuristicRemConfig,
+)
 from muse_tmr.models.rem_detector import RemPrediction  # noqa: E402
 from muse_tmr.models.rem_gate import RemGateConfig, StableRemGate  # noqa: E402
 from muse_tmr.presets import preset_gate_thresholds, preset_provides_optics  # noqa: E402
@@ -88,11 +100,61 @@ GAP_FILL_THRESHOLD_SECONDS = 0.5
 DEFAULT_EOG = {"gssc": "none", "yasa": "AF8"}
 KAPPA_DEFINITION = "binary REM-vs-not κ against an automated stager; not five-class"
 
+# The enter/exit grid: enter 0.70 to 0.95, exit 0.45 up to enter, in steps of 0.05. It
+# holds the historical 0.70/0.45 and both preset pairs (0.90/0.85, 0.80/0.70).
+GRID_ENTER_THRESHOLDS = tuple(round(0.70 + 0.05 * step, 2) for step in range(6))
+GRID_LOWEST_EXIT = 0.45
+
+
+def parse_weights(text: str) -> Dict[str, float]:
+    """``--weights name=w,name=w`` as {name: w}; names from DEFAULT_REM_WEIGHTS, w >= 0."""
+    overrides: Dict[str, float] = {}
+    for item in text.split(","):
+        if not item.strip():
+            continue
+        name, separator, value = (part.strip() for part in item.partition("="))
+        if not separator or not name:
+            raise argparse.ArgumentTypeError(f"expected name=weight, got {item.strip()!r}")
+        if name not in DEFAULT_REM_WEIGHTS:
+            raise argparse.ArgumentTypeError(
+                f"unknown weight {name!r}; known: {', '.join(DEFAULT_REM_WEIGHTS)}"
+            )
+        if name in overrides:
+            raise argparse.ArgumentTypeError(f"{name} is given twice")
+        try:
+            weight = float(value)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"weight for {name} is not a number: {value!r}") from None
+        if not math.isfinite(weight) or weight < 0:
+            raise argparse.ArgumentTypeError(f"weight for {name} must be a number >= 0")
+        overrides[name] = weight
+    if not overrides:
+        raise argparse.ArgumentTypeError("--weights needs at least one name=weight")
+    return overrides
+
+
+def resolve_weights(overrides: Optional[Mapping[str, float]]) -> Dict[str, float]:
+    """The detector weights for this run: DEFAULT_REM_WEIGHTS as they are without
+    overrides; with them, the defaults updated and divided by their sum, so they add up
+    to 1 like the defaults and the 0.40 limited-feature threshold keeps its meaning."""
+    if not overrides:
+        return dict(DEFAULT_REM_WEIGHTS)
+    weights = dict(DEFAULT_REM_WEIGHTS)
+    weights.update(overrides)
+    total = sum(weights.values())
+    if total <= 0:
+        raise SystemExit("--weights leaves every weight at 0")
+    return {name: weight / total for name, weight in weights.items()}
+
 
 # --------------------------------------------------------------------------- #
 # One replay pass: heuristic p_rem per epoch AND continuous EEG for the stager
 # --------------------------------------------------------------------------- #
-async def _collect(recording_dir: Path, epoch_seconds: float) -> Dict[str, object]:
+async def _collect(
+    recording_dir: Path,
+    epoch_seconds: float,
+    weights: Optional[Mapping[str, float]] = None,
+) -> Dict[str, object]:
     """Single pass over raw_amused.bin.
 
     Feeds every MuseFrame to the EpochBuilder (-> heuristic p_rem per epoch)
@@ -102,6 +164,7 @@ async def _collect(recording_dir: Path, epoch_seconds: float) -> Dict[str, objec
     BLE-dropout / AF7-loss gap: array position then maps to real elapsed time and
     YASA epoch j covers real [t0 + j*30, ...). Without the fill, a mid-night gap
     would slide every later YASA epoch earlier and mispair the two grids.
+    ``weights`` replaces the detector's DEFAULT_REM_WEIGHTS (see resolve_weights).
     """
     channels: Dict[str, array] = {name: array("f") for name in EEG_CHANNELS}
     state: Dict[str, Optional[float]] = {"t0": None, "t_last": None, "n": 0, "prev_ts": None, "prev_width": 0}
@@ -144,7 +207,9 @@ async def _collect(recording_dir: Path, epoch_seconds: float) -> Dict[str, objec
 
     session = ReplaySession(ReplayConfig(input_path=recording_dir, speed=0.0))
     await session.connect()
-    detector = HeuristicRemDetector()
+    detector = HeuristicRemDetector(
+        None if weights is None else HeuristicRemConfig(weights=dict(weights))
+    )
     rem_tracker = new_rem_event_tracker()
     builder = EpochBuilder(EpochConfig(epoch_seconds=epoch_seconds, stride_seconds=epoch_seconds))
     predictions: List[Tuple[float, RemPrediction]] = []
@@ -168,8 +233,12 @@ async def _collect(recording_dir: Path, epoch_seconds: float) -> Dict[str, objec
     }
 
 
-def collect(recording_dir: Path, epoch_seconds: float) -> Dict[str, object]:
-    return asyncio.run(_collect(recording_dir, epoch_seconds))
+def collect(
+    recording_dir: Path,
+    epoch_seconds: float,
+    weights: Optional[Mapping[str, float]] = None,
+) -> Dict[str, object]:
+    return asyncio.run(_collect(recording_dir, epoch_seconds, weights))
 
 
 def resample_for_stager(channels: Dict[str, np.ndarray], sfreq: float, target: float = 100.0) -> Tuple[Dict[str, np.ndarray], float]:
@@ -286,8 +355,11 @@ def build_provenance(
     exit_threshold: float,
     resample_hz: float,
     epoch_seconds: float,
+    weights: Optional[Mapping[str, float]] = None,
+    weight_overrides: Optional[Mapping[str, float]] = None,
 ) -> Dict[str, object]:
-    """What produced these metrics: command, versions, channels, thresholds, stager.
+    """What produced these metrics: command, versions, channels, thresholds, detector
+    weights (``weight_overrides`` as given to --weights, ``weights`` as used), stager.
 
     The stager versions come from the ``stager`` block the stager script writes into
     its hypnogram JSON, since it runs in its own venv. They are None when the
@@ -311,6 +383,8 @@ def build_provenance(
         "preset": preset,
         "enter_threshold": float(enter_threshold),
         "exit_threshold": float(exit_threshold),
+        "weights": {name: float(w) for name, w in (weights or DEFAULT_REM_WEIGHTS).items()},
+        "weight_overrides": {name: float(w) for name, w in (weight_overrides or {}).items()},
         "eeg": eeg,
         "eog": eog_channel,
         "channels_not_passed": [name for name in EEG_CHANNELS if name not in passed],
@@ -392,6 +466,99 @@ def best_f1_threshold(y_true: np.ndarray, scores: np.ndarray) -> Tuple[float, Di
     return best_thr, best
 
 
+def feature_columns(predictions: Sequence[RemPrediction]) -> Dict[str, np.ndarray]:
+    """The per-epoch score_<name> and value_<name> columns, NaN where an epoch lacks one."""
+    rows = [
+        {
+            **{f"score_{name}": value for name, value in pred.feature_scores.items()},
+            **{f"value_{name}": value for name, value in pred.feature_values.items()},
+        }
+        for pred in predictions
+    ]
+    names = sorted({name for row in rows for name in row})
+    return {
+        name: np.array([_as_float(row.get(name)) for row in rows], dtype=float)
+        for name in names
+    }
+
+
+def _as_float(value: object) -> float:
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return float("nan")
+
+
+def feature_metrics(columns: Mapping[str, np.ndarray], y_true: np.ndarray) -> Dict[str, Dict[str, object]]:
+    """ROC-AUC against the reference's REM, min, max and count of finite values per column.
+
+    Epochs where a column is NaN are left out of its numbers. ``saturated`` means every
+    finite value is the same, so the column cannot rank epochs at all, as the
+    eye-movement proxy on a real night (#116). An AUC below 0.5 means the column runs
+    against REM. score_* columns come first.
+    """
+    metrics: Dict[str, Dict[str, object]] = {}
+    for name in sorted(columns, key=lambda column: (not column.startswith("score_"), column)):
+        values = np.asarray(columns[name], dtype=float)
+        finite = np.isfinite(values)
+        count = int(finite.sum())
+        if count:
+            low, high = float(values[finite].min()), float(values[finite].max())
+            auc = roc_auc(y_true[finite], values[finite])
+        else:
+            low = high = auc = float("nan")
+        metrics[name] = {
+            "n": count,
+            "auc": auc,
+            "min": low,
+            "max": high,
+            "saturated": bool(count and low == high),
+        }
+    return metrics
+
+
+def grid_exit_thresholds(enter_threshold: float) -> Tuple[float, ...]:
+    steps = int(round((enter_threshold - GRID_LOWEST_EXIT) / 0.05))
+    return tuple(round(GRID_LOWEST_EXIT + 0.05 * step, 2) for step in range(steps + 1))
+
+
+def gate_grid(
+    predictions: Sequence[RemPrediction],
+    matched_positions: Sequence[int],
+    y_true: np.ndarray,
+    epoch_seconds: float,
+    *,
+    optics_capable: bool,
+    preset_pair: Tuple[float, float],
+) -> List[Dict[str, object]]:
+    """The real StableRemGate for every enter/exit pair of the grid, over the whole p_rem
+    series, scored on the matched epochs: gate-open fraction, REM recall and precision
+    (with F1 and κ) against the reference."""
+    rows: List[Dict[str, object]] = []
+    for enter in GRID_ENTER_THRESHOLDS:
+        for exit_ in grid_exit_thresholds(enter):
+            opened = simulate_gate(
+                predictions, epoch_seconds, optics_capable=optics_capable,
+                enter_threshold=enter, exit_threshold=exit_,
+            )
+            g = np.array([1 if opened[i] else 0 for i in matched_positions], dtype=int)
+            m = binary_metrics(y_true, g)
+            rows.append(
+                {
+                    "enter": enter,
+                    "exit": exit_,
+                    "preset_pair": (enter, exit_) == tuple(round(t, 2) for t in preset_pair),
+                    "gate_open_epochs": int(g.sum()),
+                    "gate_open_fraction": float(g.mean()) if g.size else float("nan"),
+                    "recall": m["recall"],
+                    "precision": m["precision"],
+                    "f1": m["f1"],
+                    "kappa": m["kappa"],
+                }
+            )
+    return rows
+
+
 # --------------------------------------------------------------------------- #
 # Orchestration
 # --------------------------------------------------------------------------- #
@@ -417,10 +584,18 @@ def run(
     reference: str = "yasa",
     dump_epochs: Optional[Path] = None,
     argv: Optional[Sequence[str]] = None,
+    weight_overrides: Optional[Mapping[str, float]] = None,
 ) -> Dict[str, object]:
     eog = resolve_eog(reference, eog)
+    weights = resolve_weights(weight_overrides)
     print(f"[1/4] replaying {recording_dir.name}: heuristic p_rem + EEG reconstruction ...", flush=True)
-    collected = collect(recording_dir, epoch_seconds)
+    if weight_overrides:
+        print(
+            "      detector weights: "
+            + ", ".join(f"{name}={weight:.3f}" for name, weight in weights.items()),
+            flush=True,
+        )
+    collected = collect(recording_dir, epoch_seconds, weights=weights if weight_overrides else None)
     t0 = float(collected["t0"])
     sfreq = float(collected["sfreq"])
     channels: Dict[str, np.ndarray] = collected["channels"]  # type: ignore[assignment]
@@ -480,18 +655,22 @@ def run(
         exit_threshold=exit_thr,
         resample_hz=stage_sfreq,
         epoch_seconds=epoch_seconds,
+        weights=weights,
+        weight_overrides=weight_overrides,
     )
     hypno_by_index = {int(e["epoch"]): e for e in hypno["epochs"]}
     print(f"      staged {len(hypno_by_index)} epochs; {hypno.get('stage_counts')}", flush=True)
 
     print("[4/4] aligning epochs and computing metrics ...", flush=True)
     matched = []
+    matched_positions = []
     epoch_rows = []
-    for (start, pred), opened in zip(predictions, gate_open):
+    for position, ((start, pred), opened) in enumerate(zip(predictions, gate_open)):
         k = round((start - t0) / epoch_seconds)
         ref = hypno_by_index.get(k)
         if ref is None:
             continue
+        matched_positions.append(position)
         ref_rem = 1 if ref["stage"] in REM_STAGES else 0
         matched.append(
             {
@@ -559,6 +738,13 @@ def run(
             "preset": preset,
         },
         "threshold_sweep": threshold_sweep(y, p),
+        "feature_metrics": feature_metrics(
+            feature_columns([preds_only[i] for i in matched_positions]), y
+        ),
+        "gate_grid": gate_grid(
+            preds_only, matched_positions, y, epoch_seconds,
+            optics_capable=optics_capable, preset_pair=(enter_thr, exit_thr),
+        ),
         "matched": matched,
     }
     return result
@@ -651,6 +837,9 @@ def print_summary(result: Dict[str, object]) -> None:
     provenance = result.get("provenance")
     if provenance:
         print(f"stager: {stager_label(provenance)}")
+        if provenance.get("weight_overrides"):
+            weights = provenance.get("weights") or {}
+            print("detector weights (--weights): " + ", ".join(f"{k}={v:.3f}" for k, v in weights.items()))
     print("-" * 78)
     for label, m in tm.items():
         print(f"  p_rem >= {label:<14} {_fmt(m)}")
@@ -667,9 +856,51 @@ def print_summary(result: Dict[str, object]) -> None:
         f"    gate opened on {gate['gate_open_epochs']} epochs "
         f"({gate['gate_open_minutes']} min).  vs {tool}-REM: {_fmt(gate)}"
     )
+    features = result.get("feature_metrics") or {}
+    if features:
+        print("-" * 78)
+        print(f"  PER FEATURE vs {tool}-REM (AUC < 0.5 runs against REM; saturated = one value in every epoch):")
+        print(f"    {'column':<34} {'n':>5} {'AUC':>6} {'min':>9} {'max':>9}")
+        for name, m in features.items():
+            flag = "  saturated" if m["saturated"] else ""
+            print(
+                f"    {name:<34} {m['n']:>5} {_num(m['auc'], 6, 3)} "
+                f"{_num(m['min'], 9, 3)} {_num(m['max'], 9, 3)}{flag}"
+            )
+    grid = result.get("gate_grid") or []
+    if grid:
+        print("-" * 78)
+        print("  ENTER/EXIT GRID of the gate over p_rem, on the matched epochs (* = this preset's pair):")
+        _print_grid(grid, "gate open, % of epochs", "gate_open_fraction", 100.0, 0)
+        _print_grid(grid, f"REM recall vs {tool}", "recall", 1.0, 2)
+        _print_grid(grid, f"REM precision vs {tool}", "precision", 1.0, 2)
     print("-" * 78)
     print(REFERENCE_CAVEATS.get(tool.lower(), REFERENCE_CAVEATS["yasa"]))
     print("=" * 78 + "\n")
+
+
+def _num(value: object, width: int, decimals: int) -> str:
+    if isinstance(value, float) and not math.isfinite(value):
+        return f"{'n/a':>{width}}"
+    return f"{float(value):>{width}.{decimals}f}"  # type: ignore[arg-type]
+
+
+def _print_grid(grid: Sequence[Mapping[str, object]], title: str, key: str, scale: float, decimals: int) -> None:
+    exits = sorted({float(row["exit"]) for row in grid})  # type: ignore[arg-type]
+    print(f"    {title}")
+    print("    enter\\exit " + "".join(f"{x:>6.2f} " for x in exits).rstrip())
+    for enter in sorted({float(row["enter"]) for row in grid}):  # type: ignore[arg-type]
+        cells = {float(row["exit"]): row for row in grid if float(row["enter"]) == enter}  # type: ignore[arg-type]
+        line = ""
+        for x in exits:
+            row = cells.get(x)
+            if row is None:
+                line += " " * 7
+                continue
+            value = float(row[key]) * scale  # type: ignore[arg-type]
+            text = "n/a" if not math.isfinite(value) else f"{value:.{decimals}f}"
+            line += f"{text:>6}{'*' if row['preset_pair'] else ' '}"
+        print(f"    {enter:>10.2f} {line}".rstrip())
 
 
 def main() -> int:
@@ -717,6 +948,14 @@ def main() -> int:
         help="Write a per-epoch CSV (p_rem, feature sub-scores/values, reason codes, "
         "reference stage) for calibration analysis.",
     )
+    parser.add_argument(
+        "--weights",
+        type=parse_weights,
+        default=None,
+        help="Replay with other detector weights, e.g. theta_alpha_ratio=0,rem_event_density=0.2. "
+        "The weights not named keep their DEFAULT_REM_WEIGHTS value, then all are divided by "
+        "their sum. For trying a refit; the pilots always use the defaults.",
+    )
     args = parser.parse_args()
 
     if args.epoch_seconds != 30.0:
@@ -740,6 +979,7 @@ def main() -> int:
     result = run(
         recording_dir, args.eeg, args.eog, reference_python, args.epoch_seconds,
         args.preset, args.reference, args.dump_epochs,
+        weight_overrides=args.weights,
     )
     print_summary(result)
 

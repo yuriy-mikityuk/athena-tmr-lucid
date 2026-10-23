@@ -8,7 +8,7 @@ import muse_athena_protocol as proto
 from muse_raw_stream import MuseRawStream
 from muse_tmr.data.replay import ReplayConfig, ReplaySession
 from muse_tmr.data.sample_types import EEGSample, HeartRateSample, IMUSample, MuseFrame, PPGSample
-from muse_tmr.features.epochs import EpochBuilder, EpochConfig
+from muse_tmr.features.epochs import EpochBuilder, EpochConfig, epoch_step_seconds
 from muse_tmr.features.sleep_feature_extractor import EpochBuilder as CoordinatorEpochBuilder
 
 
@@ -124,6 +124,21 @@ class TestEpochBuilder(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([epoch.start_time for epoch in epochs], [1000.0, 1010.0, 1020.0, 1030.0])
         self.assertTrue(all(epoch.frame_count == 30 for epoch in epochs))
 
+    async def test_overlapping_epochs_step_by_the_stride_not_their_length(self):
+        frames = [frame_at(1_700_000_000.25 + second) for second in range(90)]
+        builder = EpochBuilder(EpochConfig(epoch_seconds=30, stride_seconds=10))
+
+        epochs = [epoch async for epoch in builder.build(async_frames(frames))]
+        steps = []
+        previous = None
+        for epoch in epochs:
+            steps.append(epoch_step_seconds(epoch.start_time, previous, 10.0))
+            previous = epoch.start_time
+
+        self.assertEqual(len(epochs), 7)
+        self.assertEqual(steps, [10.0] * 7)
+        self.assertTrue(all(epoch.duration_seconds == 30.0 for epoch in epochs))
+
     async def test_missing_modalities_are_quality_flags_not_errors(self):
         frames = [
             frame_at(
@@ -202,6 +217,30 @@ class TestEpochConfig(unittest.TestCase):
 
         self.assertNotIn("frames", payload)
         self.assertEqual(payload["frame_count"], 1)
+
+
+class TestEpochStepSeconds(unittest.TestCase):
+    def test_first_epoch_counts_one_stride(self):
+        self.assertEqual(epoch_step_seconds(1000.0, None, 10.0), 10.0)
+        self.assertEqual(epoch_step_seconds(1000.0, None, 30.0), 30.0)
+
+    def test_later_epochs_count_the_time_since_the_previous_start(self):
+        self.assertEqual(epoch_step_seconds(1010.0, 1000.0, 10.0), 10.0)
+        self.assertEqual(epoch_step_seconds(1040.0, 1010.0, 10.0), 30.0)
+
+    def test_float_error_in_the_starts_is_rounded_away(self):
+        self.assertEqual(epoch_step_seconds(30.0 + 0.3, 0.1 + 0.2, 30.0), 30.0)
+        self.assertEqual(epoch_step_seconds(1_700_000_030.0000002, 1_700_000_000.0, 30.0), 30.0)
+
+    def test_start_times_must_increase(self):
+        with self.assertRaises(ValueError):
+            epoch_step_seconds(1000.0, 1000.0, 30.0)
+        with self.assertRaises(ValueError):
+            epoch_step_seconds(990.0, 1000.0, 30.0)
+
+    def test_stride_must_be_positive(self):
+        with self.assertRaises(ValueError):
+            epoch_step_seconds(1000.0, None, 0.0)
 
 
 if __name__ == "__main__":
