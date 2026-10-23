@@ -70,6 +70,8 @@ def run_fast_tests():
         'tests.test_line_check',
         'tests.test_docs_wording',
         'tests.test_rem_validation_provenance',
+        'tests.test_synthetic_night',
+        'tests.test_rem_metrics',
     ]
     
     for module in fast_modules:

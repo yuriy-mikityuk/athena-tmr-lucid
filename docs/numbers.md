@@ -69,6 +69,23 @@ Status words used below:
 | App: session on `p1034` up to 1 h, night on `p21` for 8 h; a start waits for 5 s of good contact on all four channels | README, `USAGE.md`, `contact_setup_local_app.md`, CHANGELOG | `src/muse_tmr/app/server.py`; `required_stability_seconds` in `src/muse_tmr/contact.py` | code |
 | App: recorder heartbeat stale after 10 s, stop grace 5 s (50 s with the H10), update check every 120 s, binds `127.0.0.1:8765` | `contact_setup_local_app.md`, `architecture.md` | `src/muse_tmr/app/server.py`, `src/muse_tmr/app/auto_update.py` | code |
 
+## Synthetic nights
+
+The defaults of `SyntheticNightConfig` and `script_night()` in `src/muse_tmr/testing/synthetic.py` and the scenarios in `src/muse_tmr/testing/scenarios.py` ([#233](https://github.com/yuriy-mikityuk/remind-eeg/issues/233)). Everything measured on these nights is synthetic input, not sleep.
+
+| Figure | Quoted in | Source | Status |
+|---|---|---|---|
+| Notifications 29.03 a second, each with the subpackets made since the one before, at most 244 bytes | `data_model.md`, (config dataclass) | 835,926 notifications over 7.998 h on the completed `p21` night of #108; 244 bytes is the longest notification in `tests/test_data/muse_20250824_172756.bin` | code; the rate from measured, n = 1, GitHub only |
+| Lost subpackets 888 of 90,011 EEG and 169 of 44,950 optics; 43 repeated EEG subpackets in 23 min, about 111 an hour; no IMU losses | (config dataclass) | #160 | code; from measured, n = 1, GitHub only. The generator repeats whole notifications as often as gives that many repeated EEG subpackets, so their IMU, optics and battery subpackets repeat too. IMU losses were not measured |
+| BLE gaps 0.25 an hour, 0.5 to 1.5 s each | (config dataclass) | assumption; the completed night of #108 had 2 reconnects with about 3 s of downtime | code; not measured as gaps |
+| Battery 10.60 %/h on `p21` and 23.34 %/h on `p1034`; `battery_death_2h29` starts at 57.96 % so it empties after 2 h 29 min | (config dataclass), `scenarios.py` | #108 | code; from measured, n = 1, GitHub only |
+| EEG µV RMS per stage (1/f background, delta, theta, alpha, EMG): W 10, 2, 3, 12, 4; N1 12, 4, 6, 4, 2; N2 14, 10, 4, 2, 1.5; N3 16, 30, 3, 1.5, 1; R 10, 3, 8, 2, 0.5. Spindles 4 a minute in N2, 10 to 25 µV. Blinks 6 a minute in W, 100 to 200 µV | (config dataclass) | assumption; the 10 to 20 µV background as #233 asks | code; not measured |
+| Eye-movement deflections in R: 20 to 60 µV, 0.3 to 1.5 s, 4 to 12 a minute, AF8 0.8 to 1.0 of AF7 with the opposite sign | (config dataclass) | #233 and the fixture of #225 (`tests/rem_event_synthetic.py`) | code; assumption, not measured |
+| Optics line 63.93 Hz at 20 to 40 µV on AF7 and 0.6 of that on AF8, on optics presets only | (config dataclass) | #154 (up to about 40 µV on AF7) | code |
+| Heart rate per stage W 66, N1 62, N2 58, N3 56, R 63 bpm, 8 to 18 bpm higher after an arousal with movement and half that without; pulse 1.2 % of the optics level on the inner channels, 0.3 % on the outer | (config dataclass) | assumption | code; not measured |
+| Hypnogram: 5 to 10 min awake, then as many sleep cycles of 90 to 110 min as the night holds (none under 70 min, at most 5); REM 12, 20, 25, 30 and 33 % and N3 30, 22, 10, 4 and 0 % of cycles 1 to 5; 8 arousals per hour of sleep, 40 % with movement | `script_night()` | assumption, from the usual adult night | code |
+| About 12 MB an hour on `p21` (96.5 MB for the 8 h `clean_night`) and 17 MB an hour on `p1034` (2.9 MB for the 10 min `short_allow_short`), whose battery lasts about 4.3 h | `scenarios.py` | one generation of each on 2026-10-24 | measured once, synthetic input |
+
 ## Repository counts and tests
 
 | Figure | Quoted in | Source | Status |

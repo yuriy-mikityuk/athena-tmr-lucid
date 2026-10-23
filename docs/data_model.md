@@ -106,6 +106,59 @@ under `source_diagnostics.decoder`.
 `raw_amused.bin` keeps every notification as received, so replaying an older recording
 applies the same rule.
 
+## Synthetic Recordings
+
+`muse_tmr.testing.synthetic.generate_night()` writes a recording directory from a seed and
+a `SyntheticNightConfig`, or from one of the scenarios in `muse_tmr.testing.scenarios`
+(`clean_night`, `fragmented_rem`, `no_rem_nap`, `battery_death_2h29`, `optics_line`,
+`bad_contact_af7`, `movement_heavy`, `short_allow_short`, each with an `hours` override).
+Synthetic input, not sleep: the stage signals are assumptions, and nothing measured on
+these nights is evidence of REM accuracy. The same seed and config give the same bytes.
+Generated nights go to a temporary directory or the gitignored `data/synthetic/`.
+
+The directory holds what `muse-tmr record` writes, without `decoded_frames.jsonl` and
+`progress.json`:
+
+- `raw_amused.bin` in the format above, written with `MuseRawStream.write_packet`; the
+  header holds a fixed start, 2026-01-14 23:00 UTC. Byte 0 of each notification is its
+  length and byte 1 a running count; a notification is at most 244 bytes. Notifications
+  leave 29.03 times a second, each with the subpackets made since the one before, in the
+  order they were made. Some subpackets are lost, some notifications arrive twice and
+  short BLE gaps lose everything in them, as `SyntheticNightConfig` says.
+- `metadata.json`: `source.source_name` is `synthetic` and `source.metadata.preset` the
+  preset (`p21` or `p1034`); top level `synthetic: true`, `note`, `scenario` and `seed`.
+- `events.jsonl`: `recording_started` and `recording_stopped` with the stop reason;
+  timestamps are seconds from the start.
+- `summary.json`: every `RecordingSummary` field, so `validate-pilot1-recording` reads it
+  as it is, plus `synthetic` and `note`. `decoded_frames_path` is empty and
+  `decoded_frame_count` is 0. `modality_counts` counts the `eeg`, `imu`, `ppg` and
+  `battery` frames from the packet layout; `heart_rate`, which the decoder derives from
+  PPG peaks during replay, is not counted. `stop_reason` is `source_ended` when the
+  battery empties before the night ends.
+
+The ground truth next to it, which no pipeline step reads:
+
+| File | Content |
+| ---- | ------- |
+| `hypnogram.csv` | `epoch`, `start_s`, `end_s`, `stage` (`W`, `N1`, `N2`, `N3`, `R`), one row per 30 s epoch. |
+| `arousals.csv` | `onset_s`, `duration_s`, `stage` of the epoch it starts in, `movement` (1 with an IMU burst), `position_change` (1 when the head ends up in another position). |
+| `rem_events.csv` | Each eye-movement deflection: `onset_s`, `duration_s`, `epoch`, `amplitude_uv` of the AF7 lobe, `af8_ratio` (AF8 carries minus that share of it) and `sign` of the first AF7 lobe. All of them lie inside R epochs. |
+| `generation.json` | `synthetic`, `note`, `seed`, `scenario`, `preset`, the whole `config`, `duration_seconds`, `stop_reason`, `hypnogram` (stage counts, REM periods), `events` (counts), `line_uv`, `battery`, `ble` and `files`, the bytes and sha256 of every file but `summary.json`, which holds absolute paths. |
+
+`ble` is what the decoder should report: `notifications`, `repeated_notifications`,
+`frames` (both), the `gaps`, `frames_with` per modality and, per sensor type, the
+subpackets `produced`, `delivered`, `lost`, `lost_in_gaps` and `repeated` and the sample
+`rows` delivered. The decoder's `lost_subpackets` is `lost` plus `lost_in_gaps` and its
+`repeated_subpackets` is `repeated`. Times in the CSV files are seconds from the start;
+replayed frames carry the Unix time of the fixed start plus that.
+
+`muse_tmr.testing.agreement` scores gate decisions against `hypnogram.csv`: binary κ,
+REM recall and precision of the gate, gate-open fraction and, per REM period, the
+seconds to the first open gate, all from `muse_tmr.validation.rem_metrics`. Its output
+carries `"synthetic": true` and the note. The numbers show whether the replay, detector
+and gate path still behaves the same on the same input; no detector weight or threshold
+is fitted to them.
+
 ## Polar H10 Raw Notifications
 
 `muse-tmr record-polar` writes `<session_dir>/polar/raw_notifications.jsonl`, one JSON
