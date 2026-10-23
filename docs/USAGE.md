@@ -186,7 +186,18 @@ rows = extract_eeg_feature_rows(epochs)
 export_eeg_feature_rows(rows, Path("data/reports/eeg_features.csv"))
 ```
 
-EEG rows include band powers for delta/theta/alpha/beta/gamma, relative powers, theta-alpha and slow-fast ratios, frontal/posterior asymmetry, a frontal eye-movement proxy, and artifact flags. CSV export is always available; Parquet export uses the installed pandas Parquet engine when available.
+EEG rows include band powers for delta/theta/alpha/beta/gamma, relative powers, theta-alpha and slow-fast ratios, frontal/posterior asymmetry, the deprecated frontal eye-movement proxy, REM events on the band-passed AF7-AF8 difference (`rem_event_count`, `rem_density_per_min`, `last_rem_event_age_s`, `rem_burst_active`, `rem_event_times`, `rem_event_threshold_uv`, `rem_event_warmup`), and artifact flags. CSV export is always available; Parquet export uses the installed pandas Parquet engine when available.
+
+The REM-event fields come from one `RemEventTracker` that carries its filter and running threshold from epoch to epoch, so pass all epochs of a recording in one `extract_eeg_feature_rows()` call, or keep a tracker yourself:
+
+```python
+from muse_tmr.features import extract_eeg_features, new_rem_event_tracker
+
+tracker = new_rem_event_tracker()
+rows = [extract_eeg_features(epoch, rem_tracker=tracker) for epoch in epochs]
+```
+
+How the events are found and what the defaults are: `docs/data_model.md`. They are starting values, not fitted on any night (#225).
 
 ## Feature extraction: IMU
 
@@ -227,12 +238,11 @@ from muse_tmr.models import HeuristicRemDetector
 
 detector = HeuristicRemDetector()
 
-for epoch in epochs:
-    prediction = detector.predict_epoch(epoch)
+for epoch, prediction in zip(epochs, detector.predict_epochs(epochs)):
     print(epoch.index, prediction.probability, prediction.reason_codes)
 ```
 
-`prediction.probability` is `P_REM` in the 0-1 range. The heuristic detector is a non-ML baseline over EEG, IMU, and PPG/HR feature rows. It returns reason codes and feature scores only; it does not play audio or make cue decisions. Its weights are `DEFAULT_REM_WEIGHTS` in `muse_tmr.models.heuristic_rem_detector`; the eye-movement proxy is still scored but weighted 0, because it is saturated on real nights (#116, #225). The weights and why: `docs/data_model.md`.
+`prediction.probability` is `P_REM` in the 0-1 range. The heuristic detector is a non-ML baseline over EEG, IMU, and PPG/HR feature rows. It returns reason codes and feature scores only; it does not play audio or make cue decisions. Its weights are `DEFAULT_REM_WEIGHTS` in `muse_tmr.models.heuristic_rem_detector`; the eye-movement proxy is still scored but weighted 0, because it is saturated on real nights (#116, #225). Its replacement, `rem_event_density`, is scored and exported with the reason codes `eeg_rem_events_support`/`eeg_rem_events_low`, also at weight 0 until it is fitted on real nights. `predict_epochs()` runs one REM-event tracker over all its epochs; when you call `predict_epoch()` per epoch, pass `rem_tracker=` the same `new_rem_event_tracker()` each time. The weights and why: `docs/data_model.md`.
 
 ## Manual REM annotation templates
 
@@ -241,7 +251,7 @@ muse-tmr annotate-template data/recordings/<session> \
   --output data/annotations/<session>_rem_labels.csv
 ```
 
-The template overlays each epoch with `P_REM`, reason codes, and feature columns. The default label is `unknown`; manually edit labels to `wake`, `nrem`, or `probable_rem` before using them for training.
+The template overlays each epoch with `P_REM`, reason codes, and feature columns, including `feature_score_rem_event_density` and the `feature_value_rem_event_*` columns from one REM-event tracker over the whole recording; the first epochs carry `feature_value_rem_event_warmup` 1. The default label is `unknown`; manually edit labels to `wake`, `nrem`, or `probable_rem` before using them for training. Templates written before these columns existed still load.
 
 ## Personal REM classifier
 

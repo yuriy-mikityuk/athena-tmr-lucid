@@ -155,12 +155,55 @@ Current EEG features include:
 - theta/alpha, delta/beta, and slow/fast ratios
 - frontal and posterior alpha asymmetry
 - frontal theta asymmetry
-- a simple frontal eye-movement proxy from AF7-AF8 changes (kept as a column, weighted 0
-  in the heuristic detector, see below)
+- a simple frontal eye-movement proxy from AF7-AF8 changes (deprecated: kept as a column
+  so older CSVs and model artifacts load, weighted 0 in the heuristic detector, see below)
+- REM events on the band-passed AF7-AF8 difference: `rem_event_count`,
+  `rem_density_per_min`, `last_rem_event_age_s`, `rem_burst_active`, `rem_event_times`,
+  `rem_event_threshold_uv` and `rem_event_warmup` (see below)
 - artifact flags for missing EEG, low coverage, flatline, clipping, and non-finite channels
 
 Feature rows carry epoch timing, channel counts, sample counts, coverage, and quality
 flags so downstream REM detectors can filter noisy epochs before inference.
+
+### REM events
+
+`muse_tmr.features.rem_event_features.RemEventTracker` counts eye-movement deflections
+on AF7 - AF8 (#225). Horizontal eye movements reach AF7 and AF8, both referenced near
+Fpz, with opposite polarity and add up in the difference; blinks and frontal slow waves
+are in phase on the two sites and mostly cancel there. The tracker is causal and keeps
+its state between epochs, so a run needs one tracker for the whole session:
+`extract_eeg_feature_rows()`, `HeuristicRemDetector.predict_epochs()`,
+`annotate-template`, `simulate-replay-cues`, `run-pilot4-cueing`,
+`run-pilot5-full-night` and `scripts/validate_rem_detection.py` each make one.
+`extract_eeg_features(epoch)` on its own gets a fresh tracker, which has no threshold for
+the epoch's first 7.5 s and stays in warm-up; pass `rem_tracker=new_rem_event_tracker()`
+to keep one across calls.
+
+- The difference is filtered to 0.3-5 Hz: a first-order high-pass, so a saccade decays
+  without ringing, and a fourth-order low-pass, which takes the 40 µV optics line at
+  about 64 Hz (#154) below 0.001 µV, so no line removal runs first.
+- The threshold is `max(5 × MAD, 10 µV)`, with the MAD of the filtered difference over
+  the last 5 min, refreshed every second from earlier samples only.
+  `rem_event_threshold_uv` is its value at the end of the epoch and `rem_event_warmup`
+  is true until the MAD covers 60 s.
+- A stretch of one sign that clears the threshold starts an event; the next stretch
+  joins it when it follows within 0.25 s with the other sign, so a deflection and its
+  return count once and a saccade that stays out counts on its own. An event counts
+  when it is 0.3-1.5 s wide at half its peak and, with the blink veto on, when
+  (AF7 + AF8) / 2 carries no more power than the difference over those samples. An
+  after-swing below half the event's peak does not count.
+- An epoch counts the events confirmed inside it; `rem_event_times` are their peak
+  times in the stream's clock. `rem_density_per_min` is per minute the tracker actually
+  read, and all of these are NaN when AF7 or AF8 is missing or flagged bad, or was read
+  for less than half the epoch. `rem_burst_active` means at least 2 events in the last
+  10 s; `last_rem_event_age_s` counts from the last one.
+- A gap of more than 0.5 s in the frame clock or in `EEGSample.gaps`, a frame without
+  AF7 or AF8, or a non-finite sample restarts the filter, which then needs 2.5 s.
+
+These are starting values in `RemEventConfig`, not fitted on any night. The feature is a
+supporting term, not a REM detector of its own: blinks (wake, N1) and frontal slow waves
+(N3) share the band, a slow pendular movement lasting a few seconds can still count, and
+the reference near Fpz attenuates horizontal EOG.
 
 ## IMU Feature Rows
 
@@ -225,6 +268,15 @@ earlier weights divided by 0.75, so they still sum to 1 and a prediction with le
 0.40 of the weight available still gets `limited_feature_support` and the 0.55 cap; an
 EEG and IMU epoch on `p21` has 0.80. The weights are set by hand; the refit waits for
 REM-bearing `p21` nights (#225).
+
+`rem_event_density`, the proxy's replacement, is scored from `rem_density_per_min`
+between `rem_event_density_min` 1 and `rem_event_density_strong` 6 events per minute,
+with the reason codes `eeg_rem_events_support` and `eeg_rem_events_low`, and exported as
+`feature_values` `rem_event_density`, `rem_event_count`, `rem_event_threshold_uv` and
+`rem_event_warmup` (1 or 0). Its weight in `DEFAULT_REM_WEIGHTS` is 0 and both thresholds
+are UNFITTED starting values, so it does not move `P_REM` until it has been fitted on
+real nights; it is never fitted on synthetic data. An epoch whose REM-event fields are
+NaN gets no score and no reason code for it.
 
 The REM detector does not play audio and does not return `CueDecision`. Stable gates,
 cooldowns, arousal guards, and cue scheduling remain separate downstream layers.

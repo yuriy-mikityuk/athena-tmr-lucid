@@ -13,6 +13,11 @@ from scipy.integrate import trapezoid
 from scipy.signal import welch
 
 from muse_tmr.features.epochs import SleepEpoch
+from muse_tmr.features.rem_event_features import (
+    RemEventConfig,
+    RemEventSummary,
+    RemEventTracker,
+)
 
 EEG_BANDS = {
     "delta": (0.5, 4.0),
@@ -48,6 +53,16 @@ class EEGFeatureConfig:
 
 @dataclass(frozen=True)
 class EEGFeatureRow:
+    """One epoch's EEG features.
+
+    ``eye_movement_proxy`` is deprecated: it saturates on real nights (#116) and stays
+    only so older CSVs and model artifacts load. The ``rem_*`` fields come from
+    ``RemEventTracker`` on the band-passed AF7 - AF8 difference; they are NaN when AF7 or
+    AF8 is missing or flagged bad, or was read for less than half the epoch, and
+    ``rem_event_warmup`` is true while the tracker's running MAD covers less than
+    ``RemEventConfig.warmup_seconds``.
+    """
+
     epoch_index: int
     start_time: float
     end_time: float
@@ -65,6 +80,13 @@ class EEGFeatureRow:
     channel_diagnostics: Mapping[str, Mapping[str, float]] = field(default_factory=dict)
     bad_channels: Tuple[str, ...] = ()
     usable_channel_count: int = 0
+    rem_event_count: float = math.nan
+    rem_density_per_min: float = math.nan
+    last_rem_event_age_s: float = math.nan
+    rem_burst_active: bool = False
+    rem_event_times: Tuple[float, ...] = ()
+    rem_event_threshold_uv: float = math.nan
+    rem_event_warmup: bool = True
 
     @property
     def is_noisy(self) -> bool:
@@ -81,6 +103,13 @@ class EEGFeatureRow:
             "bad_channels": ";".join(self.bad_channels),
             "usable_channel_count": self.usable_channel_count,
             "eye_movement_proxy": self.eye_movement_proxy,
+            "rem_event_count": self.rem_event_count,
+            "rem_density_per_min": self.rem_density_per_min,
+            "last_rem_event_age_s": self.last_rem_event_age_s,
+            "rem_burst_active": self.rem_burst_active,
+            "rem_event_times": ";".join(f"{value:.3f}" for value in self.rem_event_times),
+            "rem_event_threshold_uv": self.rem_event_threshold_uv,
+            "rem_event_warmup": self.rem_event_warmup,
             "is_noisy": self.is_noisy,
             "artifact_flags": ";".join(self.artifact_flags),
             "quality_flags": ";".join(self.quality_flags),
@@ -104,7 +133,15 @@ class EEGFeatureRow:
 def extract_eeg_features(
     epoch: SleepEpoch,
     config: Optional[EEGFeatureConfig] = None,
+    *,
+    rem_tracker: Optional[RemEventTracker] = None,
 ) -> EEGFeatureRow:
+    """Features of one epoch.
+
+    Pass the session's ``rem_tracker`` so the REM-event fields carry its filter state and
+    running threshold across epochs; without one, a fresh tracker sees only this epoch
+    and stays in warm-up.
+    """
     config = config or EEGFeatureConfig()
     config.validate()
 
@@ -142,6 +179,7 @@ def extract_eeg_features(
     ratios = _ratios(band_powers)
     asymmetry = _asymmetry(channel_band_powers, config)
     eye_movement_proxy = _eye_movement_proxy(usable_channels, config.frontal_channels)
+    rem_events = _rem_event_summary(epoch, usable_channels, config, rem_tracker)
 
     return EEGFeatureRow(
         epoch_index=epoch.index,
@@ -161,14 +199,40 @@ def extract_eeg_features(
         channel_diagnostics=channel_diagnostics,
         bad_channels=bad_channels,
         usable_channel_count=len(usable_channels),
+        rem_event_count=rem_events.rem_event_count,
+        rem_density_per_min=rem_events.rem_density_per_min,
+        last_rem_event_age_s=rem_events.last_rem_event_age_s,
+        rem_burst_active=rem_events.rem_burst_active,
+        rem_event_times=rem_events.rem_event_times,
+        rem_event_threshold_uv=rem_events.rem_event_threshold_uv,
+        rem_event_warmup=rem_events.rem_event_warmup,
     )
 
 
 def extract_eeg_feature_rows(
     epochs: Iterable[SleepEpoch],
     config: Optional[EEGFeatureConfig] = None,
+    *,
+    rem_tracker: Optional[RemEventTracker] = None,
 ) -> Tuple[EEGFeatureRow, ...]:
-    return tuple(extract_eeg_features(epoch, config=config) for epoch in epochs)
+    """Features of consecutive epochs of one session, with one REM-event tracker."""
+    config = config or EEGFeatureConfig()
+    rem_tracker = rem_tracker or new_rem_event_tracker(config)
+    return tuple(
+        extract_eeg_features(epoch, config=config, rem_tracker=rem_tracker)
+        for epoch in epochs
+    )
+
+
+def new_rem_event_tracker(config: Optional[EEGFeatureConfig] = None) -> RemEventTracker:
+    """A REM-event tracker on this config's frontal channels and sample rate."""
+    config = config or EEGFeatureConfig()
+    return RemEventTracker(
+        RemEventConfig(
+            sample_rate_hz=config.sample_rate_hz,
+            channels=config.frontal_channels,
+        )
+    )
 
 
 def export_eeg_feature_rows(rows: Sequence[EEGFeatureRow], output_path: Path) -> Path:
@@ -300,6 +364,21 @@ def _log_power_difference(
     if not math.isfinite(right) or not math.isfinite(left) or right <= 0 or left <= 0:
         return math.nan
     return float(math.log(right) - math.log(left))
+
+
+def _rem_event_summary(
+    epoch: SleepEpoch,
+    usable_channels: Mapping[str, np.ndarray],
+    config: EEGFeatureConfig,
+    rem_tracker: Optional[RemEventTracker],
+) -> RemEventSummary:
+    tracker = rem_tracker or new_rem_event_tracker(config)
+    left, right = tracker.config.channels
+    left_values = usable_channels.get(left)
+    right_values = usable_channels.get(right)
+    if left_values is None or right_values is None or not left_values.size or not right_values.size:
+        return tracker.skip(epoch)
+    return tracker.update(epoch)
 
 
 def _eye_movement_proxy(

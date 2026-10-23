@@ -17,6 +17,7 @@ from muse_tmr.features import (
     extract_eeg_features,
     extract_imu_features,
     extract_ppg_features,
+    new_rem_event_tracker,
 )
 from muse_tmr.models import (
     HeuristicRemDetector,
@@ -223,10 +224,11 @@ def simulate_cue_plan_from_epochs(
     first_start_time = epochs[0].start_time if epochs else 0.0
     epoch_results = []
     scheduler_events = []
+    rem_tracker = new_rem_event_tracker()
 
     for epoch in epochs:
         timestamp_seconds = max(0.0, epoch.start_time - first_start_time)
-        eeg = extract_eeg_features(epoch)
+        eeg = extract_eeg_features(epoch, rem_tracker=rem_tracker)
         imu = extract_imu_features(epoch)
         ppg = extract_ppg_features(epoch)
         prediction = detector.predict_features(eeg=eeg, imu=imu, ppg=ppg)

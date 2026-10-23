@@ -13,6 +13,7 @@ from muse_tmr.features.eeg_features import (
     export_eeg_feature_rows,
     extract_eeg_feature_rows,
     extract_eeg_features,
+    new_rem_event_tracker,
 )
 from muse_tmr.features.epochs import EpochBuilder, EpochConfig, SleepEpoch
 from muse_tmr.features.imu_features import (
@@ -32,6 +33,13 @@ from muse_tmr.features.ppg_features import (
     extract_ppg_feature_rows,
     extract_ppg_features,
 )
+from muse_tmr.features.rem_event_features import (
+    RemEvent,
+    RemEventConfig,
+    RemEventSummary,
+    RemEventTracker,
+    detect_rem_events,
+)
 
 __all__ = [
     "ArtifactDiagnosticConfig",
@@ -47,10 +55,15 @@ __all__ = [
     "MovementEvent",
     "PPGFeatureConfig",
     "PPGFeatureRow",
+    "RemEvent",
+    "RemEventConfig",
+    "RemEventSummary",
+    "RemEventTracker",
     "SleepEpoch",
     "SuddenHeartRateChange",
     "analyze_blink_artifact_phases",
     "default_blink_artifact_phases",
+    "detect_rem_events",
     "export_eeg_feature_rows",
     "export_imu_feature_rows",
     "export_ppg_feature_rows",
@@ -60,4 +73,5 @@ __all__ = [
     "extract_imu_features",
     "extract_ppg_feature_rows",
     "extract_ppg_features",
+    "new_rem_event_tracker",
 ]
