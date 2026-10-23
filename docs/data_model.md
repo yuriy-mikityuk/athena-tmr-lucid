@@ -173,10 +173,11 @@ Fpz, with opposite polarity and add up in the difference; blinks and frontal slo
 are in phase on the two sites and mostly cancel there. The tracker is causal and keeps
 its state between epochs, so a run needs one tracker for the whole session:
 `extract_eeg_feature_rows()`, `HeuristicRemDetector.predict_epochs()`,
-`annotate-template`, `simulate-replay-cues`, `run-pilot4-cueing` and
-`scripts/validate_rem_detection.py` each make one. `extract_eeg_features(epoch)` on its
-own gets a fresh tracker, which has no threshold for the epoch's first 7.5 s and stays
-in warm-up; pass `rem_tracker=new_rem_event_tracker()` to keep one across calls.
+`annotate-template`, `simulate-replay-cues`, `run-pilot4-cueing`,
+`run-pilot5-full-night` and `scripts/validate_rem_detection.py` each make one.
+`extract_eeg_features(epoch)` on its own gets a fresh tracker, which has no threshold for
+the epoch's first 7.5 s and stays in warm-up; pass `rem_tracker=new_rem_event_tracker()`
+to keep one across calls.
 
 - The difference is filtered to 0.3-5 Hz: a first-order high-pass, so a saccade decays
   without ringing, and a fourth-order low-pass, which takes the 40 µV optics line at
